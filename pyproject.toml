@@ -1,0 +1,32 @@
+[project]
+name = "agentic-ai-governance"
+version = "0.1.0"
+description = "Backend foundation for a GenAI governance engine with append-only audit state and compliance-driven evaluation."
+requires-python = ">=3.11"
+dependencies = [
+    "alembic>=1.13.0",
+    "fastapi>=0.111.0",
+    "psycopg[binary]>=3.1.0",
+    "pydantic-settings>=2.2.0",
+    "python-dotenv>=1.0.0",
+    "sqlmodel>=0.0.21",
+    "uvicorn[standard]>=0.30.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "httpx>=0.27.0",
+    "pytest>=8.2.0",
+    "ruff>=0.5.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["backend"]
