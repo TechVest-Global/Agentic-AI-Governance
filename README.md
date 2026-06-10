@@ -59,7 +59,7 @@ infrastructure:
 
 | Person | Primary Focus |
 | --- | --- |
-| Person 1 / Project Manager | Backend foundation, GovernanceState, orchestration, API, Layers 1-2, infra, team coordination |
+| Person 1 | Backend foundation, GovernanceState, orchestration, API, Layers 1-2, and infrastructure |
 | Agent Engineer | Specialist agents, deliberation council, framework configs, reporting logic |
 | Frontend Engineer | UI components, live run experience, reporting views, frontend integration |
 
