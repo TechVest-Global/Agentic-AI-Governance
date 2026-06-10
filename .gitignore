@@ -8,6 +8,7 @@ __pycache__/
 .coverage
 htmlcov/
 *.egg-info/
+.vite/
 
 venv/
 .venv/
@@ -25,9 +26,16 @@ node_modules/
 .next/
 dist/
 build/
+*.log
 
 # Keep local planning/company docs out of GitHub.
+*.doc
 *.docx
+*.docm
+*.ppt
 *.pptx
+*.pptm
+*.xls
 *.xlsx
+*.xlsm
 ~$*
