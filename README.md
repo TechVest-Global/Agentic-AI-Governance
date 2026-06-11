@@ -10,6 +10,13 @@ This repository currently contains the backend foundation and a Vite React
 frontend prototype used to align the team on the lead-provided governance engine
 experience.
 
+## Documentation
+
+The project specification and engineering docs live in [docs](docs/README.md).
+Start with [docs/SPEC.md](docs/SPEC.md), then use the architecture, data model,
+API contracts, threat model, runbook, and project plan documents as companion
+references.
+
 ## Product Scope
 
 The platform targets regulated AI governance workflows where model owners,
@@ -85,7 +92,9 @@ Backend foundation:
 - FastAPI application shell.
 - `/api/v1/health` and `/api/v1/version`.
 - Environment-driven settings.
-- Database session foundation.
+- PostgreSQL-ready database session foundation.
+- Docker Compose local PostgreSQL service.
+- Alembic migration scaffold.
 - API, schema, model, service, and compliance config folders.
 - Placeholder config directories for metric and framework definitions.
 
@@ -116,6 +125,21 @@ Create local environment config:
 
 ```powershell
 Copy-Item .env.example .env
+```
+
+Start local PostgreSQL:
+
+```powershell
+docker compose up -d postgres
+```
+
+If another local project already uses port `5432`, set `POSTGRES_PORT=5433`
+and update `DATABASE_URL` in `.env` to use `localhost:5433`.
+
+Apply database migrations:
+
+```powershell
+alembic upgrade head
 ```
 
 Run the backend:
@@ -195,3 +219,19 @@ and generated artifacts, including:
 
 If project planning files need to be shared with the team, convert them into
 Markdown under `docs/` or attach them outside the repository workflow.
+
+## Deployment Direction
+
+Current backend assumptions based on company guidance:
+
+- Local development uses PostgreSQL through Docker Compose.
+- Shared development, staging, and production should move to Azure Database for
+  PostgreSQL when the cloud environment is ready.
+- Secrets should be routed through Azure secrets infrastructure later; local
+  development uses environment variables.
+- AI model integrations should target Azure AI Foundry by default. Third-party
+  model providers should stay behind provider-neutral clients and require
+  management approval before use.
+- The Azure hosting target is not finalized yet. Container Apps is a likely
+  option because some deployed applications already use it, but the backend
+  should stay container-ready and environment-configurable.
