@@ -39,3 +39,6 @@ build/
 *.xlsx
 *.xlsm
 ~$*
+
+# Local/shareable progress reports that are not source documentation.
+docs/person1-backend-progress-*.html

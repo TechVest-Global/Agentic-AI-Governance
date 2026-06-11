@@ -37,8 +37,8 @@ Person 1 owns:
 | T001 | Backend repo structure and branch strategy | Done |
 | T002 | FastAPI app shell with health/version endpoints | Done |
 | T003 | Local DB setup and migration baseline | Done |
-| T010-T015 | Core models | Next |
-| T016 | AI system and evaluation run API groups | Next after models |
+| T010-T015 | Core models | Done |
+| T016 | AI system and evaluation run API groups | Next |
 
 ## Milestones
 
