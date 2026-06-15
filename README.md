@@ -14,8 +14,8 @@ experience.
 
 The project specification and engineering docs live in [docs](docs/README.md).
 Start with [docs/SPEC.md](docs/SPEC.md), then use the architecture, data model,
-API contracts, threat model, runbook, and project plan documents as companion
-references.
+API contracts, threat model, runbook, and architecture decision records as
+companion references.
 
 ## Product Scope
 

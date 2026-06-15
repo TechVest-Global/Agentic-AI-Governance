@@ -1,11 +1,14 @@
 # GenAI Governance Engine Specification
 
-**Status:** Draft for implementation alignment  
-**Version:** 0.1  
-**Primary source inputs:** Lead architecture document, project tracking workbook,
-tool decision workbook, and pre-code blueprint guide  
-**Current delivery target:** V1 prototype from run creation to findings, verdict,
-and report
+- **Status:** Draft for team review and implementation alignment
+- **Version:** 0.2
+- **Document owner:** Governance engineering team
+- **Required reviewers:** Engineering lead, backend, agent/tool, frontend, and
+  security/compliance representatives
+- **Primary source inputs:** Lead architecture document, project tracking
+  workbook, tool decision workbook, and pre-code blueprint guide
+- **Current delivery target:** V1 prototype from run creation to findings,
+  verdict, and report
 
 ## 1. Overview and Context
 
@@ -36,6 +39,27 @@ Canonical names:
 - **Primary workflow:** Governance evaluation run
 - **Application profile:** ApplicationContextProfile
 - **Runtime output:** Findings, verdict, action tier, report, audit ledger
+
+### Specification Boundary and Companion Documents
+
+This specification defines what V1 must accomplish and how acceptance will be
+judged. Implementation details live in focused companion documents:
+
+- [ARCHITECTURE.md](ARCHITECTURE.md): components, trust boundaries, pipeline,
+  state flow, and deployment direction.
+- [DATA_MODEL.md](DATA_MODEL.md): entities, relationships, lifecycle, integrity,
+  retention, and migration direction.
+- [API_CONTRACTS.md](API_CONTRACTS.md): REST operations, schemas, errors, and
+  versioning.
+- [THREAT_MODEL.md](THREAT_MODEL.md): security, privacy, abuse, and AI-specific
+  threats and controls.
+- [RUNBOOK.md](RUNBOOK.md): local operation, validation, troubleshooting, and
+  recovery.
+- [adr/](adr/): durable records for decisions that are expensive to reverse.
+
+The specification is a living artifact. A material scope or acceptance change
+requires this file and affected companion documents to be updated in the same
+pull request.
 
 ## 2. Goals
 
@@ -208,6 +232,17 @@ Success:
 
 ## 7. Functional Requirements
 
+Priority convention:
+
+- **P0:** Required for the end-to-end V1 demonstration and release acceptance.
+- **P1:** Required before a shared pilot or production-like deployment.
+- **P2:** Valuable follow-up that may be deferred without invalidating V1.
+
+Unless explicitly marked otherwise, FR-001 through FR-030 are **P0** because
+they define the minimum traceable run from registration through reporting.
+Configuration administration beyond file/DB-backed loading, real-time progress
+streaming, automated remediation, and PDF export are **P2** follow-ups.
+
 ### System Registration
 
 - **FR-001:** The system shall allow creation of an AI system record with name,
@@ -290,6 +325,22 @@ Success:
 
 ## 8. Non-Functional Requirements
 
+The following are V1 prototype acceptance targets, not unreviewed production
+SLO commitments. Production targets must be approved before shared deployment.
+
+| Quality | V1 target |
+| --- | --- |
+| API performance | CRUD/list endpoints that do not call models or tools should complete within 500 ms at P95 under 25 concurrent local test clients. |
+| Run responsiveness | Starting a long-running evaluation should return an accepted/run response within 2 seconds; model and tool execution must not block the request connection for the full run. |
+| State integrity | 100% of committed GovernanceState entries have a unique per-run sequence and valid integrity linkage; normal application paths expose no update/delete operation. |
+| Reliability | A process restart must not lose committed run, evidence, finding, verdict, or ledger records. Failed phases preserve all previously committed state. |
+| Recovery | Local/shared-development recovery target is 30 minutes after database and configuration are available. Production RPO/RTO remain a deployment approval item. |
+| Security | Zero committed secrets; shared environments use encrypted transport and managed secrets; sensitive credentials and raw restricted payloads never appear in normal logs. |
+| Observability | Every API request and evaluation run carries a trace/run identifier, and every phase transition emits a structured event with status and duration. |
+| Test quality | Critical model validation, service transaction behavior, API success/error contracts, append-only state, and deterministic action routing have automated tests. New backend code targets at least 80% line coverage until a risk-based team threshold is approved. |
+| Accessibility | User-facing V1 workflows target WCAG 2.1 AA keyboard and contrast behavior, subject to frontend review before pilot. |
+| Cost control | Token, model, and tool usage must be attributable to a run before cloud pilot. A monetary budget is an open approval item and must not be invented in code. |
+
 ### Security
 
 - Secrets must come from environment variables locally and Azure secrets
@@ -324,6 +375,8 @@ Success:
 - Backend code uses FastAPI, SQLModel, Alembic, Pydantic settings, and pytest.
 - Config and tool wrappers must be modular and testable.
 - New frameworks should require config authoring rather than code edits.
+- Public Python interfaces use type hints, and schema/migration changes are
+  reviewed together.
 
 ### Deployment Portability
 
@@ -379,6 +432,16 @@ Guardrail metrics:
 - No destructive action without deterministic tier routing and human override
   path.
 
+Operational acceptance indicators:
+
+- 100% of completed demo runs resolve their findings to stored evidence IDs.
+- 100% of completed demo runs have one final verdict and an auditable sequence
+  of state/ledger events.
+- Zero silent phase failures: every failed or degraded phase records an error
+  summary and preserves earlier state.
+- A new engineer can start the database, apply migrations, run tests, and start
+  the API by following repository documentation without unpublished steps.
+
 ## 11. Dependencies and Integrations
 
 Internal dependencies:
@@ -408,15 +471,14 @@ External/tool dependencies:
 
 ## 13. Open Questions
 
-- What exact Azure hosting service should V1 target?
-- What is the authentication model for V1: no auth, JWT scaffold, or company
-  identity provider?
-- Which framework config is first: EU AI Act only, or a small combined demo
-  set?
-- Which tool integrations must be real for the first demo, and which can be
-  mocked?
-- What retention period should apply to evidence records containing sensitive
-  prompts or outputs?
+| Question | Decision owner | Decision gate |
+| --- | --- | --- |
+| What exact Azure hosting service should V1 target? | Engineering lead / cloud owner | Before shared deployment design is finalized |
+| What is the V1 authentication model: no-auth local mode, JWT scaffold, or company identity provider? | Engineering lead / security | Before any shared environment is exposed |
+| Which framework config is first: EU AI Act only or a small combined demonstration set? | Governance/compliance lead | Before framework loader acceptance |
+| Which tool integrations must be real for the first demo, and which may be mocked? | Agent/tool owner and engineering lead | Before end-to-end run acceptance |
+| What retention period applies to evidence containing sensitive prompts or outputs? | Security/privacy/compliance | Before storing real sensitive evidence |
+| What production RPO, RTO, availability, and cost budget apply? | Cloud/operations owner and sponsor | Before production architecture approval |
 
 ## 14. Glossary
 
@@ -459,3 +521,30 @@ Before major backend implementation proceeds, the team should confirm:
 - [ ] Tool wrappers that must be real versus mocked.
 - [ ] Azure secrets approach.
 - [ ] PR workflow into `dev`.
+
+## 17. V1 Acceptance Criteria
+
+V1 is ready for the agreed demonstration when all of the following are true:
+
+1. A user can register and retrieve an AI system and its five-section context
+   profile through versioned APIs.
+2. A user can create an evaluation run for that system and observe status and
+   phase progression without relying on process-local state.
+3. At least one configured or mocked metric path produces normalized metric
+   results and evidence records.
+4. Specialist processing produces structured findings linked to stored
+   evidence and framework references.
+5. Council processing records synthesis, at least one objection or documented
+   fallback, a confidence score, deterministic action tier, and one final
+   verdict.
+6. The report contract returns run metadata, framework mapping, findings,
+   evidence references, verdict, and audit history without claiming legal
+   certification.
+7. Restarting the API does not erase committed run state, and a failed phase is
+   visible as failed or degraded with previous state preserved.
+8. Automated tests cover model/schema validation, persistence and transaction
+   behavior, API success/error contracts, state integrity, and routing rules.
+9. No secrets, local Office/planning artifacts, generated reports, virtual
+   environments, build output, or logs are tracked in Git.
+10. Required reviewers resolve or explicitly accept every open sign-off item
+    that blocks the demonstration scope.

@@ -42,3 +42,7 @@ build/
 
 # Local/shareable progress reports that are not source documentation.
 docs/person1-backend-progress-*.html
+
+# Local team scheduling and assignment tracker; product/engineering truth lives
+# in the specification and companion technical documents.
+docs/PROJECT_PLAN.md
