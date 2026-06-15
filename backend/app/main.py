@@ -1,8 +1,15 @@
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.router import api_router
 from app.core.config import get_settings
+from app.core.error_handlers import (
+    http_exception_handler,
+    unhandled_exception_handler,
+    validation_exception_handler,
+)
 
 
 def create_app() -> FastAPI:
@@ -14,6 +21,10 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
         openapi_url=f"{settings.api_v1_prefix}/openapi.json",
     )
+
+    app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(Exception, unhandled_exception_handler)
 
     app.add_middleware(
         CORSMiddleware,

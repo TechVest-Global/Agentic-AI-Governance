@@ -13,7 +13,16 @@ class Settings(BaseSettings):
         default="http://localhost:3000,http://localhost:5173",
         description="Comma-separated allowed frontend origins.",
     )
-    database_url: str = "sqlite:///./governance_local.sqlite3"
+    database_url: str = (
+        "postgresql+psycopg://postgres:postgres@localhost:5432/agentic_ai_governance"
+    )
+    secrets_provider: str = "env"
+    azure_key_vault_url: str | None = None
+    ai_model_provider: str = "azure_foundry"
+    target_model_provider: str = "azure_foundry"
+    azure_ai_foundry_endpoint: str | None = None
+    azure_ai_foundry_project_name: str | None = None
+    azure_ai_foundry_deployment_name: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -23,6 +32,11 @@ class Settings(BaseSettings):
         if not value.startswith("/"):
             return f"/{value}"
         return value
+
+    @field_validator("secrets_provider", "ai_model_provider", "target_model_provider")
+    @classmethod
+    def provider_values_must_be_normalized(cls, value: str) -> str:
+        return value.strip().lower().replace("-", "_")
 
     @property
     def cors_origins(self) -> list[str]:

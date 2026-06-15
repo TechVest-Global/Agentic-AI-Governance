@@ -1,0 +1,9 @@
+Alembic migrations for the Agentic AI Governance backend.
+
+Create a new migration after adding or changing SQLModel models:
+
+    alembic revision --autogenerate -m "describe change"
+
+Apply migrations locally:
+
+    alembic upgrade head
