@@ -1,0 +1,220 @@
+{
+  "$defs": {
+    "CriticalBlocker": {
+      "additionalProperties": false,
+      "description": "A hard gate: if this condition is met the metric result is FAIL regardless of score.\n\ncondition_key must be a registered evaluator name \u2014 never a free expression.\nthreshold is the numeric parameter passed to that evaluator; None for boolean conditions.",
+      "properties": {
+        "condition_key": {
+          "enum": [
+            "score_below_threshold",
+            "prohibited_use_case_detected",
+            "pii_exposure_detected",
+            "adversarial_manipulation_confirmed",
+            "audit_trail_integrity_failure",
+            "data_provenance_unverifiable",
+            "bias_exceeds_hard_limit",
+            "toxicity_exceeds_hard_limit"
+          ],
+          "title": "Condition Key",
+          "type": "string"
+        },
+        "threshold": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Threshold"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "condition_key",
+        "description"
+      ],
+      "title": "CriticalBlocker",
+      "type": "object"
+    },
+    "SeverityThresholds": {
+      "additionalProperties": false,
+      "description": "Numeric gate per severity level for one framework.\n\nAll four levels are optional so a metric may only define thresholds for\nthe severities it actually uses, but no other keys are accepted.",
+      "properties": {
+        "critical": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Critical"
+        },
+        "high": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "High"
+        },
+        "medium": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Medium"
+        },
+        "low": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Low"
+        }
+      },
+      "title": "SeverityThresholds",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Validates a single metric definition YAML file.\n\nframework_mapping contains only abstract requirement keys \u2014 concrete clause\nreferences belong exclusively in FrameworkConfig.requirement_mapping.",
+  "properties": {
+    "metric_id": {
+      "pattern": "^[A-Z]+-\\d+$",
+      "title": "Metric Id",
+      "type": "string"
+    },
+    "dimension": {
+      "minLength": 1,
+      "title": "Dimension",
+      "type": "string"
+    },
+    "formula": {
+      "enum": [
+        "demographic_parity_ratio",
+        "equalized_odds_ratio",
+        "predictive_parity_ratio",
+        "calibration_score",
+        "counterfactual_fairness_rate",
+        "individual_fairness_score",
+        "concept_drift_psi",
+        "data_drift_ks_statistic",
+        "feature_importance_stability",
+        "adversarial_robustness_rate",
+        "prompt_injection_resistance_rate",
+        "jailbreak_resistance_rate",
+        "output_toxicity_rate",
+        "pii_leakage_rate",
+        "hallucination_rate",
+        "faithfulness_score",
+        "context_precision_score",
+        "explanation_fidelity_score",
+        "shap_consistency_score",
+        "lime_agreement_rate",
+        "composite_risk_score",
+        "regulatory_compliance_score",
+        "purpose_limitation_adherence_rate",
+        "data_minimisation_score"
+      ],
+      "title": "Formula",
+      "type": "string"
+    },
+    "thresholds": {
+      "additionalProperties": {
+        "$ref": "#/$defs/SeverityThresholds"
+      },
+      "title": "Thresholds",
+      "type": "object"
+    },
+    "tool": {
+      "minLength": 1,
+      "title": "Tool",
+      "type": "string"
+    },
+    "secondary_tool": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Secondary Tool"
+    },
+    "agent_owner": {
+      "enum": [
+        "bias_auditor",
+        "drift_analyst",
+        "misuse_detector",
+        "compliance_mapper",
+        "explainability_agent",
+        "risk_scorer"
+      ],
+      "title": "Agent Owner",
+      "type": "string"
+    },
+    "framework_mapping": {
+      "items": {
+        "pattern": "^[A-Z][A-Z0-9_]+$",
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Framework Mapping",
+      "type": "array"
+    },
+    "evidence_required": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Evidence Required",
+      "type": "array"
+    },
+    "critical_blockers": {
+      "items": {
+        "$ref": "#/$defs/CriticalBlocker"
+      },
+      "title": "Critical Blockers",
+      "type": "array"
+    }
+  },
+  "required": [
+    "metric_id",
+    "dimension",
+    "formula",
+    "thresholds",
+    "tool",
+    "agent_owner",
+    "framework_mapping",
+    "evidence_required"
+  ],
+  "title": "MetricConfig",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
