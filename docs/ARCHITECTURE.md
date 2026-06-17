@@ -124,14 +124,16 @@ Cloud direction:
 ## State Flow
 
 1. User registers AISystem and ApplicationContextProfile.
-2. User creates EvaluationRun.
-3. Backend initializes GovernanceState.
-4. Context Assembly appends deterministic context entries.
-5. Orchestrator appends evaluation plan.
-6. Metrics/tools append evidence and metric results.
-7. Specialist agents append findings.
-8. Council appends synthesis, objections, and verdict.
-9. Reporting appends report generation events.
+2. User registers the system's callable capabilities/endpoints, including
+   side-effect and human-review classifications.
+3. User creates EvaluationRun.
+4. Backend initializes GovernanceState.
+5. Context Assembly appends deterministic context entries.
+6. Orchestrator appends evaluation plan.
+7. Metrics/tools append evidence and metric results.
+8. Specialist agents append findings.
+9. Council appends synthesis, objections, and verdict.
+10. Reporting appends report generation events.
 
 ## Trust Boundaries
 

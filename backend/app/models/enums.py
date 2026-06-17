@@ -14,6 +14,22 @@ class AISystemStatus(StrEnum):
     archived = "archived"
 
 
+class CapabilityType(StrEnum):
+    inference = "inference"
+    retrieval = "retrieval"
+    generation = "generation"
+    action = "action"
+    integration = "integration"
+    other = "other"
+
+
+class SideEffectLevel(StrEnum):
+    none = "none"
+    read = "read"
+    write = "write"
+    destructive = "destructive"
+
+
 class RunStatus(StrEnum):
     created = "created"
     context_assembly = "context_assembly"
