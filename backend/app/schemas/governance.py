@@ -467,18 +467,142 @@ class FrameworkComplianceMapRead(APIModel):
     controls: list[FrameworkControlAssessment] = Field(default_factory=list)
 
 
+# ---------------------------------------------------------------------------
+# Layer 1: Context Assembly
+# ---------------------------------------------------------------------------
+
+
+class ContextLogEntry(APIModel):
+    """One production/staging log record fed to the deterministic log analyzer."""
+
+    request_category: str = Field(min_length=1, max_length=200)
+    demographic_group: str | None = Field(default=None, max_length=200)
+    jurisdiction: str | None = Field(default=None, max_length=100)
+    outcome: str | None = Field(default=None, max_length=200)
+    modality: str = Field(default="text", max_length=100)
+    contains_pii: bool = False
+    flagged: bool = False
+    timestamp: datetime | None = None
+
+
+class ContextAssemblyCreate(APIModel):
+    logs: list[ContextLogEntry] = Field(default_factory=list)
+    requested_by: str | None = Field(default=None, max_length=200)
+    notes: str | None = Field(default=None, max_length=1000)
+
+
+class LogAnalysisSummary(APIModel):
+    total_requests: int
+    empty: bool
+    request_category_counts: dict[str, int] = Field(default_factory=dict)
+    demographic_coverage: dict[str, int] = Field(default_factory=dict)
+    jurisdiction_coverage: dict[str, int] = Field(default_factory=dict)
+    outcome_counts: dict[str, int] = Field(default_factory=dict)
+    modality_counts: dict[str, int] = Field(default_factory=dict)
+    pii_request_count: int = 0
+    flagged_request_count: int = 0
+    distinct_request_categories: int = 0
+    distinct_demographic_groups: int = 0
+    distinct_jurisdictions: int = 0
+    distinct_outcomes: int = 0
+    observed_request_categories: list[str] = Field(default_factory=list)
+    observed_demographic_groups: list[str] = Field(default_factory=list)
+    observed_jurisdictions: list[str] = Field(default_factory=list)
+    observed_outcomes: list[str] = Field(default_factory=list)
+
+
+class RegulatoryRubricItemRead(APIModel):
+    rubric_id: str
+    dimension: str
+    description: str
+    scoring_guidance: str
+
+
+class RegulatoryProbeTemplateRead(APIModel):
+    probe_id: str
+    dimension: str
+    description: str
+    prompt_template: str
+    control_refs: list[str] = Field(default_factory=list)
+
+
+class RegulatoryControlChunk(APIModel):
+    framework_id: str
+    framework_name: str
+    framework_version: str
+    control_ref: str
+    citation: str
+    control_title: str | None = None
+    control_category: str | None = None
+    jurisdiction: str | None = None
+    requirement_text: str | None = None
+    metric_ids: list[str] = Field(default_factory=list)
+    agent_names: list[str] = Field(default_factory=list)
+    risk_tiers: list[str] = Field(default_factory=list)
+    evidence_requirements: list[str] = Field(default_factory=list)
+
+
+class RegulatoryFrameworkContext(APIModel):
+    framework_id: str
+    framework_name: str
+    framework_version: str
+    citation_format: str
+    severity_thresholds: dict[str, float] = Field(default_factory=dict)
+    control_count: int
+    controls: list[RegulatoryControlChunk] = Field(default_factory=list)
+    rubric: list[RegulatoryRubricItemRead] = Field(default_factory=list)
+    probe_templates: list[RegulatoryProbeTemplateRead] = Field(default_factory=list)
+
+
+class RegulatoryContextRead(APIModel):
+    selected_frameworks: list[str] = Field(default_factory=list)
+    resolved_frameworks: list[str] = Field(default_factory=list)
+    missing_frameworks: list[str] = Field(default_factory=list)
+    control_count: int
+    frameworks: list[RegulatoryFrameworkContext] = Field(default_factory=list)
+
+
+class CoverageGapRead(APIModel):
+    gap_id: str
+    framework_id: str
+    category: str
+    dimension: str
+    severity: Severity
+    description: str
+    control_refs: list[str] = Field(default_factory=list)
+    recommended_probe_id: str | None = None
+    recommended_action: str
+    expected: list[str] = Field(default_factory=list)
+    observed: list[str] = Field(default_factory=list)
+
+
+class ContextAssemblyRead(APIModel):
+    run_id: UUID
+    state_sequence_number: int
+    state_entry_hash: str
+    generated_at: datetime
+    log_analysis: LogAnalysisSummary
+    regulatory_context: RegulatoryContextRead
+    coverage_gaps: list[CoverageGapRead] = Field(default_factory=list)
+    gap_count: int
+    highest_gap_severity: Severity | None = None
+    counts: dict[str, int] = Field(default_factory=dict)
+
+
 class GovernancePipelineRunCreate(APIModel):
     mock_score: float = Field(default=1.0, ge=0.0, le=1.0)
     force_metric_status: MetricResultStatus | None = None
     source_name: str = Field(default="mock_metric_runner", max_length=200)
     evaluator_name: str = Field(default="mock", min_length=1, max_length=100)
     agent_names: list[str] | None = None
+    logs: list[ContextLogEntry] = Field(default_factory=list)
     requested_by: str | None = Field(default=None, max_length=200)
     notes: str | None = Field(default=None, max_length=1000)
 
 
 class GovernancePipelineRunRead(APIModel):
     run_id: UUID
+    context_assembly: ContextAssemblyRead | None = None
     metric_execution: MetricExecutionRead
     agent_run: AgentRunRead
     council: CouncilDeliberationRead

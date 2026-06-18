@@ -6,6 +6,8 @@ from app.models.enums import LedgerActorType, RunPhase
 from app.schemas.governance import (
     AgentRunCreate,
     AuditLedgerEntryCreate,
+    ContextAssemblyCreate,
+    ContextAssemblyRead,
     CouncilDeliberationCreate,
     GovernancePipelineRunCreate,
     GovernancePipelineRunRead,
@@ -15,6 +17,7 @@ from app.schemas.governance import (
 from app.services import (
     agent_execution,
     audit_ledger,
+    context_assembly,
     council,
     governance_state,
     metric_execution,
@@ -30,6 +33,21 @@ def run_governance_pipeline(
     payload: GovernancePipelineRunCreate,
 ) -> GovernancePipelineRunRead:
     get_run_or_raise(session, run_id)
+
+    context_result: ContextAssemblyRead | None = None
+    if payload.logs:
+        # Layer 1 runs first so the state chain captures context assembly and the
+        # run progresses through phases in the spec-mandated order. The assembler
+        # records its own GovernanceState and audit-ledger entries.
+        context_result = context_assembly.assemble_context(
+            session,
+            run_id=run_id,
+            payload=ContextAssemblyCreate(
+                logs=payload.logs,
+                requested_by=payload.requested_by,
+                notes=payload.notes,
+            ),
+        )
 
     metric_result = metric_execution.run_mock_metrics(
         session,
@@ -120,6 +138,7 @@ def run_governance_pipeline(
 
     return GovernancePipelineRunRead(
         run_id=run_id,
+        context_assembly=context_result,
         metric_execution=metric_result,
         agent_run=agent_result,
         council=council_result,

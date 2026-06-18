@@ -38,6 +38,32 @@ Layer 5: Action and Reporting
 Every layer reads from and appends to GovernanceState. Later layers may read
 earlier entries, but they do not mutate them.
 
+### Layer 1 Implementation (Context Assembly)
+
+Layer 1 is implemented as the `app/services/context_assembly` package and is
+fully deterministic (no model calls, no wall-clock or randomness in its outputs):
+
+- `log_analyzer` — aggregates structured production logs into key-sorted coverage
+  counts (request categories, demographic/jurisdiction coverage, outcomes, PII and
+  flagged counts). Same input always yields the same output.
+- `regulatory_ingester` — resolves the run's `selected_frameworks` into regulatory
+  context by joining seeded `FrameworkMapping` rows (control chunks + citations)
+  with framework knowledge configs in `app/configs/frameworks` (rubrics, severity
+  thresholds, probe templates). Unknown frameworks are surfaced as
+  `missing_frameworks` instead of failing the run.
+- `coverage_gap_detector` — cross-references log coverage against each framework's
+  configured coverage requirements and emits prioritized (`severity`-ranked) gap
+  records, each with a recommended probe and control references, for the
+  orchestrator and specialist agents to plan against.
+- `assembler` — runs the three steps, persists the result append-only as a
+  `context_assembled` GovernanceState entry plus a `context_assembly.completed`
+  audit-ledger entry, and transitions the run to the `context_assembly` phase. The
+  full assembled context lives in the state-entry payload so a run can be
+  reconstructed from state alone.
+
+Framework behavior is configuration-driven (the knowledge configs), not hardcoded
+in services, per the spec invariant.
+
 ## Major Components
 
 ### FastAPI API Layer

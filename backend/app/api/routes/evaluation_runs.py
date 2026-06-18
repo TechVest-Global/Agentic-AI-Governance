@@ -6,6 +6,8 @@ from sqlmodel import Session
 
 from app.db.session import get_session
 from app.schemas.governance import (
+    ContextAssemblyCreate,
+    ContextAssemblyRead,
     EvaluationRunCancel,
     EvaluationRunComplete,
     EvaluationRunCreate,
@@ -20,8 +22,15 @@ from app.schemas.governance import (
     MetricExecutionRead,
     MetricPlanRead,
 )
+from app.services import (
+    context_assembly,
+    framework_maps,
+    metric_execution,
+    metric_plans,
+    orchestration,
+    reports,
+)
 from app.services import evaluation_runs as service
-from app.services import framework_maps, metric_execution, metric_plans, orchestration, reports
 
 router = APIRouter(prefix="/evaluation-runs")
 SessionDependency = Annotated[Session, Depends(get_session)]
@@ -89,6 +98,24 @@ def cancel_evaluation_run(
     session: SessionDependency,
 ) -> EvaluationRunRead:
     return service.cancel_evaluation_run(session, run_id=run_id, payload=payload)
+
+
+@router.post(
+    "/{run_id}/context-assembly",
+    response_model=ContextAssemblyRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def assemble_run_context(
+    run_id: UUID,
+    payload: ContextAssemblyCreate,
+    session: SessionDependency,
+) -> ContextAssemblyRead:
+    return context_assembly.assemble_context(session, run_id=run_id, payload=payload)
+
+
+@router.get("/{run_id}/context-assembly", response_model=ContextAssemblyRead)
+def get_run_context(run_id: UUID, session: SessionDependency) -> ContextAssemblyRead:
+    return context_assembly.get_latest_context(session, run_id=run_id)
 
 
 @router.get("/{run_id}/metric-plan", response_model=MetricPlanRead)

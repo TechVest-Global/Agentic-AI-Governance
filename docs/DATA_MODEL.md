@@ -247,6 +247,14 @@ Rules:
 - Hash includes run ID, sequence number, entry type, payload, previous hash, and
   timestamp.
 
+Known `entry_type` values written by the pipeline include `context_assembled`
+(Layer 1, source `context_assembly`), `metric_execution_completed`,
+`agent_execution_completed`, `council_deliberation_completed`, and
+`governance_report_generated`. The Layer 1 `context_assembled` entry stores the
+full assembled context (log analysis, regulatory context, and coverage gaps) in
+its `payload`, so context assembly is reconstructable from state without a
+dedicated table.
+
 ## EvidenceRecord
 
 Purpose: stored proof that supports metric results, findings, verdicts, and

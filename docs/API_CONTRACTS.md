@@ -551,6 +551,135 @@ Framework mapping shape:
 
 Return one framework mapping by ID.
 
+## Implemented Context Assembly Routes (Layer 1)
+
+Layer 1 (Context Assembly) runs the deterministic log analyzer, the regulatory
+ingester, and the coverage-gap detector for a run. The assembled context is
+persisted append-only as a `context_assembled` GovernanceState entry (source
+`context_assembly`, phase `context_assembly`) and a `context_assembly.completed`
+audit-ledger entry, and the run transitions to status/phase `context_assembly`.
+The full result is stored inside the state-entry payload, so a run's context can
+be reconstructed from state alone.
+
+### POST `/evaluation-runs/{id}/context-assembly`
+
+Assemble (or re-assemble) Layer 1 context for the run. Provide representative
+production/staging logs in the request; framework context is resolved from the
+run's `selected_frameworks` against the seeded `FrameworkMapping` rows plus the
+framework knowledge configs in `app/configs/frameworks`.
+
+Request:
+
+```json
+{
+  "logs": [
+    {
+      "request_category": "loan_decision",
+      "demographic_group": "female",
+      "jurisdiction": "US",
+      "outcome": "approved",
+      "modality": "text",
+      "contains_pii": true,
+      "flagged": false,
+      "timestamp": null
+    }
+  ],
+  "requested_by": "governance_engineer",
+  "notes": "weekly audit"
+}
+```
+
+Response (`201 Created`):
+
+```json
+{
+  "run_id": "uuid",
+  "state_sequence_number": 1,
+  "state_entry_hash": "sha256-hex",
+  "generated_at": "2026-06-18T17:00:00+00:00",
+  "log_analysis": {
+    "total_requests": 1,
+    "empty": false,
+    "request_category_counts": {"loan_decision": 1},
+    "demographic_coverage": {"female": 1},
+    "jurisdiction_coverage": {"US": 1},
+    "outcome_counts": {"approved": 1},
+    "modality_counts": {"text": 1},
+    "pii_request_count": 1,
+    "flagged_request_count": 0,
+    "distinct_demographic_groups": 1,
+    "observed_demographic_groups": ["female"]
+  },
+  "regulatory_context": {
+    "selected_frameworks": ["nist_ai_rmf", "iso_42001"],
+    "resolved_frameworks": ["nist_ai_rmf", "iso_42001"],
+    "missing_frameworks": [],
+    "control_count": 5,
+    "frameworks": [
+      {
+        "framework_id": "nist_ai_rmf",
+        "framework_name": "NIST AI Risk Management Framework",
+        "framework_version": "1.0",
+        "citation_format": "NIST AI RMF {framework_version} {control_ref}",
+        "severity_thresholds": {"high": 0.85},
+        "control_count": 4,
+        "controls": [
+          {"control_ref": "MAP-1", "citation": "NIST AI RMF 1.0 MAP-1", "requirement_text": "..."}
+        ],
+        "rubric": [{"rubric_id": "nist-map-context", "dimension": "Context"}],
+        "probe_templates": [{"probe_id": "nist-probe-bias", "dimension": "Bias and Fairness"}]
+      }
+    ]
+  },
+  "coverage_gaps": [
+    {
+      "gap_id": "nist_ai_rmf:nist-demographic-coverage",
+      "framework_id": "nist_ai_rmf",
+      "category": "demographic_coverage",
+      "dimension": "Bias and Fairness",
+      "severity": "high",
+      "description": "Missing coverage for: age_over_60, ethnicity_minority, disability.",
+      "control_refs": ["MEASURE-1"],
+      "recommended_probe_id": "nist-probe-bias",
+      "recommended_action": "Add log samples for the missing demographic groups ...",
+      "expected": ["age_over_60", "female", "ethnicity_minority", "disability"],
+      "observed": ["female"]
+    }
+  ],
+  "gap_count": 1,
+  "highest_gap_severity": "high",
+  "counts": {
+    "log_requests": 1,
+    "frameworks_resolved": 2,
+    "frameworks_missing": 0,
+    "regulatory_controls": 5,
+    "probe_templates": 5,
+    "coverage_gaps": 1
+  }
+}
+```
+
+Notes:
+
+- The analyzer is deterministic: identical logs produce identical output.
+- Coverage gaps are returned highest-severity first.
+- Frameworks selected but unknown (no seeded controls and no knowledge config)
+  appear in `regulatory_context.missing_frameworks` rather than failing the run.
+- Re-assembling appends a new state entry (append-only); `GET` returns the latest.
+- A run in a terminal state (`completed`/`failed`/`cancelled`) returns
+  HTTP 409 `INVALID_RUN_TRANSITION`.
+- A missing run returns HTTP 404 `RESOURCE_NOT_FOUND`.
+
+### GET `/evaluation-runs/{id}/context-assembly`
+
+Return the latest assembled context for the run, reconstructed from the most
+recent `context_assembled` GovernanceState entry. Returns HTTP 404
+`RESOURCE_NOT_FOUND` (resource `Context assembly`) if Layer 1 has not run yet.
+
+The pipeline route `POST /evaluation-runs/{id}/orchestrate` also accepts an
+optional `logs` array; when supplied, context assembly runs first so the state
+chain progresses through phases in order.
+
 ## Implemented Metric Plan Routes
 
 ### GET `/evaluation-runs/{id}/metric-plan`
