@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.enums import (
     ActionTier,
+    AgentExecutionStatus,
     AISystemStatus,
     CapabilityType,
     FindingStatus,
@@ -220,6 +221,17 @@ class FrameworkMappingRead(FrameworkMappingCreate):
     updated_at: datetime | None = None
 
 
+class GovernanceConfigBootstrapRead(APIModel):
+    metrics_created: int
+    metrics_skipped: int
+    framework_mappings_created: int
+    framework_mappings_skipped: int
+    metric_ids_created: list[str] = Field(default_factory=list)
+    metric_ids_skipped: list[str] = Field(default_factory=list)
+    control_refs_created: list[str] = Field(default_factory=list)
+    control_refs_skipped: list[str] = Field(default_factory=list)
+
+
 class MetricPlanControl(APIModel):
     framework_id: str
     framework_name: str
@@ -345,14 +357,30 @@ class AgentRunCreate(APIModel):
 
 
 class AgentRunSummary(APIModel):
+    id: UUID | None = None
     agent_name: str
     finding_count: int
-    status: str = "completed"
+    status: AgentExecutionStatus = AgentExecutionStatus.completed
+
+
+class AgentExecutionRead(APIModel):
+    id: UUID
+    run_id: UUID
+    agent_name: str
+    status: AgentExecutionStatus
+    finding_count: int
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error_summary: dict[str, Any] | None = None
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime | None = None
 
 
 class AgentRunRead(APIModel):
     run_id: UUID
     agents_run: list[AgentRunSummary] = Field(default_factory=list)
+    executions: list[AgentExecutionRead] = Field(default_factory=list)
     findings_created: int
     findings: list[FindingRead] = Field(default_factory=list)
 
@@ -397,6 +425,7 @@ class GovernanceReportRead(APIModel):
     context_profile: ApplicationContextProfileRead | None = None
     capabilities: list[AISystemCapabilityRead] = Field(default_factory=list)
     metric_plan: MetricPlanRead
+    agent_executions: list[AgentExecutionRead] = Field(default_factory=list)
     evidence: list[EvidenceRecordRead] = Field(default_factory=list)
     metric_results: list[MetricResultRead] = Field(default_factory=list)
     findings: list[FindingRead] = Field(default_factory=list)
@@ -435,3 +464,20 @@ class FrameworkComplianceMapRead(APIModel):
     control_count: int
     status_counts: dict[str, int] = Field(default_factory=dict)
     controls: list[FrameworkControlAssessment] = Field(default_factory=list)
+
+
+class GovernancePipelineRunCreate(APIModel):
+    mock_score: float = Field(default=1.0, ge=0.0, le=1.0)
+    force_metric_status: MetricResultStatus | None = None
+    source_name: str = Field(default="mock_metric_runner", max_length=200)
+    agent_names: list[str] | None = None
+    requested_by: str | None = Field(default=None, max_length=200)
+    notes: str | None = Field(default=None, max_length=1000)
+
+
+class GovernancePipelineRunRead(APIModel):
+    run_id: UUID
+    metric_execution: MetricExecutionRead
+    agent_run: AgentRunRead
+    council: CouncilDeliberationRead
+    report: GovernanceReportRead

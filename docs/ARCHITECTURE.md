@@ -109,8 +109,9 @@ Responsibilities:
 Local development:
 
 - FastAPI + Uvicorn.
-- PostgreSQL through Docker Compose.
-- Host port `5433` may be used when another local project already owns `5432`.
+- Locally installed PostgreSQL service for day-to-day development.
+- Optional Docker Compose PostgreSQL fallback for isolated local database
+  testing.
 - Alembic for migrations.
 - `.env` for local secrets and configuration.
 

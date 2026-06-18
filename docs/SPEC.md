@@ -395,7 +395,9 @@ SLO commitments. Production targets must be approved before shared deployment.
 
 ### Deployment Portability
 
-- Local development uses Docker Compose PostgreSQL.
+- Local development uses a locally installed PostgreSQL service.
+- Docker Compose can remain as an optional fallback for isolated database
+  testing.
 - Shared development/staging/production should move to Azure Database for
   PostgreSQL.
 - Hosting target is not finalized; Container Apps is likely but not guaranteed.
@@ -405,7 +407,7 @@ SLO commitments. Production targets must be approved before shared deployment.
 
 Confirmed constraints:
 
-- Local database workflow uses PostgreSQL through Docker Compose.
+- Local database workflow uses locally installed PostgreSQL.
 - Shared/cloud database direction is Azure Database for PostgreSQL.
 - Secrets should move through Azure secrets infrastructure later.
 - AI model integrations should use Azure AI Foundry by default.

@@ -406,6 +406,34 @@ attempts return HTTP 409 with error code `INVALID_RUN_TRANSITION`.
 
 ## Implemented Metric Config Routes
 
+### POST `/governance-config/bootstrap`
+
+Seed the default governance metric catalog and framework-control mappings.
+This endpoint is idempotent: existing default records are skipped rather than
+duplicated.
+
+Default seed scope:
+
+- NIST AI RMF governance, map, measure, and manage controls.
+- ISO/IEC 42001 operational control mapping.
+- Core governance metrics for groundedness, privacy, prompt injection,
+  compliance, action safety, fairness, and monitoring/drift readiness.
+
+Response:
+
+```json
+{
+  "metrics_created": 7,
+  "metrics_skipped": 0,
+  "framework_mappings_created": 5,
+  "framework_mappings_skipped": 0,
+  "metric_ids_created": ["GOV-M001"],
+  "metric_ids_skipped": [],
+  "control_refs_created": ["nist_ai_rmf/1.0/GOVERN-1"],
+  "control_refs_skipped": []
+}
+```
+
 ### POST `/metrics`
 
 Create one governance metric definition. Metric IDs are versioned; duplicate
@@ -578,6 +606,46 @@ Response:
 
 ## Implemented Mock Metric Execution Routes
 
+### POST `/evaluation-runs/{id}/orchestrate`
+
+Run the current backend governance pipeline in one request:
+
+1. Build and execute the metric plan through the local mock metric runner.
+2. Run selected specialist agents.
+3. Run council deliberation and create the final verdict.
+4. Return the consolidated governance report.
+
+Request:
+
+```json
+{
+  "mock_score": 0.92,
+  "force_metric_status": null,
+  "source_name": "mock_metric_runner",
+  "agent_names": ["risk_agent", "compliance_agent"],
+  "requested_by": "prakriti",
+  "notes": "Run pipeline after registering the system."
+}
+```
+
+If `agent_names` is omitted or `null`, all registered specialist agents run.
+
+Response:
+
+```json
+{
+  "run_id": "uuid",
+  "metric_execution": {},
+  "agent_run": {},
+  "council": {},
+  "report": {}
+}
+```
+
+This endpoint is intended for local prototype/demo orchestration. Production
+orchestration can later replace the mock metric runner with approved evaluator
+adapters and background job execution.
+
 ### POST `/evaluation-runs/{id}/metrics/run`
 
 Execute the current metric plan with a local mock runner. This creates one
@@ -710,6 +778,10 @@ This is the backend agent-execution structure. It does not call LLM agents yet;
 future Azure AI Foundry or other approved model integrations can replace or
 extend the deterministic agent implementations.
 
+Each selected agent also creates an `AgentExecution` record. This gives the
+backend a durable trace of which agents ran, when they started/completed, their
+status, and how many findings they created.
+
 Available agents:
 
 ```text
@@ -738,14 +810,56 @@ Response:
   "run_id": "uuid",
   "agents_run": [
     {
+      "id": "uuid",
       "agent_name": "bias_agent",
       "finding_count": 1,
       "status": "completed"
     }
   ],
+  "executions": [
+    {
+      "id": "uuid",
+      "run_id": "uuid",
+      "agent_name": "bias_agent",
+      "status": "completed",
+      "finding_count": 1,
+      "started_at": "2026-06-18T00:00:00Z",
+      "completed_at": "2026-06-18T00:00:01Z",
+      "error_summary": null,
+      "metadata_json": {
+        "execution_mode": "deterministic"
+      },
+      "created_at": "2026-06-18T00:00:00Z",
+      "updated_at": "2026-06-18T00:00:01Z"
+    }
+  ],
   "findings_created": 1,
   "findings": []
 }
+```
+
+### GET `/evaluation-runs/{id}/agents/executions`
+
+Return the stored specialist-agent execution records for one run.
+
+Response:
+
+```json
+[
+  {
+    "id": "uuid",
+    "run_id": "uuid",
+    "agent_name": "bias_agent",
+    "status": "completed",
+    "finding_count": 1,
+    "started_at": "2026-06-18T00:00:00Z",
+    "completed_at": "2026-06-18T00:00:01Z",
+    "error_summary": null,
+    "metadata_json": {},
+    "created_at": "2026-06-18T00:00:00Z",
+    "updated_at": "2026-06-18T00:00:01Z"
+  }
+]
 ```
 
 ## Implemented Finding Routes
@@ -886,6 +1000,7 @@ Response sections:
   "context_profile": {},
   "capabilities": [],
   "metric_plan": {},
+  "agent_executions": [],
   "evidence": [],
   "metric_results": [],
   "findings": [],
@@ -902,6 +1017,7 @@ Response sections:
     "planned_controls": 1,
     "evidence": 1,
     "metric_results": 1,
+    "agent_executions": 1,
     "findings": 1,
     "state_entries": 1
   }

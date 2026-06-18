@@ -1,12 +1,14 @@
 from app.core.exceptions import ApplicationError
 from app.services.agents.base import GovernanceAgent
-from app.services.agents.bias_agent import BiasAgent
-from app.services.agents.compliance_agent import ComplianceAgent
-from app.services.agents.drift_agent import DriftAgent
-from app.services.agents.explainability_agent import ExplainabilityAgent
-from app.services.agents.misuse_agent import MisuseAgent
-from app.services.agents.risk_agent import RiskAgent
+from app.services.agents.deterministic.bias_agent import BiasAgent
+from app.services.agents.deterministic.compliance_agent import ComplianceAgent
+from app.services.agents.deterministic.drift_agent import DriftAgent
+from app.services.agents.deterministic.explainability_agent import ExplainabilityAgent
+from app.services.agents.deterministic.misuse_agent import MisuseAgent
+from app.services.agents.deterministic.risk_agent import RiskAgent
 
+# These deterministic agents keep the backend pipeline runnable while model-backed
+# agents are designed and integrated behind the same GovernanceAgent contract.
 AGENTS: dict[str, GovernanceAgent] = {
     agent.name: agent
     for agent in (

@@ -46,6 +46,47 @@ def framework_mapping_payload(
     }
 
 
+def test_default_governance_configs_can_be_bootstrapped_idempotently(
+    client: TestClient,
+) -> None:
+    first_response = client.post("/api/v1/governance-config/bootstrap")
+
+    assert first_response.status_code == 200
+    first_result = first_response.json()
+    assert first_result["metrics_created"] == 7
+    assert first_result["metrics_skipped"] == 0
+    assert first_result["framework_mappings_created"] == 5
+    assert first_result["framework_mappings_skipped"] == 0
+    assert "GOV-M003" in first_result["metric_ids_created"]
+    assert "nist_ai_rmf/1.0/MANAGE-1" in first_result["control_refs_created"]
+
+    second_response = client.post("/api/v1/governance-config/bootstrap")
+
+    assert second_response.status_code == 200
+    second_result = second_response.json()
+    assert second_result["metrics_created"] == 0
+    assert second_result["metrics_skipped"] == 7
+    assert second_result["framework_mappings_created"] == 0
+    assert second_result["framework_mappings_skipped"] == 5
+
+    metric_response = client.get(
+        "/api/v1/metrics",
+        params={"framework_id": "nist_ai_rmf", "primary_agent": "misuse_agent"},
+    )
+    assert metric_response.status_code == 200
+    assert [metric["metric_id"] for metric in metric_response.json()] == ["GOV-M003"]
+
+    mapping_response = client.get(
+        "/api/v1/framework-mappings",
+        params={"framework_id": "nist_ai_rmf", "metric_id": "GOV-M003"},
+    )
+    assert mapping_response.status_code == 200
+    assert [mapping["control_ref"] for mapping in mapping_response.json()] == [
+        "MANAGE-1",
+        "MAP-1",
+    ]
+
+
 def test_metric_config_can_be_created_listed_filtered_and_retrieved(
     client: TestClient,
 ) -> None:

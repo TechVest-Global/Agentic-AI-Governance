@@ -77,6 +77,13 @@ class MetricResultStatus(StrEnum):
     skipped = "skipped"
 
 
+class AgentExecutionStatus(StrEnum):
+    pending = "pending"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+
+
 class ActionTier(StrEnum):
     autonomous = "autonomous"
     supervised = "supervised"

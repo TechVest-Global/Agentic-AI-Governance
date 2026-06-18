@@ -3,6 +3,7 @@ from uuid import UUID
 from sqlmodel import Session, select
 
 from app.core.exceptions import ResourceNotFoundError
+from app.models.agent import AgentExecution
 from app.models.ai_system import AISystem, AISystemCapability, ApplicationContextProfile
 from app.models.evidence import EvidenceRecord, MetricResult
 from app.models.finding import Finding
@@ -49,6 +50,13 @@ def build_governance_report(
             .order_by(MetricResult.created_at.asc())
         ).all()
     )
+    agent_executions = list(
+        session.exec(
+            select(AgentExecution)
+            .where(AgentExecution.run_id == run_id)
+            .order_by(AgentExecution.created_at.asc())
+        ).all()
+    )
     findings = list(
         session.exec(
             select(Finding)
@@ -66,6 +74,7 @@ def build_governance_report(
         context_profile=context_profile,
         capabilities=capabilities,
         metric_plan=metric_plan,
+        agent_executions=agent_executions,
         evidence=evidence,
         metric_results=metric_results,
         findings=findings,
@@ -77,6 +86,7 @@ def build_governance_report(
             "planned_controls": metric_plan.control_count,
             "evidence": len(evidence),
             "metric_results": len(metric_results),
+            "agent_executions": len(agent_executions),
             "findings": len(findings),
             "state_entries": int(state_chain["entry_count"]),
         },

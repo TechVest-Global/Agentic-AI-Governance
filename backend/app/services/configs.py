@@ -2,9 +2,14 @@ from uuid import UUID
 
 from sqlmodel import Session, select
 
+from app.configs.defaults import DEFAULT_FRAMEWORK_MAPPINGS, DEFAULT_METRIC_CONFIGS
 from app.core.exceptions import ResourceConflictError, ResourceNotFoundError
 from app.models.config import FrameworkMapping, MetricConfig
-from app.schemas.governance import FrameworkMappingCreate, MetricConfigCreate
+from app.schemas.governance import (
+    FrameworkMappingCreate,
+    GovernanceConfigBootstrapRead,
+    MetricConfigCreate,
+)
 
 
 def create_metric_config(
@@ -146,3 +151,58 @@ def get_framework_mapping(
     if mapping is None:
         raise ResourceNotFoundError("Framework mapping", str(framework_mapping_id))
     return mapping
+
+
+def bootstrap_default_governance_configs(
+    session: Session,
+) -> GovernanceConfigBootstrapRead:
+    metric_ids_created: list[str] = []
+    metric_ids_skipped: list[str] = []
+    control_refs_created: list[str] = []
+    control_refs_skipped: list[str] = []
+
+    for payload in DEFAULT_METRIC_CONFIGS:
+        existing_metric = session.exec(
+            select(MetricConfig).where(
+                MetricConfig.metric_id == payload.metric_id,
+                MetricConfig.version == payload.version,
+            )
+        ).first()
+        if existing_metric is not None:
+            metric_ids_skipped.append(payload.metric_id)
+            continue
+
+        session.add(MetricConfig(**payload.model_dump()))
+        metric_ids_created.append(payload.metric_id)
+
+    for payload in DEFAULT_FRAMEWORK_MAPPINGS:
+        existing_mapping = session.exec(
+            select(FrameworkMapping).where(
+                FrameworkMapping.framework_id == payload.framework_id,
+                FrameworkMapping.framework_version == payload.framework_version,
+                FrameworkMapping.control_ref == payload.control_ref,
+            )
+        ).first()
+        control_key = (
+            f"{payload.framework_id}/"
+            f"{payload.framework_version}/"
+            f"{payload.control_ref}"
+        )
+        if existing_mapping is not None:
+            control_refs_skipped.append(control_key)
+            continue
+
+        session.add(FrameworkMapping(**payload.model_dump()))
+        control_refs_created.append(control_key)
+
+    session.commit()
+    return GovernanceConfigBootstrapRead(
+        metrics_created=len(metric_ids_created),
+        metrics_skipped=len(metric_ids_skipped),
+        framework_mappings_created=len(control_refs_created),
+        framework_mappings_skipped=len(control_refs_skipped),
+        metric_ids_created=metric_ids_created,
+        metric_ids_skipped=metric_ids_skipped,
+        control_refs_created=control_refs_created,
+        control_refs_skipped=control_refs_skipped,
+    )

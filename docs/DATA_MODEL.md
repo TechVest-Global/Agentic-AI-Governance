@@ -24,6 +24,7 @@ EvaluationRun
   1 -> many GovernanceStateEntry
   1 -> many EvidenceRecord
   1 -> many MetricResult
+  1 -> many AgentExecution
   1 -> many Finding
   1 -> 0..1 Verdict
   1 -> many AuditLedgerEntry
@@ -295,6 +296,33 @@ Suggested fields:
 `ai_system_capability_id` lets one run store separate metric results for
 different functions exposed by the same AI system.
 
+## AgentExecution
+
+Purpose: durable trace of one specialist-agent execution attempt for a run.
+This is separate from `Finding` because an agent can run successfully and create
+zero findings, or fail before producing a finding.
+
+Suggested fields:
+
+- `id`
+- `run_id`
+- `agent_name`
+- `status`
+- `finding_count`
+- `started_at`
+- `completed_at`
+- `error_summary`
+- `metadata_json`
+- `created_at`
+- `updated_at`
+
+Statuses:
+
+- `pending`
+- `running`
+- `completed`
+- `failed`
+
 ## Finding
 
 Purpose: structured issue or observation produced by a metric/tool/agent.
@@ -365,6 +393,6 @@ Suggested fields:
 
 1. Create SQLModel models for core entities.
 2. Generate an initial Alembic migration.
-3. Apply migration against local Docker PostgreSQL.
+3. Apply migration against the local PostgreSQL database.
 4. Add repository/service functions for create/read/list flows.
 5. Add tests for persistence and serialization.

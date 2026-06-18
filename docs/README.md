@@ -27,7 +27,8 @@ The repository currently contains:
 
 - FastAPI backend foundation with health/version routes.
 - PostgreSQL-ready configuration through environment variables.
-- Docker Compose PostgreSQL for local development.
+- Local PostgreSQL workflow through `DATABASE_URL`.
+- Optional Docker Compose PostgreSQL fallback for isolated local testing.
 - Alembic migration scaffold.
 - Core governance SQLModel entities, API schemas, migration, and model tests.
 - Vite React frontend prototype using mock data.

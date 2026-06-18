@@ -13,13 +13,15 @@ from app.schemas.governance import (
     EvaluationRunRead,
     EvaluationRunStart,
     FrameworkComplianceMapRead,
+    GovernancePipelineRunCreate,
+    GovernancePipelineRunRead,
     GovernanceReportRead,
     MetricExecutionCreate,
     MetricExecutionRead,
     MetricPlanRead,
 )
 from app.services import evaluation_runs as service
-from app.services import framework_maps, metric_execution, metric_plans, reports
+from app.services import framework_maps, metric_execution, metric_plans, orchestration, reports
 
 router = APIRouter(prefix="/evaluation-runs")
 SessionDependency = Annotated[Session, Depends(get_session)]
@@ -108,6 +110,15 @@ def get_framework_compliance_map(
     session: SessionDependency,
 ) -> FrameworkComplianceMapRead:
     return framework_maps.build_framework_compliance_map(session, run_id=run_id)
+
+
+@router.post("/{run_id}/orchestrate", response_model=GovernancePipelineRunRead)
+def run_governance_pipeline(
+    run_id: UUID,
+    payload: GovernancePipelineRunCreate,
+    session: SessionDependency,
+) -> GovernancePipelineRunRead:
+    return orchestration.run_governance_pipeline(session, run_id=run_id, payload=payload)
 
 
 @router.post(

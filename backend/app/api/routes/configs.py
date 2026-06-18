@@ -8,6 +8,7 @@ from app.db.session import get_session
 from app.schemas.governance import (
     FrameworkMappingCreate,
     FrameworkMappingRead,
+    GovernanceConfigBootstrapRead,
     MetricConfigCreate,
     MetricConfigRead,
 )
@@ -15,6 +16,13 @@ from app.services import configs as service
 
 router = APIRouter()
 SessionDependency = Annotated[Session, Depends(get_session)]
+
+
+@router.post("/governance-config/bootstrap", response_model=GovernanceConfigBootstrapRead)
+def bootstrap_default_governance_configs(
+    session: SessionDependency,
+) -> GovernanceConfigBootstrapRead:
+    return service.bootstrap_default_governance_configs(session)
 
 
 @router.post(

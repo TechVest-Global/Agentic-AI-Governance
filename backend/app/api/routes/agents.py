@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, status
 from sqlmodel import Session
 
 from app.db.session import get_session
-from app.schemas.governance import AgentRunCreate, AgentRunRead
+from app.schemas.governance import AgentExecutionRead, AgentRunCreate, AgentRunRead
 from app.services import agent_execution as service
 
 router = APIRouter(prefix="/evaluation-runs/{run_id}/agents")
@@ -19,3 +19,11 @@ def run_agents(
     session: SessionDependency,
 ) -> AgentRunRead:
     return service.run_agents(session, run_id=run_id, payload=payload)
+
+
+@router.get("/executions", response_model=list[AgentExecutionRead])
+def list_agent_executions(
+    run_id: UUID,
+    session: SessionDependency,
+) -> list[AgentExecutionRead]:
+    return service.list_agent_executions(session, run_id=run_id)

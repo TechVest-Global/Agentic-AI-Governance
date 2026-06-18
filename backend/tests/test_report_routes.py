@@ -143,6 +143,7 @@ def test_governance_report_aggregates_run_outputs(client: TestClient) -> None:
         "planned_controls": 1,
         "evidence": 1,
         "metric_results": 1,
+        "agent_executions": 0,
         "findings": 1,
         "state_entries": 1,
     }
