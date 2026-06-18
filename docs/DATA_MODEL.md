@@ -20,6 +20,9 @@ AISystem
 MetricConfig
   many <-> many FrameworkMapping through stored metric/framework IDs
 
+MetricExecution
+  uses evaluator adapters to produce EvidenceRecord and MetricResult rows
+
 EvaluationRun
   1 -> many GovernanceStateEntry
   1 -> many EvidenceRecord

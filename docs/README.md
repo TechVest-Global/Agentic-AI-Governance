@@ -30,8 +30,16 @@ The repository currently contains:
 - Local PostgreSQL workflow through `DATABASE_URL`.
 - Optional Docker Compose PostgreSQL fallback for isolated local testing.
 - Alembic migration scaffold.
-- Core governance SQLModel entities, API schemas, migration, and model tests.
+- Core governance SQLModel entities, API schemas, migrations, and model tests.
+- AI system, capability, profile, evaluation run, state, ledger, evidence,
+  findings, verdict, report, and config APIs.
+- Metric evaluator adapter scaffold with a mock evaluator.
+- Deterministic specialist-agent scaffold separated from future real agent
+  design work.
+- Target/governance model client boundary scaffold with target-output
+  sanitization.
 - Vite React frontend prototype using mock data.
 
-The next backend implementation focus is the API/service layer for AI system
-registration and evaluation run creation, retrieval, and listing.
+The next backend implementation focus is deterministic Context Assembly:
+log analysis, regulatory config ingestion, coverage gap detection, and an
+evaluation-plan contract that can drive real agents and metric tools.

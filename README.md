@@ -148,6 +148,15 @@ psql -U postgres -h localhost -p 5432 -c "CREATE DATABASE agentic_ai_governance;
 If your local PostgreSQL password/user/port is different, update `DATABASE_URL`
 in `.env`.
 
+If port `5432` is already taken by another PostgreSQL instance, run this project's
+database on `5433` instead and set both `POSTGRES_PORT=5433` and the matching
+`DATABASE_URL` (`...@localhost:5433/...`) in `.env`. This is the sanctioned
+port-conflict workaround documented in
+[docs/adr/0001-local-postgresql-and-azure-ready-config.md](docs/adr/0001-local-postgresql-and-azure-ready-config.md).
+Settings are read from the repo-root `.env` regardless of the directory you launch
+from, so always start the backend with the `--app-dir backend` form below rather
+than `cd backend` first.
+
 Optional Docker fallback:
 
 ```powershell
@@ -186,7 +195,7 @@ Invoke-RestMethod `
   -Method Post `
   -Uri http://127.0.0.1:8000/api/v1/evaluation-runs/<run-id>/orchestrate `
   -ContentType "application/json" `
-  -Body '{"mock_score":1.0,"agent_names":["risk_agent"],"requested_by":"local"}'
+  -Body '{"mock_score":1.0,"evaluator_name":"mock","agent_names":["risk_agent"],"requested_by":"local"}'
 ```
 
 Useful backend URLs:

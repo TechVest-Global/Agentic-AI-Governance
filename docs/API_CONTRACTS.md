@@ -622,6 +622,7 @@ Request:
   "mock_score": 0.92,
   "force_metric_status": null,
   "source_name": "mock_metric_runner",
+  "evaluator_name": "mock",
   "agent_names": ["risk_agent", "compliance_agent"],
   "requested_by": "prakriti",
   "notes": "Run pipeline after registering the system."
@@ -645,6 +646,8 @@ Response:
 This endpoint is intended for local prototype/demo orchestration. Production
 orchestration can later replace the mock metric runner with approved evaluator
 adapters and background job execution.
+`evaluator_name` selects the metric evaluator adapter. The only current adapter
+is `mock`.
 
 ### POST `/evaluation-runs/{id}/metrics/run`
 
@@ -658,7 +661,8 @@ Request:
 {
   "mock_score": 0.92,
   "force_status": null,
-  "source_name": "mock_metric_runner"
+  "source_name": "mock_metric_runner",
+  "evaluator_name": "mock"
 }
 ```
 
@@ -694,6 +698,10 @@ Response:
   ]
 }
 ```
+
+This endpoint currently uses adapter-backed metric execution. The only current
+adapter is `mock`; future adapters can register names such as `promptfoo`,
+`deepeval`, `ragas`, `garak`, `presidio`, `evidently`, or `azure_foundry`.
 
 Future real tool runners should reuse the same output tables and replace the
 mock scoring logic with evaluator-specific adapters.

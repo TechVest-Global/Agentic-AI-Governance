@@ -103,6 +103,18 @@ Responsibilities:
   Foundry by default.
 - `target_model_client`: isolated calls to the audited model/application.
 - Sanitization and output fencing before target responses are used downstream.
+- Credential values are never passed through these interfaces. Services record
+  environment-variable reference names and trace IDs instead.
+
+Current implementation:
+
+- `backend/app/services/model_clients/` defines typed target and governance
+  client contracts.
+- Mock clients are returned by the registry while Azure AI Foundry and target
+  application adapters are pending.
+- Target responses are sanitized for common secret shapes, flagged for prompt
+  injection phrases, and can be wrapped as untrusted evidence before governance
+  reasoning uses them.
 
 ## Current Runtime Setup
 

@@ -36,6 +36,24 @@ psql -U postgres -h localhost -p 5432 -c "CREATE DATABASE agentic_ai_governance;
 If your local PostgreSQL password, username, or port differs, update
 `DATABASE_URL` in `.env`.
 
+## Local Model Client Settings
+
+The backend currently uses mock target/governance model clients while the Azure
+AI Foundry and target application adapters are pending. Keep these values as
+provider labels and environment references, not plaintext secrets:
+
+```text
+AI_MODEL_PROVIDER=azure_foundry
+TARGET_MODEL_PROVIDER=azure_foundry
+AZURE_AI_FOUNDRY_ENDPOINT=
+AZURE_AI_FOUNDRY_PROJECT_NAME=
+AZURE_AI_FOUNDRY_DEPLOYMENT_NAME=
+```
+
+Future real clients should read secret values from environment variables locally
+and Azure secrets infrastructure in shared environments. Do not place API keys
+inside AI system endpoint references or profile payloads.
+
 Optional Docker fallback:
 
 ```powershell
@@ -72,7 +90,7 @@ Invoke-RestMethod `
   -Method Post `
   -Uri http://127.0.0.1:8000/api/v1/evaluation-runs/<run-id>/orchestrate `
   -ContentType "application/json" `
-  -Body '{"mock_score":1.0,"agent_names":["risk_agent"],"requested_by":"local"}'
+  -Body '{"mock_score":1.0,"evaluator_name":"mock","agent_names":["risk_agent"],"requested_by":"local"}'
 ```
 
 The orchestration endpoint runs mock metrics, specialist agents, council

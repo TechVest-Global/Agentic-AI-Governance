@@ -102,6 +102,7 @@ def test_mock_metric_execution_creates_evidence_and_metric_results(
     assert updated_run["status"] == "metrics_running"
     assert updated_run["current_phase"] == "metric_execution"
     assert updated_run["result_summary"]["metric_results_created"] == 1
+    assert updated_run["result_summary"]["evaluator_name"] == "mock"
 
 
 def test_mock_metric_execution_can_force_status(client: TestClient) -> None:
@@ -148,3 +149,21 @@ def test_mock_metric_execution_validates_score(client: TestClient) -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_metric_execution_rejects_unknown_evaluator(client: TestClient) -> None:
+    system = create_system(client)
+    create_metric(client, "M-UNKNOWN-EVALUATOR")
+    create_mapping(client, "M-UNKNOWN-EVALUATOR")
+    run = create_run(client, system["id"], "M-UNKNOWN-EVALUATOR")
+
+    response = client.post(
+        f"/api/v1/evaluation-runs/{run['id']}/metrics/run",
+        json={"evaluator_name": "not_registered"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["details"] == {
+        "unknown_evaluator": "not_registered",
+        "available_evaluators": ["mock"],
+    }

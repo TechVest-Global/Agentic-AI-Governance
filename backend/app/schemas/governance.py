@@ -319,6 +319,7 @@ class MetricExecutionCreate(APIModel):
     mock_score: float = Field(default=1.0, ge=0.0, le=1.0)
     force_status: MetricResultStatus | None = None
     source_name: str = Field(default="mock_metric_runner", max_length=200)
+    evaluator_name: str = Field(default="mock", min_length=1, max_length=100)
 
 
 class MetricExecutionRead(APIModel):
@@ -470,6 +471,7 @@ class GovernancePipelineRunCreate(APIModel):
     mock_score: float = Field(default=1.0, ge=0.0, le=1.0)
     force_metric_status: MetricResultStatus | None = None
     source_name: str = Field(default="mock_metric_runner", max_length=200)
+    evaluator_name: str = Field(default="mock", min_length=1, max_length=100)
     agent_names: list[str] | None = None
     requested_by: str | None = Field(default=None, max_length=200)
     notes: str | None = Field(default=None, max_length=1000)

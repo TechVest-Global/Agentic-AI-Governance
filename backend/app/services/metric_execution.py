@@ -3,9 +3,11 @@ from uuid import UUID
 from sqlmodel import Session
 
 from app.models.base import utc_now
-from app.models.enums import MetricResultStatus, RunPhase, RunStatus
+from app.models.enums import RunPhase, RunStatus
 from app.models.evidence import EvidenceRecord, MetricResult
 from app.schemas.governance import MetricExecutionCreate, MetricExecutionRead
+from app.services.evaluators.base import MetricEvaluationInput
+from app.services.evaluators.registry import get_evaluator
 from app.services.metric_plans import build_metric_plan
 from app.services.run_validation import get_run_or_raise
 
@@ -18,33 +20,31 @@ def run_mock_metrics(
 ) -> MetricExecutionRead:
     run = get_run_or_raise(session, run_id)
     plan = build_metric_plan(session, run_id=run_id)
+    evaluator = get_evaluator(payload.evaluator_name)
 
     evidence_records: list[EvidenceRecord] = []
     metric_results: list[MetricResult] = []
 
     for metric in plan.metrics:
-        threshold = _minimum_threshold(metric.threshold_rules)
-        passed = _resolve_passed(score=payload.mock_score, threshold=threshold)
-        status = payload.force_status or (
-            MetricResultStatus.passed if passed is not False else MetricResultStatus.failed
+        evaluation = evaluator.evaluate(
+            MetricEvaluationInput(
+                metric=metric,
+                mock_score=payload.mock_score,
+                force_status=payload.force_status,
+                source_name=payload.source_name,
+            )
         )
 
         evidence = EvidenceRecord(
             run_id=run_id,
-            source_type="mock_metric",
+            source_type=evaluation.source_type,
             source_name=payload.source_name,
-            tool_name=metric.tool_name or "mock_runner",
-            raw_score=payload.mock_score,
-            normalized_score=payload.mock_score,
-            threshold=threshold,
-            passed=passed,
-            payload={
-                "metric_id": metric.metric_id,
-                "metric_name": metric.name,
-                "dimension": metric.dimension,
-                "controls": [control.model_dump() for control in metric.controls],
-                "mock": True,
-            },
+            tool_name=evaluation.tool_name,
+            raw_score=evaluation.raw_score,
+            normalized_score=evaluation.normalized_score,
+            threshold=evaluation.threshold,
+            passed=evaluation.passed,
+            payload=evaluation.payload,
         )
         session.add(evidence)
         session.flush()
@@ -53,12 +53,12 @@ def run_mock_metrics(
             run_id=run_id,
             metric_id=metric.metric_id,
             dimension=metric.dimension,
-            tool_name=metric.tool_name or "mock_runner",
-            status=status,
-            raw_score=payload.mock_score,
-            normalized_score=payload.mock_score,
-            threshold=threshold,
-            passed=passed,
+            tool_name=evaluation.tool_name,
+            status=evaluation.status,
+            raw_score=evaluation.raw_score,
+            normalized_score=evaluation.normalized_score,
+            threshold=evaluation.threshold,
+            passed=evaluation.passed,
             evidence_ids=[str(evidence.id)],
         )
         session.add(metric_result)
@@ -72,7 +72,8 @@ def run_mock_metrics(
         "metric_plan_count": plan.metric_count,
         "evidence_created": len(evidence_records),
         "metric_results_created": len(metric_results),
-        "mock_execution": True,
+        "evaluator_name": evaluator.name,
+        "mock_execution": evaluator.name == "mock",
     }
     run.updated_at = utc_now()
 
@@ -90,17 +91,3 @@ def run_mock_metrics(
         evidence=evidence_records,
         metric_results=metric_results,
     )
-
-
-def _minimum_threshold(threshold_rules: dict[str, object]) -> float | None:
-    for key in ("minimum", "medium_risk_minimum", "high_risk_minimum"):
-        value = threshold_rules.get(key)
-        if isinstance(value, int | float):
-            return float(value)
-    return None
-
-
-def _resolve_passed(*, score: float, threshold: float | None) -> bool | None:
-    if threshold is None:
-        return None
-    return score >= threshold
