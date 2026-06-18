@@ -8,6 +8,8 @@ from app.db.session import get_session
 from app.schemas.governance import (
     ContextAssemblyCreate,
     ContextAssemblyRead,
+    EvaluationPlanCreate,
+    EvaluationPlanRead,
     EvaluationRunCancel,
     EvaluationRunComplete,
     EvaluationRunCreate,
@@ -23,6 +25,7 @@ from app.schemas.governance import (
     MetricPlanRead,
 )
 from app.services import (
+    adaptive_orchestrator,
     context_assembly,
     framework_maps,
     metric_execution,
@@ -116,6 +119,26 @@ def assemble_run_context(
 @router.get("/{run_id}/context-assembly", response_model=ContextAssemblyRead)
 def get_run_context(run_id: UUID, session: SessionDependency) -> ContextAssemblyRead:
     return context_assembly.get_latest_context(session, run_id=run_id)
+
+
+@router.post(
+    "/{run_id}/evaluation-plan",
+    response_model=EvaluationPlanRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def prepare_evaluation_plan(
+    run_id: UUID,
+    payload: EvaluationPlanCreate,
+    session: SessionDependency,
+) -> EvaluationPlanRead:
+    return adaptive_orchestrator.prepare_evaluation_plan(
+        session, run_id=run_id, payload=payload
+    )
+
+
+@router.get("/{run_id}/evaluation-plan", response_model=EvaluationPlanRead)
+def get_evaluation_plan(run_id: UUID, session: SessionDependency) -> EvaluationPlanRead:
+    return adaptive_orchestrator.get_latest_plan(session, run_id=run_id)
 
 
 @router.get("/{run_id}/metric-plan", response_model=MetricPlanRead)

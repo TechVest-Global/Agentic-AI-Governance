@@ -19,6 +19,7 @@ def append_ledger_entry(
     get_run_or_raise(session, run_id)
 
     previous_entry = get_latest_ledger_entry(session, run_id=run_id)
+    next_sequence = 1 if previous_entry is None else previous_entry.sequence_number + 1
     previous_hash = None if previous_entry is None else previous_entry.entry_hash
     entry_hash = _calculate_entry_hash(
         run_id=run_id,
@@ -30,6 +31,7 @@ def append_ledger_entry(
     )
     entry = AuditLedgerEntry(
         run_id=run_id,
+        sequence_number=next_sequence,
         event_type=payload.event_type,
         actor_type=payload.actor_type,
         actor_id=payload.actor_id,
@@ -59,7 +61,9 @@ def list_ledger_entries(
         statement = statement.where(AuditLedgerEntry.event_type == event_type)
     if actor_type is not None:
         statement = statement.where(AuditLedgerEntry.actor_type == actor_type)
-    statement = statement.order_by(AuditLedgerEntry.created_at.asc()).offset(offset).limit(limit)
+    statement = (
+        statement.order_by(AuditLedgerEntry.sequence_number.asc()).offset(offset).limit(limit)
+    )
     return list(session.exec(statement).all())
 
 
@@ -71,7 +75,7 @@ def get_latest_ledger_entry(
     statement = (
         select(AuditLedgerEntry)
         .where(AuditLedgerEntry.run_id == run_id)
-        .order_by(desc(AuditLedgerEntry.created_at))
+        .order_by(desc(AuditLedgerEntry.sequence_number))
         .limit(1)
     )
     return session.exec(statement).first()
@@ -81,7 +85,7 @@ def verify_ledger_chain(session: Session, *, run_id: UUID) -> dict[str, object]:
     entries = list_ledger_entries(session, run_id=run_id, offset=0, limit=1000)
     expected_previous_hash: str | None = None
 
-    for entry in entries:
+    for expected_sequence, entry in enumerate(entries, start=1):
         expected_hash = _calculate_entry_hash(
             run_id=entry.run_id,
             event_type=entry.event_type,
@@ -90,6 +94,13 @@ def verify_ledger_chain(session: Session, *, run_id: UUID) -> dict[str, object]:
             payload=entry.payload,
             previous_hash=entry.previous_hash,
         )
+        if entry.sequence_number != expected_sequence:
+            return {
+                "valid": False,
+                "entry_count": len(entries),
+                "failed_entry_id": entry.id,
+                "reason": "sequence_gap",
+            }
         if entry.previous_hash != expected_previous_hash:
             return {
                 "valid": False,

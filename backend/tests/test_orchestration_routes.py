@@ -58,25 +58,30 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
     assert result["report"]["run"]["id"] == run["id"]
     assert result["report"]["counts"]["metric_results"] == 2
     assert result["report"]["counts"]["agent_executions"] == 1
-    assert result["report"]["counts"]["state_entries"] == 4
+    assert result["report"]["counts"]["state_entries"] == 5
     assert result["report"]["verdict"]["label"] == "approved"
     assert result["report"]["state_chain"]["valid"] is True
+
+    # Layer 2 records the evaluation plan as the first link in the state chain.
+    assert result["evaluation_plan"]["probe_budget_allocated"] == 100
 
     state_response = client.get(f"/api/v1/evaluation-runs/{run['id']}/state")
     assert state_response.status_code == 200
     state_entries = state_response.json()
     assert [entry["entry_type"] for entry in state_entries] == [
+        "evaluation_plan_prepared",
         "metric_execution_completed",
         "agent_execution_completed",
         "council_deliberation_completed",
         "governance_report_generated",
     ]
-    assert [entry["sequence_number"] for entry in state_entries] == [1, 2, 3, 4]
+    assert [entry["sequence_number"] for entry in state_entries] == [1, 2, 3, 4, 5]
 
     ledger_response = client.get(f"/api/v1/evaluation-runs/{run['id']}/ledger")
     assert ledger_response.status_code == 200
     ledger_entries = ledger_response.json()
     assert [entry["event_type"] for entry in ledger_entries] == [
+        "evaluation_plan.prepared",
         "metric_execution.completed",
         "agent_execution.completed",
         "council_deliberation.completed",
@@ -85,13 +90,13 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
 
     assert client.get(f"/api/v1/evaluation-runs/{run['id']}/state/verify").json() == {
         "valid": True,
-        "entry_count": 4,
+        "entry_count": 5,
         "failed_sequence": None,
         "reason": None,
     }
     assert client.get(f"/api/v1/evaluation-runs/{run['id']}/ledger/verify").json() == {
         "valid": True,
-        "entry_count": 4,
+        "entry_count": 5,
         "failed_entry_id": None,
         "reason": None,
     }

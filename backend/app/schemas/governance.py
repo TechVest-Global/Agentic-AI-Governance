@@ -163,6 +163,7 @@ class AuditLedgerEntryCreate(APIModel):
 class AuditLedgerEntryRead(AuditLedgerEntryCreate):
     id: UUID
     run_id: UUID
+    sequence_number: int
     previous_hash: str | None = None
     entry_hash: str
     created_at: datetime
@@ -589,6 +590,57 @@ class ContextAssemblyRead(APIModel):
     counts: dict[str, int] = Field(default_factory=dict)
 
 
+# ---------------------------------------------------------------------------
+# Layer 2: Adaptive Orchestrator
+# ---------------------------------------------------------------------------
+
+AgentPriority = Literal["high", "medium", "low"]
+
+
+class PriorityTarget(APIModel):
+    dimension: str
+    severity: Severity
+    reason: str
+    control_refs: list[str] = Field(default_factory=list)
+    gap_ids: list[str] = Field(default_factory=list)
+
+
+class AgentPlanItem(APIModel):
+    agent_name: str
+    activated: bool = True
+    priority: AgentPriority
+    probe_budget: int
+    assigned_metric_ids: list[str] = Field(default_factory=list)
+    target_dimensions: list[str] = Field(default_factory=list)
+    target_controls: list[str] = Field(default_factory=list)
+    coverage_gap_ids: list[str] = Field(default_factory=list)
+    instructions: str
+    rationale: str
+
+
+class EvaluationPlanCreate(APIModel):
+    requested_by: str | None = Field(default=None, max_length=200)
+    notes: str | None = Field(default=None, max_length=1000)
+
+
+class EvaluationPlanRead(APIModel):
+    run_id: UUID
+    ai_system_id: UUID
+    state_sequence_number: int
+    state_entry_hash: str
+    generated_at: datetime
+    risk_tier: str
+    selected_frameworks: list[str] = Field(default_factory=list)
+    metric_count: int
+    coverage_gap_count: int
+    probe_budget_total: int
+    probe_budget_allocated: int
+    activated_agents: list[AgentPlanItem] = Field(default_factory=list)
+    priority_targets: list[PriorityTarget] = Field(default_factory=list)
+    risk_rationale: str
+    counts: dict[str, int] = Field(default_factory=dict)
+
+
 class GovernancePipelineRunCreate(APIModel):
     mock_score: float = Field(default=1.0, ge=0.0, le=1.0)
     force_metric_status: MetricResultStatus | None = None
@@ -603,6 +655,7 @@ class GovernancePipelineRunCreate(APIModel):
 class GovernancePipelineRunRead(APIModel):
     run_id: UUID
     context_assembly: ContextAssemblyRead | None = None
+    evaluation_plan: EvaluationPlanRead | None = None
     metric_execution: MetricExecutionRead
     agent_run: AgentRunRead
     council: CouncilDeliberationRead

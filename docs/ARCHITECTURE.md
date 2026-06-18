@@ -64,6 +64,28 @@ fully deterministic (no model calls, no wall-clock or randomness in its outputs)
 Framework behavior is configuration-driven (the knowledge configs), not hardcoded
 in services, per the spec invariant.
 
+### Layer 2 Implementation (Adaptive Orchestrator)
+
+Layer 2 is implemented as the `app/services/adaptive_orchestrator` package and is
+deterministic. `planner.build_evaluation_plan` combines the run's metric plan, the
+system's risk tier, and the Layer 1 coverage gaps into an evaluation plan:
+
+- activates the agents responsible for the planned metrics;
+- assigns coverage gaps to agents by dimension (falling back to the control's
+  responsible agents) and weights each agent by assigned metrics, gap severities,
+  and risk tier;
+- allocates a probe budget that sums to exactly 100 via a stable largest-remainder
+  method (`budget.allocate_probe_budget`);
+- sets per-agent priority and instructions, elevates gaps to priority targets, and
+  records a risk rationale.
+
+`planner.prepare_evaluation_plan` persists the plan append-only as an
+`evaluation_plan_prepared` GovernanceState entry plus an `evaluation_plan.prepared`
+audit-ledger entry, and transitions the run to the `planned` status /
+`adaptive_orchestrator` phase. The `/orchestrate` pipeline prepares the plan before
+execution and, when no agents are explicitly requested, runs exactly the agents the
+plan activated.
+
 ## Major Components
 
 ### FastAPI API Layer

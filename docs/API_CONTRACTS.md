@@ -680,6 +680,99 @@ The pipeline route `POST /evaluation-runs/{id}/orchestrate` also accepts an
 optional `logs` array; when supplied, context assembly runs first so the state
 chain progresses through phases in order.
 
+## Implemented Adaptive Orchestrator Routes (Layer 2)
+
+Layer 2 (Adaptive Orchestrator) turns the run's metric plan, the system's risk
+tier, and the Layer 1 coverage gaps into a concrete evaluation plan: it activates
+the responsible agents, allocates a probe budget that sums to exactly 100, sets
+per-agent priorities and instructions, elevates coverage gaps to priority targets,
+and records a risk rationale. The plan is persisted append-only as an
+`evaluation_plan_prepared` GovernanceState entry (source `adaptive_orchestrator`,
+phase `adaptive_orchestrator`) plus an `evaluation_plan.prepared` audit-ledger
+entry, and the run transitions to status `planned`.
+
+### POST `/evaluation-runs/{id}/evaluation-plan`
+
+Build and persist the evaluation plan for the run. If Layer 1 context assembly has
+already run, its coverage gaps are consumed; otherwise the plan is built from the
+metric plan and risk tier alone.
+
+Request:
+
+```json
+{ "requested_by": "governance_engineer", "notes": "weekly audit" }
+```
+
+Response (`201 Created`):
+
+```json
+{
+  "run_id": "uuid",
+  "ai_system_id": "uuid",
+  "state_sequence_number": 2,
+  "state_entry_hash": "sha256-hex",
+  "generated_at": "2026-06-18T17:00:00+00:00",
+  "risk_tier": "high",
+  "selected_frameworks": ["nist_ai_rmf", "iso_42001"],
+  "metric_count": 7,
+  "coverage_gap_count": 4,
+  "probe_budget_total": 100,
+  "probe_budget_allocated": 100,
+  "activated_agents": [
+    {
+      "agent_name": "bias_agent",
+      "activated": true,
+      "priority": "high",
+      "probe_budget": 20,
+      "assigned_metric_ids": ["GOV-M006"],
+      "target_dimensions": ["Bias and Fairness"],
+      "target_controls": ["MEASURE-1"],
+      "coverage_gap_ids": ["nist_ai_rmf:nist-demographic-coverage"],
+      "instructions": "Run bias_agent probes for dimension(s) Bias and Fairness. Use 20 of 100 probes. ...",
+      "rationale": "Activated for 1 assigned metric(s) and 1 coverage gap(s); weight 9 mapped to 20 probe(s)."
+    }
+  ],
+  "priority_targets": [
+    {
+      "dimension": "Bias and Fairness",
+      "severity": "high",
+      "reason": "1 coverage gap(s) affecting Bias and Fairness.",
+      "control_refs": ["MEASURE-1"],
+      "gap_ids": ["nist_ai_rmf:nist-demographic-coverage"]
+    }
+  ],
+  "risk_rationale": "Risk tier 'high': activated 6 agent(s) across 7 planned metric(s) ...",
+  "counts": {
+    "activated_agents": 6,
+    "metrics_planned": 7,
+    "coverage_gaps_considered": 4,
+    "priority_targets": 4,
+    "probe_budget_allocated": 100
+  }
+}
+```
+
+Notes:
+
+- Deterministic: identical inputs produce an identical plan (budget allocation
+  uses a stable largest-remainder method).
+- `probe_budget` across `activated_agents` always sums to `probe_budget_total`
+  (100) when at least one agent is activated; each activated agent gets at least 1.
+- Coverage gaps are assigned to agents by dimension, falling back to the control's
+  responsible agents; unassigned gaps still appear in `priority_targets`.
+- Re-preparing appends a new state entry (append-only); `GET` returns the latest.
+- A missing run returns HTTP 404 `RESOURCE_NOT_FOUND`.
+
+### GET `/evaluation-runs/{id}/evaluation-plan`
+
+Return the latest evaluation plan, reconstructed from the most recent
+`evaluation_plan_prepared` GovernanceState entry. Returns HTTP 404
+`RESOURCE_NOT_FOUND` (resource `Evaluation plan`) if Layer 2 has not run yet.
+
+The pipeline route `POST /evaluation-runs/{id}/orchestrate` always prepares the
+evaluation plan before metric execution. When the request omits `agent_names`,
+the plan's activated agents are exactly the agents that run.
+
 ## Implemented Metric Plan Routes
 
 ### GET `/evaluation-runs/{id}/metric-plan`

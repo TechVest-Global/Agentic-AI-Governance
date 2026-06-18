@@ -248,12 +248,12 @@ Rules:
   timestamp.
 
 Known `entry_type` values written by the pipeline include `context_assembled`
-(Layer 1, source `context_assembly`), `metric_execution_completed`,
-`agent_execution_completed`, `council_deliberation_completed`, and
-`governance_report_generated`. The Layer 1 `context_assembled` entry stores the
-full assembled context (log analysis, regulatory context, and coverage gaps) in
-its `payload`, so context assembly is reconstructable from state without a
-dedicated table.
+(Layer 1, source `context_assembly`), `evaluation_plan_prepared` (Layer 2, source
+`adaptive_orchestrator`), `metric_execution_completed`, `agent_execution_completed`,
+`council_deliberation_completed`, and `governance_report_generated`. The Layer 1
+`context_assembled` and Layer 2 `evaluation_plan_prepared` entries store their full
+output (assembled context / evaluation plan) in `payload`, so both are
+reconstructable from state without a dedicated table.
 
 ## EvidenceRecord
 
@@ -392,6 +392,7 @@ Suggested fields:
 
 - `id`
 - `run_id`
+- `sequence_number`
 - `event_type`
 - `actor_type`
 - `actor_id`
@@ -399,6 +400,14 @@ Suggested fields:
 - `previous_hash`
 - `entry_hash`
 - `created_at`
+
+Rules:
+
+- Insert only; hash-chained via `previous_hash` for tamper evidence.
+- `sequence_number` is monotonic per run and `(run_id, sequence_number)` is
+  unique. It gives entries a deterministic order independent of `created_at`
+  (which can collide under coarse clock resolution), so list and verification
+  order are stable.
 
 ## Migration Plan
 

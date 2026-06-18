@@ -9,12 +9,14 @@ from app.schemas.governance import (
     ContextAssemblyCreate,
     ContextAssemblyRead,
     CouncilDeliberationCreate,
+    EvaluationPlanCreate,
     GovernancePipelineRunCreate,
     GovernancePipelineRunRead,
     GovernanceStateEntryCreate,
     MetricExecutionCreate,
 )
 from app.services import (
+    adaptive_orchestrator,
     agent_execution,
     audit_ledger,
     context_assembly,
@@ -49,6 +51,17 @@ def run_governance_pipeline(
             ),
         )
 
+    # Layer 2: build and persist the evaluation plan before any execution so the
+    # state chain records the plan and the run passes through the 'planned' phase.
+    evaluation_plan = adaptive_orchestrator.prepare_evaluation_plan(
+        session,
+        run_id=run_id,
+        payload=EvaluationPlanCreate(
+            requested_by=payload.requested_by,
+            notes=payload.notes,
+        ),
+    )
+
     metric_result = metric_execution.run_mock_metrics(
         session,
         run_id=run_id,
@@ -74,10 +87,17 @@ def run_governance_pipeline(
         },
     )
 
+    # Honor an explicit agent selection; otherwise run exactly the agents the
+    # evaluation plan activated (falling back to all agents if the plan is empty).
+    if payload.agent_names is not None:
+        agent_names = payload.agent_names
+    else:
+        agent_names = [agent.agent_name for agent in evaluation_plan.activated_agents] or None
+
     agent_result = agent_execution.run_agents(
         session,
         run_id=run_id,
-        payload=AgentRunCreate(agent_names=payload.agent_names),
+        payload=AgentRunCreate(agent_names=agent_names),
     )
     _record_pipeline_step(
         session,
@@ -88,7 +108,7 @@ def run_governance_pipeline(
         actor_type=LedgerActorType.agent,
         actor_id="agent_orchestrator",
         payload={
-            "agents_requested": payload.agent_names,
+            "agents_requested": agent_names,
             "agents_run": [agent.agent_name for agent in agent_result.agents_run],
             "findings_created": agent_result.findings_created,
         },
@@ -139,6 +159,7 @@ def run_governance_pipeline(
     return GovernancePipelineRunRead(
         run_id=run_id,
         context_assembly=context_result,
+        evaluation_plan=evaluation_plan,
         metric_execution=metric_result,
         agent_run=agent_result,
         council=council_result,
