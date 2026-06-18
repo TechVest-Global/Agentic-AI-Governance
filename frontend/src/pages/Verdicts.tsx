@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { RadialBar, RadialBarChart, ResponsiveContainer } from "recharts";
+import { PolarAngleAxis, RadialBar, RadialBarChart, ResponsiveContainer } from "recharts";
+import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -679,18 +680,25 @@ export function Verdicts() {
             action={<Badge tone="amber">Medium</Badge>}
           />
           <div className="p-4">
-            <div className="h-[200px]">
+            <div className="relative h-[200px]">
               <ResponsiveContainer width="100%" height="100%">
                 <RadialBarChart
-                  innerRadius="68%"
-                  outerRadius="95%"
-                  data={[{ name: "confidence", value: 75, fill: "#1d4ed8" }]}
+                  innerRadius="72%"
+                  outerRadius="100%"
+                  data={[{ name: "confidence", value: 75 }]}
                   startAngle={90}
                   endAngle={-270}
                 >
-                  <RadialBar dataKey="value" background />
+                  <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
+                  <RadialBar dataKey="value" angleAxisId={0} cornerRadius={20} fill="#0d9488" background={{ fill: "#e9edf2" }} />
                 </RadialBarChart>
               </ResponsiveContainer>
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-4xl font-bold tabular-nums text-slate-900">
+                  <AnimatedNumber value={75} duration={1200} />%
+                </span>
+                <span className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Confidence</span>
+              </div>
             </div>
             <div className="mt-3 space-y-1.5 rounded border border-slate-200 bg-slate-50 p-3">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Score composition</p>

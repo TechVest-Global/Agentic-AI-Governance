@@ -1,7 +1,7 @@
 import {
-  Activity,
   Bot,
   BookOpen,
+  ClipboardList,
   Cpu,
   FileText,
   GitBranch,
@@ -16,6 +16,7 @@ export const navigation: NavigationItem[] = [
   { id: "systems", label: "AI Systems", section: "Govern", path: "/systems", icon: ShieldCheck },
   { id: "engine", label: "Governance Engine", section: "Govern", path: "/engine", icon: Cpu },
   { id: "agents", label: "Agent Intelligence", section: "Govern", path: "/agents", icon: Bot },
+  { id: "metric-plan", label: "Metric Plan", section: "Govern", path: "/metric-plan", icon: ClipboardList },
   { id: "council", label: "Council Deliberation", section: "Govern", path: "/council", icon: Scale },
   { id: "verdicts", label: "Verdicts", section: "Govern", path: "/verdicts", icon: GitBranch, badge: "4" },
   { id: "reports", label: "Reports", section: "Assurance", path: "/reports", icon: FileText },
@@ -134,7 +135,13 @@ export const agents: AgentStatus[] = [
   { name: "Misuse Detector", role: "Jailbreak and boundary tests", status: "Complete", progress: 100, probes: 15, findings: 0, confidence: 92 },
   { name: "Compliance Mapper", role: "Clause-level mapping", status: "Running", progress: 71, probes: 12, findings: 1, confidence: 73 },
   { name: "Explainability Agent", role: "Reasoning fidelity", status: "Running", progress: 35, probes: 7, findings: 0, confidence: 64 },
+];
+
+export const councilMembers: AgentStatus[] = [
   { name: "Risk Scorer", role: "Composite adjudication", status: "Waiting", progress: 0, probes: 0, findings: 0, confidence: 0 },
+  { name: "Synthesis Agent", role: "Cross-agent pattern synthesis", status: "Waiting", progress: 0, probes: 0, findings: 0, confidence: 0 },
+  { name: "Devil's Advocate", role: "Challenge weak evidence", status: "Waiting", progress: 0, probes: 0, findings: 0, confidence: 0 },
+  { name: "Verdict Agent", role: "Confidence scoring & tier routing", status: "Waiting", progress: 0, probes: 0, findings: 0, confidence: 0 },
 ];
 
 export const findings: Finding[] = [

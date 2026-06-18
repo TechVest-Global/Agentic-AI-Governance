@@ -94,10 +94,11 @@ const agents: IntelligenceAgent[] = [
       "require human approval before production promotion",
     ],
     timeline: [
-      { label: "Plan received", status: "complete", detail: "40% probe budget assigned by orchestrator" },
-      { label: "Probe design", status: "complete", detail: "Age, gender, ethnicity, and proxy-pair probes generated" },
-      { label: "Active testing", status: "running", detail: "BA-P24 to BA-P50 produced persistent disparity signal" },
-      { label: "Finding synthesis", status: "waiting", detail: "Awaiting final council confidence deduction" },
+      { label: "Initialization", status: "complete", detail: "Loaded system profile and 50-probe budget" },
+      { label: "Probe Design", status: "complete", detail: "Age, gender, ethnicity, and proxy-pair probes generated" },
+      { label: "Probe Execution", status: "running", detail: "48/50 probes — persistent disparity signal" },
+      { label: "Analysis", status: "running", detail: "Computing disparate impact ratio and framework mapping" },
+      { label: "Evidence Emission", status: "waiting", detail: "F-001 emitted — awaiting council confidence" },
     ],
   },
   {
@@ -116,9 +117,11 @@ const agents: IntelligenceAgent[] = [
     frameworks: ["NIST AI RMF Measure 2.5", "ISO 42001 §9.1", "EU AI Act Art.15"],
     remediation: ["review prompt template changes", "revalidate baseline", "increase replay coverage", "flag model owner"],
     timeline: [
-      { label: "Baseline loaded", status: "complete", detail: "Validated v4.0 prompt-response set loaded" },
-      { label: "Replay probes", status: "running", detail: "17 of 20 benchmark prompts completed" },
-      { label: "Drift score", status: "waiting", detail: "Council review pending" },
+      { label: "Initialization", status: "complete", detail: "Loaded baseline v4.0 responses and benchmarks" },
+      { label: "Probe Design", status: "complete", detail: "Selected 20 golden prompts for replay" },
+      { label: "Probe Execution", status: "running", detail: "17/20 benchmark replays complete" },
+      { label: "Analysis", status: "running", detail: "Computing semantic similarity and KL-divergence" },
+      { label: "Evidence Emission", status: "waiting", detail: "F-002 — drift below threshold confirmed" },
     ],
   },
   {
@@ -137,8 +140,11 @@ const agents: IntelligenceAgent[] = [
     frameworks: ["OWASP LLM Top 10", "MITRE ATLAS", "NIST AI RMF"],
     remediation: ["continue scheduled red-team probes", "retain existing prompt firewall", "review after model update"],
     timeline: [
-      { label: "Attack library loaded", status: "complete", detail: "OWASP and MITRE probes selected" },
-      { label: "Execution complete", status: "complete", detail: "No material misuse finding" },
+      { label: "Initialization", status: "complete", detail: "OWASP and MITRE attack libraries loaded" },
+      { label: "Probe Design", status: "complete", detail: "15 attack vectors selected" },
+      { label: "Probe Execution", status: "complete", detail: "15/15 — all boundaries held" },
+      { label: "Analysis", status: "complete", detail: "Boundary hold rate 100%, clean result" },
+      { label: "Evidence Emission", status: "complete", detail: "Clean bundle delivered to aggregator" },
     ],
   },
   {
@@ -157,8 +163,11 @@ const agents: IntelligenceAgent[] = [
     frameworks: ["EU AI Act Annex IV", "EU AI Act Art.52", "SR 11-7"],
     remediation: ["complete technical file", "add disclosure coverage", "require compliance sign-off"],
     timeline: [
-      { label: "Framework loaded", status: "complete", detail: "EU AI Act and SR 11-7 selected" },
-      { label: "Clause mapping", status: "running", detail: "Annex IV gaps identified" },
+      { label: "Initialization", status: "complete", detail: "Loaded 4-framework requirements matrix" },
+      { label: "Probe Design", status: "complete", detail: "12 clause-level compliance checks designed" },
+      { label: "Probe Execution", status: "running", detail: "10/12 probes — Annex IV gaps confirmed" },
+      { label: "Analysis", status: "running", detail: "Computing completeness scores" },
+      { label: "Evidence Emission", status: "waiting", detail: "F-003 emitted — awaiting final probes" },
     ],
   },
   {
@@ -177,27 +186,11 @@ const agents: IntelligenceAgent[] = [
     frameworks: ["NIST AI RMF", "ISO 42001", "EU AI Act Art.13"],
     remediation: ["expand explanation probes", "compare to SHAP baseline", "review rationale template"],
     timeline: [
-      { label: "Probe design", status: "complete", detail: "Explanation probes generated" },
-      { label: "Active testing", status: "running", detail: "7 probes complete" },
-    ],
-  },
-  {
-    id: "risk-scorer",
-    name: "Risk Scorer",
-    status: "Waiting",
-    severity: "High",
-    confidence: 0,
-    confidenceImpact: 0,
-    probes: "Aggregator",
-    findings: 0,
-    purpose: "Aggregates specialist findings into a composite governance risk score.",
-    checks: ["severity weighting", "blast radius", "cross-agent agreement", "confidence deductions"],
-    methods: ["weighted scoring", "threshold routing", "council deduction application"],
-    evidence: ["awaiting agent join barrier", "blast radius multiplier queued", "tier recommendation pending"],
-    frameworks: ["Internal Governance Policy", "NIST AI RMF", "ISO 42001"],
-    remediation: ["wait for all active agents", "route final tier to verdict agent", "record score in ledger"],
-    timeline: [
-      { label: "Waiting", status: "waiting", detail: "Runs after specialist agent join barrier" },
+      { label: "Initialization", status: "complete", detail: "Loaded explanation outputs and SHAP baseline" },
+      { label: "Probe Design", status: "complete", detail: "20 explanation probes designed" },
+      { label: "Probe Execution", status: "running", detail: "7/20 probes — debt ratio signal" },
+      { label: "Analysis", status: "running", detail: "Computing faithfulness and attribution" },
+      { label: "Evidence Emission", status: "waiting", detail: "Early signal pending confirmation" },
     ],
   },
 ];
@@ -229,7 +222,7 @@ export function AgentIntelligence() {
                 <Cpu className="h-5 w-5" />
               </div>
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-700">Specialist Agent Swarm</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-brand-700">Specialist Agent Swarm</p>
                 <h2 className="mt-1 text-[20px] font-semibold tracking-tight text-slate-950">Parallel governance intelligence for credit-scoring-v4.2</h2>
                 <p className="mt-2 max-w-3xl text-[13px] leading-5 text-slate-600">
                   Specialist agents probe the same target from different risk perspectives, write evidence into shared run state, and carry confidence impacts into council scoring.
@@ -274,7 +267,7 @@ export function AgentIntelligence() {
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Agent Network</p>
-            <p className="mt-1 text-[13px] font-semibold text-slate-950">Live handoff from orchestrator to specialist agents to risk scorer</p>
+            <p className="mt-1 text-[13px] font-semibold text-slate-950">Live handoff from orchestrator to 5 specialist agents</p>
           </div>
           <button
             onClick={() => navigateTo("/engine")}
@@ -283,17 +276,18 @@ export function AgentIntelligence() {
             Inspect in Engine
           </button>
         </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-          {agents.map((agent) => (
+        <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-5">
+          {agents.map((agent, i) => (
             <button
               key={agent.id}
+              style={{ animationDelay: `${i * 70}ms` }}
               onClick={() => {
                 setExpandedAgent(agent.id);
                 setTab(agent.id, "Overview");
               }}
               className={clsx(
-                "rounded border p-3 text-left transition-colors hover:border-blue-300 hover:bg-blue-50/30",
-                expandedAgent === agent.id ? "border-blue-300 bg-blue-50/50" : "border-slate-200 bg-white"
+                "animate-rise rounded-lg border p-3 text-left transition-all hover:border-brand-300 hover:bg-brand-50/40 hover:shadow-sm",
+                expandedAgent === agent.id ? "border-brand-300 bg-brand-50/50" : "border-slate-200 bg-white"
               )}
             >
               <div className="flex items-center justify-between gap-2">
@@ -302,11 +296,14 @@ export function AgentIntelligence() {
               </div>
               <p className="mt-3 truncate text-[12px] font-semibold text-slate-950">{agent.name}</p>
               <p className="mt-1 text-[11px] text-slate-500">{agent.probes}</p>
-              <div className="mt-3 h-1.5 rounded-full bg-slate-100">
-                <div
-                  className={clsx("h-1.5 rounded-full", agent.status === "Complete" ? "bg-emerald-500" : agent.status === "Running" ? "bg-blue-600" : "bg-slate-300")}
-                  style={{ width: `${agent.confidence || 18}%` }}
-                />
+              <div className="mt-3 flex items-center gap-2">
+                <div className="h-1.5 flex-1 rounded-full bg-slate-100">
+                  <div
+                    className={clsx("h-1.5 rounded-full", agent.status === "Complete" ? "bg-emerald-500" : agent.status === "Running" ? "bg-brand-500" : "bg-slate-300")}
+                    style={{ width: `${agent.confidence || 18}%` }}
+                  />
+                </div>
+                <span className="text-[11px] font-semibold tabular-nums text-slate-500">{agent.confidence || 18}%</span>
               </div>
             </button>
           ))}
@@ -339,7 +336,7 @@ export function AgentIntelligence() {
       </div>
 
       <div className="hidden">
-        <SummaryMetric label="Active Agents" value="5 / 6" icon={Activity} />
+        <SummaryMetric label="Active Agents" value="4 / 5" icon={Activity} />
         <SummaryMetric label="Critical Findings" value="1" icon={ShieldAlert} tone="red" />
         <SummaryMetric label="Probe Coverage" value="111" icon={SearchCheck} tone="blue" />
         <SummaryMetric label="Avg Confidence" value="78%" icon={Gauge} tone="green" />
@@ -351,7 +348,7 @@ export function AgentIntelligence() {
           const activeTab = activeTabs[agent.id] ?? "Overview";
 
           return (
-            <Card key={agent.id} className={clsx("overflow-hidden transition-colors", expanded && "border-blue-300 shadow-md")}>
+            <Card key={agent.id} className={clsx("overflow-hidden transition-shadow", expanded && "shadow-md", agent.severity === "Critical" && "border-l-2 border-l-red-500")}>
               <button
                 onClick={() => setExpandedAgent(expanded ? "" : agent.id)}
                 className="grid w-full grid-cols-[minmax(0,1fr)_120px_120px_120px_32px] items-center gap-4 px-4 py-4 text-left hover:bg-slate-50"
@@ -383,6 +380,7 @@ export function AgentIntelligence() {
 
               {expanded && (
                 <div className="border-t border-slate-200 bg-slate-50/60">
+                  <PhaseStepperBar phases={agent.timeline} />
                   <div className="flex gap-1 border-b border-slate-200 px-4 pt-3">
                     {tabs.map((tab) => (
                       <button
@@ -419,17 +417,27 @@ function ExpandedTab({ agent, tab }: { agent: IntelligenceAgent; tab: AgentTab }
 
   if (tab === "Overview") {
     return (
-      <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
-        <div>
-          <SectionTitle icon={ClipboardCheck} title="What It Checks" />
-          <ChipGrid items={agent.checks} tone="slate" />
-
-          <div className="mt-5">
+      <div className="space-y-5">
+        <div className="grid gap-5 lg:grid-cols-2">
+          <div>
+            <SectionTitle icon={ClipboardCheck} title="What It Checks" />
+            <ChipGrid items={agent.checks} tone="slate" />
+          </div>
+          <div>
             <SectionTitle icon={BarChart3} title="Confidence Impact" />
             <ImpactBar value={agent.confidenceImpact} />
           </div>
         </div>
-        <RichPanel agent={agent} />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <MiniMetric label="Severity" value={agent.severity} />
+          <MiniMetric label="Findings" value={agent.findings} />
+          <MiniMetric label="Probe Set" value={agent.probes} />
+          <MiniMetric label="Confidence" value={agent.confidence ? `${agent.confidence}%` : "Pending"} />
+        </div>
+        <div className="rounded border border-slate-200 bg-slate-50 p-4">
+          <Timeline items={agent.timeline} />
+        </div>
+        <ActionRow />
       </div>
     );
   }
@@ -476,7 +484,7 @@ function ExpandedTab({ agent, tab }: { agent: IntelligenceAgent; tab: AgentTab }
         <SectionTitle icon={FileText} title="Mapped Frameworks" />
         <div className="flex flex-wrap gap-2">
           {agent.frameworks.map((framework) => (
-            <span key={framework} className="rounded border border-blue-200 bg-blue-50 px-3 py-1.5 text-[12px] font-medium text-blue-900">
+            <span key={framework} className="rounded border border-slate-200 bg-transparent px-3 py-1.5 text-[12px] font-medium text-slate-600">
               {framework}
             </span>
           ))}
@@ -840,31 +848,9 @@ function DriftMetric({ label, v40, v42, delta }: { label: string; v40: string; v
   );
 }
 
-function RichPanel({ agent }: { agent: IntelligenceAgent }) {
-  return (
-    <div className="space-y-3 rounded border border-slate-200 bg-slate-50 p-4">
-      <div className="grid grid-cols-2 gap-3">
-        <MiniMetric label="Severity" value={agent.severity} />
-        <MiniMetric label="Findings" value={agent.findings} />
-        <MiniMetric label="Probe Set" value={agent.probes} />
-        <MiniMetric label="Confidence" value={agent.confidence ? `${agent.confidence}%` : "Pending"} />
-      </div>
-      <Timeline items={agent.timeline} />
-      <ActionRow />
-    </div>
-  );
-}
-
 function AgentGlyph({ agent }: { agent: IntelligenceAgent }) {
-  const colors = {
-    Critical: "bg-red-600",
-    High: "bg-orange-500",
-    Medium: "bg-blue-600",
-    Low: "bg-emerald-600",
-  }[agent.severity];
-
   return (
-    <span className={clsx("flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-[11px] font-bold text-white shadow-sm", colors)}>
+    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-900 text-[11px] font-bold text-white">
       {agent.name
         .split(" ")
         .map((part) => part[0])
@@ -875,7 +861,7 @@ function AgentGlyph({ agent }: { agent: IntelligenceAgent }) {
 }
 
 function StatusDot({ status }: { status: IntelligenceAgent["status"] }) {
-  const color = status === "Complete" ? "bg-emerald-500" : status === "Running" ? "bg-blue-600" : "bg-slate-300";
+  const color = status === "Complete" ? "bg-emerald-500" : status === "Running" ? "bg-brand-500" : "bg-slate-300";
   return (
     <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
       <span className={clsx("h-2 w-2 rounded-full", color, status === "Running" && "animate-pulse")} />
@@ -895,24 +881,20 @@ function SummaryMetric({
   icon: React.ComponentType<{ className?: string }>;
   tone?: "slate" | "red" | "blue" | "green";
 }) {
-  const tones = {
-    slate: "bg-white text-slate-700",
-    red: "bg-red-50 text-red-700",
-    blue: "bg-blue-50 text-blue-700",
-    green: "bg-emerald-50 text-emerald-700",
-  };
+  const iconColor = {
+    slate: "text-slate-300",
+    red: "text-red-400",
+    blue: "text-slate-300",
+    green: "text-emerald-400",
+  }[tone];
 
   return (
-    <Card className="p-3">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
-          <p className="mt-1.5 text-[22px] font-semibold text-slate-950">{value}</p>
-        </div>
-        <div className={clsx("flex h-8 w-8 items-center justify-center rounded border border-slate-200", tones[tone])}>
-          <Icon className="h-4 w-4" />
-        </div>
+    <Card className="px-4 py-3 transition-shadow hover:shadow-md">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">{label}</p>
+        <Icon className={clsx("h-4 w-4 shrink-0", iconColor)} />
       </div>
+      <p className="mt-1.5 text-3xl font-bold tracking-tight text-slate-900 tabular-nums">{value}</p>
     </Card>
   );
 }
@@ -994,7 +976,7 @@ function SeverityBadge({ severity }: { severity: IntelligenceAgent["severity"] }
     Critical: "red",
     High: "red",
     Medium: "amber",
-    Low: "blue",
+    Low: "green",
   } as const;
 
   return <Badge tone={colors[severity]}>{severity}</Badge>;
@@ -1004,10 +986,49 @@ function StatusBadge({ status }: { status: IntelligenceAgent["status"] }) {
   const colors = {
     Running: "amber",
     Complete: "green",
-    Waiting: "violet",
+    Waiting: "slate",
   } as const;
 
   return <Badge tone={colors[status]}>{status}</Badge>;
+}
+
+function PhaseStepperBar({ phases }: { phases: IntelligenceAgent["timeline"] }) {
+  return (
+    <div className="flex items-center gap-0 px-4 py-3">
+      {phases.map((phase, idx) => (
+        <div key={phase.label} className="flex flex-1 items-center">
+          <div className="flex flex-col items-center gap-1">
+            <div
+              className={clsx(
+                "flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold",
+                phase.status === "complete" ? "bg-emerald-500 text-white" :
+                phase.status === "running" ? "bg-brand-500 text-white" :
+                "bg-slate-200 text-slate-500"
+              )}
+            >
+              {phase.status === "complete" ? "✓" : idx + 1}
+            </div>
+            <p className={clsx(
+              "text-center text-[9px] font-semibold leading-tight",
+              phase.status === "complete" ? "text-emerald-700" :
+              phase.status === "running" ? "text-brand-700" :
+              "text-slate-400"
+            )}>
+              {phase.label}
+            </p>
+          </div>
+          {idx < phases.length - 1 && (
+            <div className={clsx(
+              "mx-1 h-0.5 flex-1",
+              phase.status === "complete" ? "bg-emerald-300" :
+              phase.status === "running" ? "bg-brand-300" :
+              "bg-slate-200"
+            )} />
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function ActionRow() {

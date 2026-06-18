@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   AlertTriangle,
   BookOpen,
@@ -87,6 +87,12 @@ export function AISystems() {
   const [showRegisterForm, setShowRegisterForm] = useState(false);
   const [registerForm, setRegisterForm] = useState<RegisterForm>(emptyForm);
   const [registerStep, setRegisterStep] = useState<"form" | "success">("form");
+  const setHeaderHidden = useAppStore((state) => state.setHeaderHidden);
+
+  useEffect(() => {
+    setHeaderHidden(showRegisterForm);
+    return () => setHeaderHidden(false);
+  }, [showRegisterForm, setHeaderHidden]);
 
   const highRisk = systems.filter((s) => s.riskTier === "High").length;
   const blocked = systems.filter((s) => s.status === "Blocked").length;
@@ -196,12 +202,12 @@ export function AISystems() {
                       onClick={() => setExpandedSystem(expanded ? null : system.id)}
                       className={clsx(
                         "group cursor-pointer border-b border-slate-100 transition-colors",
-                        expanded ? "bg-blue-50 border-blue-100" : "hover:bg-slate-50"
+                        expanded ? "bg-brand-50/60" : "hover:bg-slate-50"
                       )}
                     >
                       <td className="px-3 py-3 text-slate-400">
                         {expanded
-                          ? <ChevronDown className="h-4 w-4 text-blue-600" />
+                          ? <ChevronDown className="h-4 w-4 text-brand-600" />
                           : <ChevronRight className="h-4 w-4 group-hover:text-slate-700" />}
                       </td>
                       <td className="px-3 py-3">
@@ -216,7 +222,7 @@ export function AISystems() {
                       <td className="px-3 py-3 text-[12px] text-slate-700">{system.applicationType}</td>
                       <td className="px-3 py-3 text-[12px] font-medium text-slate-950">{system.domain}</td>
                       <td className="px-3 py-3">
-                        <Badge tone={toneForStatus(system.status)}>
+                        <Badge tone="neutral">
                           {system.environment === "Production" ? "Active" : system.environment}
                         </Badge>
                       </td>
@@ -541,12 +547,12 @@ function RegisterSystemModal({ form, step, onChange, onToggleFramework, onSubmit
   const canSubmit = form.name && form.version && form.owner && form.domain && form.riskTier && form.applicationType && form.environment;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-end">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[3px]" onClick={onClose} />
 
-      {/* Drawer */}
-      <div className="relative z-10 flex h-full w-full max-w-lg flex-col bg-white shadow-2xl">
+      {/* Centered modal card */}
+      <div className="relative z-10 flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black/10">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
           <div>
@@ -608,7 +614,7 @@ function RegisterSystemModal({ form, step, onChange, onToggleFramework, onSubmit
                       value={form.name}
                       onChange={(e) => onChange("name", e.target.value)}
                       placeholder="Credit Scoring Model"
-                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500"
+                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500"
                     />
                   </Field>
                   <Field label="Version *" hint="Semantic version tag">
@@ -616,7 +622,7 @@ function RegisterSystemModal({ form, step, onChange, onToggleFramework, onSubmit
                       value={form.version}
                       onChange={(e) => onChange("version", e.target.value)}
                       placeholder="v4.2.1"
-                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500"
+                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500"
                     />
                   </Field>
                   <Field label="Owner / Team *" hint="Accountable team for governance sign-off">
@@ -624,7 +630,7 @@ function RegisterSystemModal({ form, step, onChange, onToggleFramework, onSubmit
                       value={form.owner}
                       onChange={(e) => onChange("owner", e.target.value)}
                       placeholder="Credit Risk Team"
-                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500"
+                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500"
                     />
                   </Field>
                   <Field label="Daily Active Users" hint="Approximate number of end-users affected">
@@ -632,7 +638,7 @@ function RegisterSystemModal({ form, step, onChange, onToggleFramework, onSubmit
                       value={form.users}
                       onChange={(e) => onChange("users", e.target.value)}
                       placeholder="12,000"
-                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500"
+                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500"
                     />
                   </Field>
                 </div>
@@ -643,25 +649,25 @@ function RegisterSystemModal({ form, step, onChange, onToggleFramework, onSubmit
                 <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Classification</p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="Application Type *" hint="Technical architecture of the model">
-                    <select value={form.applicationType} onChange={(e) => onChange("applicationType", e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500">
+                    <select value={form.applicationType} onChange={(e) => onChange("applicationType", e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500">
                       <option value="">Select…</option>
                       {appTypes.map((t) => <option key={t}>{t}</option>)}
                     </select>
                   </Field>
                   <Field label="Domain *" hint="Business area the system operates in">
-                    <select value={form.domain} onChange={(e) => onChange("domain", e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500">
+                    <select value={form.domain} onChange={(e) => onChange("domain", e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500">
                       <option value="">Select…</option>
                       {domains.map((d) => <option key={d}>{d}</option>)}
                     </select>
                   </Field>
                   <Field label="Risk Tier *" hint="Regulatory classification under EU AI Act Annex III">
-                    <select value={form.riskTier} onChange={(e) => onChange("riskTier", e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500">
+                    <select value={form.riskTier} onChange={(e) => onChange("riskTier", e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500">
                       <option value="">Select…</option>
                       {riskTiers.map((r) => <option key={r}>{r}</option>)}
                     </select>
                   </Field>
                   <Field label="Environment *" hint="Where the system is currently deployed">
-                    <select value={form.environment} onChange={(e) => onChange("environment", e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500">
+                    <select value={form.environment} onChange={(e) => onChange("environment", e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500">
                       <option value="">Select…</option>
                       {envOptions.map((e) => <option key={e}>{e}</option>)}
                     </select>
@@ -685,7 +691,7 @@ function RegisterSystemModal({ form, step, onChange, onToggleFramework, onSubmit
                         className={clsx(
                           "rounded border px-2.5 py-1.5 text-[12px] font-medium transition-colors",
                           active
-                            ? "border-blue-500 bg-blue-50 text-blue-900"
+                            ? "border-brand-500 bg-brand-50 text-brand-800"
                             : "border-slate-200 bg-white text-slate-700 hover:border-slate-400 hover:text-slate-950"
                         )}
                       >
@@ -704,7 +710,7 @@ function RegisterSystemModal({ form, step, onChange, onToggleFramework, onSubmit
                     onChange={(e) => onChange("notes", e.target.value)}
                     rows={3}
                     placeholder="This model evaluates creditworthiness using bureau data and application features…"
-                    className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500 resize-none"
+                    className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 resize-none"
                   />
                 </Field>
               </section>
@@ -727,7 +733,7 @@ function RegisterSystemModal({ form, step, onChange, onToggleFramework, onSubmit
                   onClick={onSubmit}
                   className={clsx(
                     "flex-1 rounded py-2.5 text-[13px] font-semibold text-white transition-colors",
-                    canSubmit ? "bg-[#111827] hover:bg-slate-800" : "cursor-not-allowed bg-slate-300"
+                    canSubmit ? "bg-brand-600 hover:bg-brand-700" : "cursor-not-allowed bg-slate-300"
                   )}
                 >
                   Register System
