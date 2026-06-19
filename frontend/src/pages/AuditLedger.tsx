@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Check, ChevronDown, ChevronRight, Copy, Hash, Search, Shield } from "lucide-react";
 import clsx from "clsx";
 import { auditEvents } from "@/data/mockData";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
 
-const allTypes = ["All", "agent-finding", "framework-check", "drift-check", "plan-update"] as const;
-type EventType = (typeof allTypes)[number];
+type EventType = string;
 
 const typeColors: Record<string, string> = {
   "agent-finding": "border-red-300 bg-red-50 text-red-700",
@@ -23,12 +23,32 @@ const typeDescriptions: Record<string, string> = {
 };
 
 export function AuditLedger() {
+  const backend = useGovernanceBackend();
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
   const [activeType, setActiveType] = useState<EventType>("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
 
-  const filteredEvents = auditEvents.filter((event) => {
+  const backendEvents = useMemo(
+    () =>
+      backend.ledgerEntries.map((entry) => ({
+        id: entry.id,
+        timestamp: new Date(entry.created_at).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        actor: entry.actor_id ?? entry.actor_type,
+        type: entry.event_type,
+        description: describeLedgerEntry(entry.event_type, entry.payload),
+        hash: entry.entry_hash,
+        parentHash: entry.previous_hash ?? "GENESIS",
+      })),
+    [backend.ledgerEntries],
+  );
+  const events = backendEvents.length ? backendEvents : auditEvents;
+  const typeOptions = ["All", ...Array.from(new Set(events.map((event) => event.type)))];
+
+  const filteredEvents = events.filter((event) => {
     const matchesType = activeType === "All" || event.type === activeType;
     const matchesSearch =
       searchQuery === "" ||
@@ -50,12 +70,19 @@ export function AuditLedger() {
       <div className="flex items-start justify-between border-b border-slate-200 pb-5">
         <div className="max-w-2xl space-y-1">
           <p className="text-[13px] leading-5 text-slate-600">
-            Every governance action — agent findings, framework checks, drift measurements, and orchestrator decisions — is recorded as an append-only, hash-chained entry. This provides a tamper-evident audit trail for regulatory inspection.
+          Every governance action is recorded as an append-only, hash-chained entry. When the backend is running, this page reads the latest run's ledger and verification endpoint directly.
           </p>
           <p className="text-[11px] text-slate-400">Click events to expand · Copy hashes for chain verification · Filter by event type or search by keyword</p>
         </div>
-        <Badge tone="green">
-          <Shield className="h-3 w-3" /> Chain Verified
+        <Badge tone={backend.ledgerVerification?.valid === false ? "red" : "green"}>
+          <Shield className="h-3 w-3" />
+          {backend.ledgerVerification
+            ? backend.ledgerVerification.valid
+              ? `Chain Verified (${backend.ledgerVerification.entry_count})`
+              : "Chain Invalid"
+            : backend.loading
+              ? "Checking Chain"
+              : "Prototype Ledger"}
         </Badge>
       </div>
 
@@ -71,7 +98,7 @@ export function AuditLedger() {
           />
         </div>
         <div className="flex gap-1.5">
-          {allTypes.map((type) => (
+          {typeOptions.map((type) => (
             <button
               key={type}
               onClick={() => setActiveType(type)}
@@ -87,9 +114,9 @@ export function AuditLedger() {
             </button>
           ))}
         </div>
-        {filteredEvents.length !== auditEvents.length && (
+        {filteredEvents.length !== events.length && (
           <span className="text-[11px] text-slate-500">
-            Showing {filteredEvents.length} of {auditEvents.length} events
+            Showing {filteredEvents.length} of {events.length} events
           </span>
         )}
       </div>
@@ -98,7 +125,7 @@ export function AuditLedger() {
         <CardHeader
           title="Hash-Chained Audit Ledger"
           eyebrow={`Append-only reasoning history · ${filteredEvents.length} events`}
-          action={<Badge tone="green">Verified</Badge>}
+          action={<Badge tone={backend.ledgerVerification?.valid === false ? "red" : "green"}>{backend.usingBackend ? "Backend" : "Mock"}</Badge>}
         />
 
         {filteredEvents.length === 0 && (
@@ -183,4 +210,18 @@ export function AuditLedger() {
       </Card>
     </div>
   );
+}
+
+function describeLedgerEntry(eventType: string, payload: Record<string, unknown>) {
+  const label = eventType.replace(/_/g, " ").replace(/\./g, " ");
+  const phase = typeof payload.phase === "string" ? ` during ${payload.phase}` : "";
+  const count =
+    typeof payload.metric_results_created === "number"
+      ? `${payload.metric_results_created} metric results`
+      : typeof payload.findings_created === "number"
+        ? `${payload.findings_created} findings`
+        : typeof payload.label === "string"
+          ? `verdict ${payload.label}`
+          : "governance evidence";
+  return `${label} recorded ${count}${phase}.`;
 }
