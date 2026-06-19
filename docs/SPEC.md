@@ -148,12 +148,14 @@ state, findings, verdicts, reports, and ledger views.
 A governance engineer registers a TechVest AI application, such as an internal
 support chatbot, knowledge assistant, RAG application, or workflow assistant.
 They provide the system name, owner, deployment environment, risk tier, selected
-frameworks, model configuration, and the five-section
-ApplicationContextProfile. The system stores the record and returns a stable ID.
+frameworks, model configuration, multiple callable capabilities/endpoints, and the
+named ApplicationContextProfile areas. The system stores the record and returns a
+stable ID.
 
 Success:
 
 - The record is persisted.
+- Each capability can be independently identified, classified, and tested.
 - The selected frameworks and risk tier are valid.
 - The profile captures enough context for downstream run planning.
 
@@ -238,7 +240,7 @@ Priority convention:
 - **P1:** Required before a shared pilot or production-like deployment.
 - **P2:** Valuable follow-up that may be deferred without invalidating V1.
 
-Unless explicitly marked otherwise, FR-001 through FR-030 are **P0** because
+Unless explicitly marked otherwise, FR-001 through FR-035 are **P0** because
 they define the minimum traceable run from registration through reporting.
 Configuration administration beyond file/DB-backed loading, real-time progress
 streaming, automated remediation, and PDF export are **P2** follow-ups.
@@ -257,9 +259,9 @@ streaming, automated remediation, and PDF export are **P2** follow-ups.
 
 - **FR-005:** The system shall require an ApplicationContextProfile before a
   full governance run can start.
-- **FR-006:** The profile shall contain five sections: A identity and purpose,
-  B pre-model business rules, C model configuration, D post-model business
-  rules, and E integration context.
+- **FR-006:** The profile shall contain five named areas: identity purpose,
+  pre-model controls, model configuration, post-model controls, and integration
+  context.
 - **FR-007:** The profile shall distinguish model-level behavior from
   application-level business rules and guardrails.
 
@@ -323,6 +325,19 @@ streaming, automated remediation, and PDF export are **P2** follow-ups.
   verdict, and run metadata.
 - **FR-030:** The audit ledger shall support integrity verification.
 
+### AI System Capabilities
+
+- **FR-031:** The system shall allow one AISystem to register multiple callable
+  capabilities or endpoints.
+- **FR-032:** Each capability shall define a unique per-system name, endpoint
+  reference, HTTP method, input/output schemas, and enabled state.
+- **FR-033:** Each capability shall classify its type, permissions, side-effect
+  level, and whether human review is required.
+- **FR-034:** Capability endpoint references shall not contain credentials or
+  plaintext secrets.
+- **FR-035:** The system shall support create, list, filter, and retrieve
+  operations for capabilities through versioned APIs.
+
 ## 8. Non-Functional Requirements
 
 The following are V1 prototype acceptance targets, not unreviewed production
@@ -380,7 +395,9 @@ SLO commitments. Production targets must be approved before shared deployment.
 
 ### Deployment Portability
 
-- Local development uses Docker Compose PostgreSQL.
+- Local development uses a locally installed PostgreSQL service.
+- Docker Compose can remain as an optional fallback for isolated database
+  testing.
 - Shared development/staging/production should move to Azure Database for
   PostgreSQL.
 - Hosting target is not finalized; Container Apps is likely but not guaranteed.
@@ -390,7 +407,7 @@ SLO commitments. Production targets must be approved before shared deployment.
 
 Confirmed constraints:
 
-- Local database workflow uses PostgreSQL through Docker Compose.
+- Local database workflow uses locally installed PostgreSQL.
 - Shared/cloud database direction is Azure Database for PostgreSQL.
 - Secrets should move through Azure secrets infrastructure later.
 - AI model integrations should use Azure AI Foundry by default.
@@ -484,9 +501,9 @@ External/tool dependencies:
 
 - **AISystem:** A registered AI application or model-backed workflow being
   governed.
-- **ApplicationContextProfile:** Five-section description of application
-  purpose, business rules, model configuration, post-processing, and
-  integrations.
+- **ApplicationContextProfile:** Five named sections describing Identity and
+  Purpose, Pre-Model Controls, Model Configuration, Post-Model Controls, and
+  Integration Context.
 - **EvaluationRun:** One governance audit execution for one registered system.
 - **GovernanceState:** Append-only shared state and audit conveyor belt for the
   run.
@@ -526,8 +543,9 @@ Before major backend implementation proceeds, the team should confirm:
 
 V1 is ready for the agreed demonstration when all of the following are true:
 
-1. A user can register and retrieve an AI system and its five-section context
-   profile through versioned APIs.
+1. A user can register and retrieve an AI system and its named context
+   profile through versioned APIs, and register multiple independently
+   addressable capabilities/endpoints for that system.
 2. A user can create an evaluation run for that system and observe status and
    phase progression without relying on process-local state.
 3. At least one configured or mocked metric path produces normalized metric

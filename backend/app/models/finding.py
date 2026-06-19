@@ -12,6 +12,11 @@ class Finding(TimestampMixin, UUIDPrimaryKey, table=True):
     __tablename__ = "findings"
 
     run_id: UUID = Field(foreign_key="evaluation_runs.id", index=True)
+    ai_system_capability_id: UUID | None = Field(
+        default=None,
+        foreign_key="ai_system_capabilities.id",
+        index=True,
+    )
     finding_type: str = Field(index=True, min_length=1, max_length=100)
     title: str = Field(min_length=1, max_length=300)
     summary: str = Field(min_length=1)

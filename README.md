@@ -93,10 +93,11 @@ Backend foundation:
 - `/api/v1/health` and `/api/v1/version`.
 - Environment-driven settings.
 - PostgreSQL-ready database session foundation.
-- Docker Compose local PostgreSQL service.
+- Local PostgreSQL database workflow.
+- Optional Docker Compose PostgreSQL service for fallback/local isolation.
 - Alembic migration scaffold.
 - API, schema, model, service, and compliance config folders.
-- Placeholder config directories for metric and framework definitions.
+- Default metric and framework configuration bootstrap support.
 
 Frontend prototype:
 
@@ -127,14 +128,44 @@ Create local environment config:
 Copy-Item .env.example .env
 ```
 
-Start local PostgreSQL:
+Prepare local PostgreSQL:
+
+Install PostgreSQL locally if it is not already installed, then make sure the
+PostgreSQL service is running. The default `.env.example` assumes:
+
+- host: `localhost`
+- port: `5432`
+- user: `postgres`
+- password: `postgres`
+- database: `agentic_ai_governance`
+
+Create the local database if it does not exist:
+
+```powershell
+psql -U postgres -h localhost -p 5432 -c "CREATE DATABASE agentic_ai_governance;"
+```
+
+If your local PostgreSQL password/user/port is different, update `DATABASE_URL`
+in `.env`.
+
+If port `5432` is already taken by another PostgreSQL instance, run this project's
+database on `5433` instead and set both `POSTGRES_PORT=5433` and the matching
+`DATABASE_URL` (`...@localhost:5433/...`) in `.env`. This is the sanctioned
+port-conflict workaround documented in
+[docs/adr/0001-local-postgresql-and-azure-ready-config.md](docs/adr/0001-local-postgresql-and-azure-ready-config.md).
+Settings are read from the repo-root `.env` regardless of the directory you launch
+from, so always start the backend with the `--app-dir backend` form below rather
+than `cd backend` first.
+
+Optional Docker fallback:
 
 ```powershell
 docker compose up -d postgres
 ```
 
-If another local project already uses port `5432`, set `POSTGRES_PORT=5433`
-and update `DATABASE_URL` in `.env` to use `localhost:5433`.
+Only use Docker Compose when you intentionally want an isolated PostgreSQL
+container. The preferred local workflow is the locally installed PostgreSQL
+service.
 
 Apply database migrations:
 
@@ -146,6 +177,25 @@ Run the backend:
 
 ```powershell
 uvicorn app.main:app --reload --app-dir backend
+```
+
+Load default governance metric/framework configuration:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/v1/governance-config/bootstrap
+```
+
+The bootstrap step is idempotent. Existing metric/framework records are skipped
+instead of duplicated.
+
+Run the local prototype pipeline for an existing evaluation run:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8000/api/v1/evaluation-runs/<run-id>/orchestrate `
+  -ContentType "application/json" `
+  -Body '{"mock_score":1.0,"evaluator_name":"mock","agent_names":["risk_agent"],"requested_by":"local"}'
 ```
 
 Useful backend URLs:
@@ -224,7 +274,9 @@ Markdown under `docs/` or attach them outside the repository workflow.
 
 Current backend assumptions based on company guidance:
 
-- Local development uses PostgreSQL through Docker Compose.
+- Local development uses a locally installed PostgreSQL service.
+- Docker Compose remains available as an optional fallback for isolated local
+  database testing.
 - Shared development, staging, and production should move to Azure Database for
   PostgreSQL when the cloud environment is ready.
 - Secrets should be routed through Azure secrets infrastructure later; local

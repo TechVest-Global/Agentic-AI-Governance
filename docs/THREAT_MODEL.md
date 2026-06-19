@@ -51,7 +51,8 @@ evidence storage, reporting, and local/cloud deployment direction.
 
 ## Required Security Backlog
 
-- Implement target output sanitization service.
+- Expand target output sanitization with approved PII scanning and richer
+  provider-specific redaction rules.
 - Add provider allowlist.
 - Add audit logging for evidence/report reads.
 - Add auth scaffold before shared deployment.

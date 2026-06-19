@@ -12,6 +12,11 @@ class EvidenceRecord(TimestampMixin, UUIDPrimaryKey, table=True):
     __tablename__ = "evidence_records"
 
     run_id: UUID = Field(foreign_key="evaluation_runs.id", index=True)
+    ai_system_capability_id: UUID | None = Field(
+        default=None,
+        foreign_key="ai_system_capabilities.id",
+        index=True,
+    )
     source_type: str = Field(index=True, min_length=1, max_length=100)
     source_name: str = Field(index=True, min_length=1, max_length=200)
     tool_name: str | None = Field(default=None, max_length=100)
@@ -31,6 +36,11 @@ class MetricResult(TimestampMixin, UUIDPrimaryKey, table=True):
     __tablename__ = "metric_results"
 
     run_id: UUID = Field(foreign_key="evaluation_runs.id", index=True)
+    ai_system_capability_id: UUID | None = Field(
+        default=None,
+        foreign_key="ai_system_capabilities.id",
+        index=True,
+    )
     metric_id: str = Field(index=True, min_length=1, max_length=100)
     dimension: str = Field(index=True, min_length=1, max_length=200)
     tool_name: str = Field(index=True, min_length=1, max_length=100)

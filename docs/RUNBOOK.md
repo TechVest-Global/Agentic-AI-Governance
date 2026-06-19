@@ -16,18 +16,52 @@ Create local config:
 Copy-Item .env.example .env
 ```
 
-If another project uses `5432`, set:
+## Local PostgreSQL
+
+The preferred local workflow is a locally installed PostgreSQL service, not a
+Docker container.
+
+Default local connection expected by `.env.example`:
 
 ```text
-POSTGRES_PORT=5433
-DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5433/agentic_ai_governance
+DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/agentic_ai_governance
 ```
 
-Start database:
+Create the database if it does not exist:
+
+```powershell
+psql -U postgres -h localhost -p 5432 -c "CREATE DATABASE agentic_ai_governance;"
+```
+
+If your local PostgreSQL password, username, or port differs, update
+`DATABASE_URL` in `.env`.
+
+## Local Model Client Settings
+
+The backend currently uses mock target/governance model clients while the Azure
+AI Foundry and target application adapters are pending. Keep these values as
+provider labels and environment references, not plaintext secrets:
+
+```text
+AI_MODEL_PROVIDER=azure_foundry
+TARGET_MODEL_PROVIDER=azure_foundry
+AZURE_AI_FOUNDRY_ENDPOINT=
+AZURE_AI_FOUNDRY_PROJECT_NAME=
+AZURE_AI_FOUNDRY_DEPLOYMENT_NAME=
+```
+
+Future real clients should read secret values from environment variables locally
+and Azure secrets infrastructure in shared environments. Do not place API keys
+inside AI system endpoint references or profile payloads.
+
+Optional Docker fallback:
 
 ```powershell
 docker compose up -d postgres
 ```
+
+Use Docker Compose only when you intentionally want an isolated local database
+container.
 
 Apply migrations:
 
@@ -41,6 +75,27 @@ Run API:
 uvicorn app.main:app --reload --app-dir backend
 ```
 
+Load default governance metrics and framework mappings:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/v1/governance-config/bootstrap
+```
+
+This step is safe to rerun. Existing default records are skipped.
+
+Run the local prototype governance pipeline for an existing evaluation run:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8000/api/v1/evaluation-runs/<run-id>/orchestrate `
+  -ContentType "application/json" `
+  -Body '{"mock_score":1.0,"evaluator_name":"mock","agent_names":["risk_agent"],"requested_by":"local"}'
+```
+
+The orchestration endpoint runs mock metrics, specialist agents, council
+deliberation, and returns the consolidated governance report.
+
 Useful URLs:
 
 - `http://127.0.0.1:8000/docs`
@@ -53,13 +108,15 @@ Useful URLs:
 python -m pytest backend\tests -q
 python -m ruff check backend
 python -m alembic heads
-docker compose config
+python -m alembic current
 ```
 
-## Docker Safety
+## Optional Docker Safety
 
-This repo's compose project is separate from other local projects. Do not run
-global Docker cleanup commands when other projects are running.
+Docker is not required for the preferred local workflow. If you use the optional
+compose fallback, this repo's compose project is separate from other local
+projects. Do not run global Docker cleanup commands when other projects are
+running.
 
 Check running containers:
 
@@ -79,7 +136,8 @@ Do not stop or remove unrelated containers such as email automation services.
 
 ### Port 5432 Is Already In Use
 
-Use `POSTGRES_PORT=5433` and update `DATABASE_URL` accordingly.
+Either stop the unrelated local service, or run PostgreSQL on another local
+port and update `DATABASE_URL` accordingly.
 
 ### Alembic Cannot Import `app`
 
@@ -92,8 +150,9 @@ Check ignored local `.env`. It overrides defaults from `.env.example`.
 
 ### Docker Permission Error
 
-Make sure Docker Desktop is running and the terminal has permission to access
-the Docker engine.
+Docker is optional. If you are using the fallback compose workflow, make sure
+Docker Desktop is running and the terminal has permission to access the Docker
+engine.
 
 ## Recovery Notes
 

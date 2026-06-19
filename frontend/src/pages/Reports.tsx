@@ -1,11 +1,12 @@
-import { Fragment, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Download, FileText, Info } from "lucide-react";
 import clsx from "clsx";
 import { complianceRows, oecdRows } from "@/data/mockData";
 import { Badge, toneForStatus } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
+import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
 
-type Framework = "EU AI Act" | "SR 11-7" | "NIST AI RMF" | "OECD AI Principles";
+type Framework = string;
 type ReportRow = {
   clause: string;
   status: string;
@@ -51,7 +52,7 @@ const clauseDetail: Record<string, string> = {
   "P5.6 Supply chain accountability": "Accountability extends through the AI supply chain including third-party model providers and data sources.",
 };
 
-const rowsByFramework: Record<Framework, ReportRow[]> = {
+const rowsByFramework: Record<string, ReportRow[]> = {
   "EU AI Act": complianceRows,
   "SR 11-7": srRows,
   "NIST AI RMF": nistRows,
@@ -66,11 +67,43 @@ const frameworkContext: Record<Framework, string> = {
 };
 
 export function Reports() {
+  const backend = useGovernanceBackend();
   const [activeFramework, setActiveFramework] = useState<Framework>("EU AI Act");
   const [expandedClause, setExpandedClause] = useState<string | null>(null);
 
-  const rows = rowsByFramework[activeFramework];
-  const isOecd = activeFramework === "OECD AI Principles";
+  const backendRowsByFramework = useMemo(() => {
+    if (!backend.frameworkMap?.controls.length) return {};
+
+    return backend.frameworkMap.controls.reduce<Record<string, ReportRow[]>>((acc, control) => {
+      const frameworkName = control.framework_name;
+      const evidence = [
+        `${control.passed_metric_count} passed`,
+        `${control.failed_metric_count} failed`,
+        `${control.pending_metric_count} pending`,
+        `${control.finding_count} findings`,
+      ].join(" / ");
+
+      acc[frameworkName] = [
+        ...(acc[frameworkName] ?? []),
+        {
+          clause: control.control_title
+            ? `${control.control_ref} - ${control.control_title}`
+            : control.control_ref,
+          status: formatBackendControlStatus(control.status),
+          evidence,
+          principle: control.control_category ?? undefined,
+        },
+      ];
+      return acc;
+    }, {});
+  }, [backend.frameworkMap]);
+
+  const tabOptions = Object.keys(backendRowsByFramework).length
+    ? Object.keys(backendRowsByFramework)
+    : frameworkTabs;
+  const resolvedFramework = tabOptions.includes(activeFramework) ? activeFramework : tabOptions[0];
+  const rows = backendRowsByFramework[resolvedFramework] ?? rowsByFramework[resolvedFramework] ?? [];
+  const isOecd = resolvedFramework === "OECD AI Principles";
   const passCount = rows.filter((r) => r.status === "Pass" || r.status === "Aligned").length;
   const failCount = rows.filter((r) => r.status === "Fail" || r.status === "Not aligned").length;
   const partialCount = rows.filter((r) => r.status === "Partial" || r.status === "Partially aligned").length;
@@ -94,6 +127,35 @@ export function Reports() {
 
   return (
     <div className="space-y-5">
+      <Card className="p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-700">
+              Backend Report Connection
+            </p>
+            <p className="mt-1 text-[13px] text-slate-700">
+              {backend.usingBackend && backend.report
+                ? `Loaded run ${backend.report.run.id.slice(0, 8)} for ${backend.report.ai_system.name}.`
+                : backend.loading
+                  ? "Loading latest backend evaluation run..."
+                  : "Backend unavailable or no evaluation runs found. Showing prototype data."}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {backend.report && (
+              <>
+                <Badge tone={backend.report.state_chain.valid ? "green" : "red"}>
+                  State {backend.report.state_chain.valid ? "Verified" : "Invalid"}
+                </Badge>
+                <Badge tone="blue">{backend.report.counts.metric_results ?? 0} metric results</Badge>
+                <Badge tone="amber">{backend.report.counts.findings ?? 0} findings</Badge>
+              </>
+            )}
+            {backend.error && <Badge tone="slate">Mock fallback</Badge>}
+          </div>
+        </div>
+      </Card>
+
       {/* Intro */}
       <div className="flex items-start justify-between border-b border-slate-200 pb-5">
         <div className="max-w-2xl space-y-1">
@@ -143,13 +205,13 @@ export function Reports() {
         {/* Framework tabs */}
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-0">
           <div className="flex gap-1 pt-2">
-            {frameworkTabs.map((fw) => (
+            {tabOptions.map((fw) => (
               <button
                 key={fw}
                 onClick={() => { setActiveFramework(fw); setExpandedClause(null); }}
                 className={clsx(
                   "rounded-t border border-b-0 px-3 py-2 text-[12px] font-medium transition-colors",
-                  activeFramework === fw
+                  resolvedFramework === fw
                     ? "border-slate-300 bg-white text-slate-950"
                     : "border-transparent text-slate-500 hover:text-slate-900"
                 )}
@@ -160,7 +222,7 @@ export function Reports() {
           </div>
           <div className="flex items-center gap-1.5 pb-1 text-[11px] text-slate-400">
             <FileText className="h-3.5 w-3.5" />
-            credit-scoring-v4.2 · Apr–May 2026
+            {backend.report?.ai_system.name ?? "prototype"} · {backend.latestRun?.current_phase ?? "mock data"}
           </div>
         </div>
 
@@ -251,4 +313,13 @@ export function Reports() {
       </Card>
     </div>
   );
+}
+
+function formatBackendControlStatus(status: string) {
+  return {
+    passed: "Pass",
+    failed: "Fail",
+    needs_review: "Partial",
+    not_evaluated: "Not evaluated",
+  }[status] ?? status;
 }

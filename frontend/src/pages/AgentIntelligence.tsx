@@ -19,8 +19,9 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { Badge } from "@/components/ui/Badge";
-import { Card } from "@/components/ui/Card";
+import { Card, CardHeader } from "@/components/ui/Card";
 import { useAppStore } from "@/store/useAppStore";
+import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
 import {
   agentRuntimeDetails,
   complianceMapperDetail,
@@ -203,6 +204,7 @@ const agents: IntelligenceAgent[] = [
 ];
 
 export function AgentIntelligence() {
+  const backend = useGovernanceBackend();
   const { navigateTo } = useAppStore();
   const [expandedAgent, setExpandedAgent] = useState("bias-auditor");
   const [activeTabs, setActiveTabs] = useState<Record<string, AgentTab>>({
@@ -218,6 +220,9 @@ export function AgentIntelligence() {
   const totalFindings = agents.reduce((sum, agent) => sum + agent.findings, 0);
   const scoredAgents = agents.filter((agent) => agent.confidence > 0);
   const avgConfidence = Math.round(scoredAgents.reduce((sum, agent) => sum + agent.confidence, 0) / scoredAgents.length);
+  const backendCompleted = backend.agentExecutions.filter((agent) => agent.status === "completed").length;
+  const backendFailed = backend.agentExecutions.filter((agent) => agent.status === "failed").length;
+  const backendFindings = backend.agentExecutions.reduce((sum, agent) => sum + agent.finding_count, 0);
 
   return (
     <div className="space-y-5">
@@ -268,6 +273,51 @@ export function AgentIntelligence() {
             </div>
           </div>
         </div>
+      </Card>
+
+      <Card>
+        <CardHeader
+          title="Backend Agent Executions"
+          eyebrow={
+            backend.usingBackend && backend.latestRun
+              ? `Latest run ${backend.latestRun.id.slice(0, 8)}`
+              : "Prototype fallback"
+          }
+          action={
+            <Badge tone={backend.usingBackend ? "green" : "slate"}>
+              {backend.loading ? "Loading" : backend.usingBackend ? "Connected" : "Mock"}
+            </Badge>
+          }
+        />
+        {backend.agentExecutions.length > 0 ? (
+          <div className="grid gap-3 p-4 md:grid-cols-3">
+            <SummaryMetric label="Persisted Executions" value={`${backend.agentExecutions.length}`} icon={Cpu} tone="blue" />
+            <SummaryMetric label="Completed" value={`${backendCompleted}`} icon={CheckCircle2} tone="green" />
+            <SummaryMetric label="Failed" value={`${backendFailed}`} icon={AlertTriangle} tone={backendFailed ? "red" : "slate"} />
+            <div className="rounded border border-slate-200 bg-slate-50 p-3 md:col-span-3">
+              <div className="flex flex-wrap gap-2">
+                {backend.agentExecutions.map((execution) => (
+                  <span key={execution.id} className="rounded border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] text-slate-700">
+                    <span className="font-semibold text-slate-950">{execution.agent_name}</span>
+                    {" · "}
+                    {execution.status}
+                    {" · "}
+                    {execution.finding_count} findings
+                  </span>
+                ))}
+              </div>
+              <p className="mt-3 text-[11px] text-slate-500">
+                Backend findings recorded by agent executions: {backendFindings}. Detailed cards below remain the prototype drilldown packet until real agent reports are expanded.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="px-4 py-6 text-[13px] text-slate-500">
+            {backend.loading
+              ? "Loading agent execution records..."
+              : "No backend agent executions found for the latest run. Showing prototype agent intelligence below."}
+          </div>
+        )}
       </Card>
 
       <Card className="p-4">

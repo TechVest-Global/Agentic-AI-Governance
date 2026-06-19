@@ -13,6 +13,7 @@ import clsx from "clsx";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { useAppStore } from "@/store/useAppStore";
+import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
 
 const deliberationSteps = [
   {
@@ -106,10 +107,29 @@ const deliberationSteps = [
 ];
 
 export function CouncilDeliberation() {
+  const backend = useGovernanceBackend();
   const navigateTo = useAppStore((state) => state.navigateTo);
   const [expandedStep, setExpandedStep] = useState<string>("synthesis");
   const [expandedTheme, setExpandedTheme] = useState<string | null>(null);
   const [expandedObjection, setExpandedObjection] = useState<string | null>(null);
+  const [deliberationError, setDeliberationError] = useState<string | null>(null);
+  const [deliberating, setDeliberating] = useState(false);
+
+  async function handleDeliberate() {
+    setDeliberating(true);
+    setDeliberationError(null);
+    try {
+      await backend.deliberate();
+    } catch (error) {
+      setDeliberationError(
+        error instanceof Error
+          ? error.message
+          : "Council deliberation failed.",
+      );
+    } finally {
+      setDeliberating(false);
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -130,6 +150,54 @@ export function CouncilDeliberation() {
           </button>
         </div>
       </div>
+
+      <Card>
+        <CardHeader
+          title="Backend Council Status"
+          eyebrow={
+            backend.usingBackend && backend.latestRun
+              ? `Latest run ${backend.latestRun.id.slice(0, 8)}`
+              : "Prototype fallback"
+          }
+          action={<Badge tone={backend.report?.verdict ? "green" : "amber"}>{backend.report?.verdict ? "Verdict ready" : "No verdict"}</Badge>}
+        />
+        <div className="grid gap-4 p-4 lg:grid-cols-[1fr_220px]">
+          <div>
+            {backend.report?.verdict ? (
+              <div className="space-y-2">
+                <p className="text-[13px] font-semibold text-slate-950">
+                  {backend.report.verdict.label} · {Math.round(backend.report.verdict.confidence_score * 100)}% confidence · {backend.report.verdict.action_tier}
+                </p>
+                <p className="text-[12px] leading-5 text-slate-600">
+                  {backend.report.verdict.synthesis ?? backend.report.verdict.reasoning ?? "Backend verdict is stored for this run."}
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  Required actions: {backend.report.verdict.required_actions.length}. Objections: {backend.report.verdict.objections.length}.
+                </p>
+              </div>
+            ) : (
+              <p className="text-[13px] leading-5 text-slate-600">
+                {backend.loading
+                  ? "Loading backend verdict..."
+                  : "No backend verdict exists for the latest run yet. You can trigger the council route from here after metrics/findings are present."}
+              </p>
+            )}
+            {deliberationError && (
+              <p className="mt-2 text-[11px] text-red-700">
+                Council route returned: {deliberationError}
+              </p>
+            )}
+          </div>
+          <button
+            onClick={handleDeliberate}
+            disabled={!backend.latestRun || deliberating || Boolean(backend.report?.verdict)}
+            className="flex items-center justify-center gap-2 rounded bg-[#111827] px-3 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            <Scale className="h-4 w-4" />
+            {deliberating ? "Running Council..." : "Run Council Route"}
+          </button>
+        </div>
+      </Card>
 
       {/* Deliberation steps */}
       <div className="space-y-3">

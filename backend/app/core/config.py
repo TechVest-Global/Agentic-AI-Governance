@@ -1,7 +1,13 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Resolve the project-root .env explicitly so settings load identically no matter
+# the working directory the process is launched from (repo root, backend/, etc.).
+# config.py lives at <root>/backend/app/core/config.py -> parents[3] is the repo root.
+_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 
 
 class Settings(BaseSettings):
@@ -24,7 +30,9 @@ class Settings(BaseSettings):
     azure_ai_foundry_project_name: str | None = None
     azure_ai_foundry_deployment_name: str | None = None
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore"
+    )
 
     @field_validator("api_v1_prefix")
     @classmethod
