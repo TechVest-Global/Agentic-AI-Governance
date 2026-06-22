@@ -7,6 +7,7 @@ const routeMatchers: Array<[RegExp, PageId]> = [
   [/^\/engine(?:\/.*)?$/, "engine"],
   [/^\/runs(?:\/.*)?$/, "engine"],
   [/^\/agents(?:\/.*)?$/, "agents"],
+  [/^\/metric-plan(?:\/.*)?$/, "metric-plan"],
   [/^\/council(?:\/.*)?$/, "council"],
   [/^\/verdicts(?:\/.*)?$/, "verdicts"],
   [/^\/reports(?:\/.*)?$/, "reports"],
@@ -20,6 +21,8 @@ export function pageFromPath(pathname: string): PageId {
 type AppStore = {
   activePage: PageId;
   currentPath: string;
+  headerHidden: boolean;
+  setHeaderHidden: (hidden: boolean) => void;
   setRouteFromPath: (path: string) => void;
   navigateTo: (path: string) => void;
 };
@@ -27,6 +30,8 @@ type AppStore = {
 export const useAppStore = create<AppStore>((set) => ({
   activePage: "dashboard",
   currentPath: "/dashboard",
+  headerHidden: false,
+  setHeaderHidden: (hidden) => set({ headerHidden: hidden }),
   setRouteFromPath: (path) => set({ activePage: pageFromPath(path), currentPath: path }),
   navigateTo: (path) => {
     if (window.location.pathname !== path) {

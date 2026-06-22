@@ -1,0 +1,195 @@
+import { useState } from "react";
+import { CheckCircle2, ClipboardList, FlaskConical, Layers, Target } from "lucide-react";
+import clsx from "clsx";
+import { Card, CardHeader } from "@/components/ui/Card";
+import { MetricCard } from "@/components/ui/MetricCard";
+import { Badge } from "@/components/ui/Badge";
+import { ProgressBar } from "@/components/ui/RunStatus";
+import { useAppStore } from "@/store/useAppStore";
+import { metricPlan, dimensionTone, type MetricDimension, type MetricStatus, type PlannedMetric } from "@/data/metricPlan";
+
+const statusTone: Record<MetricStatus, "green" | "amber" | "red" | "slate" | "blue"> = {
+  Pass: "green",
+  Running: "amber",
+  Fail: "red",
+  Planned: "slate",
+  Skipped: "slate",
+};
+
+export function MetricPlan() {
+  const { navigateTo } = useAppStore();
+  const [dimensionFilter, setDimensionFilter] = useState<MetricDimension | "All">("All");
+  const [approved, setApproved] = useState(false);
+
+  const plan = metricPlan;
+  const metrics = dimensionFilter === "All" ? plan.metrics : plan.metrics.filter((m) => m.dimension === dimensionFilter);
+
+  const totalProbes = plan.metrics.reduce((sum, m) => sum + m.probeBudget, 0);
+  const dimensions = Array.from(new Set(plan.metrics.map((m) => m.dimension)));
+  const passing = plan.metrics.filter((m) => m.status === "Pass").length;
+
+  return (
+    <div className="space-y-5">
+      {/* Plan header */}
+      <Card className="p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-start gap-4">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-[#111827] text-white">
+              <ClipboardList className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-700">Metric Plan Review</p>
+              <h2 className="mt-1 text-[20px] font-semibold tracking-tight text-slate-950">
+                {plan.metrics.length} metrics selected for {plan.systemName}
+              </h2>
+              <p className="mt-2 max-w-3xl text-[13px] leading-5 text-slate-600">
+                The orchestrator selected these metrics based on the system type, <span className="font-medium">{plan.riskTier}</span> risk tier,
+                and {plan.selectedFrameworks.length} selected frameworks. Review the plan before the run executes.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Badge tone="slate">Run mode: {plan.runMode}</Badge>
+                {plan.selectedFrameworks.map((fw) => (
+                  <Badge key={fw} tone="blue">{fw}</Badge>
+                ))}
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => setApproved(true)}
+            disabled={approved}
+            className={clsx(
+              "inline-flex items-center gap-2 rounded px-3 py-2 text-[12px] font-semibold transition-colors",
+              approved ? "bg-emerald-50 text-emerald-700" : "bg-[#111827] text-white hover:bg-slate-800"
+            )}
+          >
+            <CheckCircle2 className="h-4 w-4" />
+            {approved ? "Plan approved" : "Approve plan"}
+          </button>
+        </div>
+      </Card>
+
+      {/* Summary metrics */}
+      <div className="grid gap-3 md:grid-cols-4">
+        <MetricCard label="Metrics Selected" value={plan.metrics.length} icon={Target} compact />
+        <MetricCard label="Total Probe Budget" value={totalProbes} icon={FlaskConical} tone="blue" compact />
+        <MetricCard label="Dimensions Covered" value={dimensions.length} icon={Layers} tone="amber" compact />
+        <MetricCard label="Passing" value={`${passing}/${plan.metrics.length}`} icon={CheckCircle2} tone="green" compact />
+      </div>
+
+      {/* Probe budget by dimension */}
+      <Card>
+        <CardHeader title="Probe Budget by Dimension" eyebrow="Allocation across risk perspectives" />
+        <div className="space-y-3 p-4">
+          {dimensions.map((dim) => {
+            const dimProbes = plan.metrics.filter((m) => m.dimension === dim).reduce((s, m) => s + m.probeBudget, 0);
+            const pct = Math.round((dimProbes / totalProbes) * 100);
+            return (
+              <div key={dim} className="flex items-center gap-3">
+                <div className="w-28 shrink-0">
+                  <Badge tone={dimensionTone[dim]}>{dim}</Badge>
+                </div>
+                <ProgressBar value={pct} tone={dimensionTone[dim] === "violet" ? "slate" : dimensionTone[dim]} className="flex-1" />
+                <span className="w-24 text-right text-[11px] tabular-nums text-slate-600">{dimProbes} probes ({pct}%)</span>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      {/* Dimension filter */}
+      <div className="flex flex-wrap gap-2">
+        {(["All", ...dimensions] as const).map((dim) => (
+          <button
+            key={dim}
+            onClick={() => setDimensionFilter(dim as MetricDimension | "All")}
+            className={clsx(
+              "rounded border px-3 py-1.5 text-[12px] font-medium transition-colors",
+              dimensionFilter === dim ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+            )}
+          >
+            {dim}
+          </button>
+        ))}
+      </div>
+
+      {/* Metric table */}
+      <Card>
+        <CardHeader title="Selected Metrics" eyebrow={`${metrics.length} shown — tool, owner agent, framework, and threshold`} />
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-[12px]">
+            <thead>
+              <tr className="border-b border-slate-200 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                <th className="px-4 py-2.5">Metric</th>
+                <th className="px-4 py-2.5">Dimension</th>
+                <th className="px-4 py-2.5">Tool</th>
+                <th className="px-4 py-2.5">Owner Agent</th>
+                <th className="px-4 py-2.5">Probes</th>
+                <th className="px-4 py-2.5">Threshold</th>
+                <th className="px-4 py-2.5">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {metrics.map((metric) => (
+                <MetricRow key={metric.id} metric={metric} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => navigateTo("/agents")}
+          className="inline-flex items-center gap-2 rounded border border-slate-300 bg-white px-3 py-2 text-[12px] font-medium text-slate-900 hover:bg-slate-50"
+        >
+          View specialist agents
+        </button>
+        <button
+          onClick={() => navigateTo("/engine")}
+          className="inline-flex items-center gap-2 rounded bg-[#111827] px-3 py-2 text-[12px] font-semibold text-white hover:bg-slate-800"
+        >
+          Open pipeline prototype
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MetricRow({ metric }: { metric: PlannedMetric }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <>
+      <tr
+        onClick={() => setExpanded((v) => !v)}
+        className="cursor-pointer border-b border-slate-100 hover:bg-slate-50"
+      >
+        <td className="px-4 py-3">
+          <p className="font-mono text-[11px] font-semibold text-slate-950">{metric.id}</p>
+          <p className="mt-0.5 text-[11px] text-slate-600">{metric.name}</p>
+        </td>
+        <td className="px-4 py-3"><Badge tone={dimensionTone[metric.dimension]}>{metric.dimension}</Badge></td>
+        <td className="px-4 py-3">
+          <span className="font-mono text-[11px] text-slate-800">{metric.tool}</span>
+          <span className="ml-1.5 rounded bg-slate-100 px-1 py-0.5 text-[9px] font-medium uppercase text-slate-500">{metric.toolMode}</span>
+        </td>
+        <td className="px-4 py-3 text-[11px] text-slate-700">{metric.ownerAgent}</td>
+        <td className="px-4 py-3 font-medium tabular-nums text-slate-900">{metric.probeBudget}</td>
+        <td className="px-4 py-3 font-mono text-[11px] text-slate-600">{metric.threshold}</td>
+        <td className="px-4 py-3"><Badge tone={statusTone[metric.status]}>{metric.status}</Badge></td>
+      </tr>
+      {expanded && (
+        <tr className="border-b border-slate-100 bg-slate-50/60">
+          <td colSpan={7} className="px-4 py-3">
+            <p className="text-[12px] leading-5 text-slate-700">{metric.description}</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Frameworks:</span>
+              {metric.frameworks.map((fw) => (
+                <span key={fw} className="rounded bg-white px-2 py-0.5 text-[10px] text-slate-700 ring-1 ring-slate-200">{fw}</span>
+              ))}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}

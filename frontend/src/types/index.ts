@@ -6,6 +6,7 @@ export type PageId =
   | "engine"
   | "runs"
   | "agents"
+  | "metric-plan"
   | "council"
   | "verdicts"
   | "reports"

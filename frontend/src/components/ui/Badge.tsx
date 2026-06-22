@@ -7,6 +7,8 @@ const toneClasses: Record<string, string> = {
   red: "border-red-300 bg-red-50 text-red-800",
   violet: "border-violet-300 bg-violet-50 text-violet-800",
   slate: "border-slate-300 bg-slate-50 text-slate-700",
+  // neutral: no fill — for non-semantic labels (frameworks, type, environment)
+  neutral: "border-slate-200 bg-transparent text-slate-500",
 };
 
 export function Badge({
@@ -18,7 +20,7 @@ export function Badge({
 }) {
   return (
     <span className={clsx("inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-[11px] font-medium", toneClasses[tone])}>
-      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+      {tone !== "neutral" && <span className="h-1.5 w-1.5 rounded-full bg-current" />}
       {children}
     </span>
   );
@@ -27,7 +29,7 @@ export function Badge({
 export function toneForRisk(risk: string) {
   if (risk === "High") return "red";
   if (risk === "Medium") return "amber";
-  return "blue";
+  return "green";
 }
 
 export function toneForStatus(status: string) {

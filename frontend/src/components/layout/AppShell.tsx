@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bell, ChevronDown, FileText, PanelLeftClose, Play, Search, Shield, X } from "lucide-react";
+import { Bell, ChevronDown, FileText, PanelLeft, PanelLeftClose, Play, Search, Shield, X } from "lucide-react";
 import clsx from "clsx";
 import { SearchOverlay } from "@/components/SearchOverlay";
 import { navigation } from "@/data/mockData";
@@ -10,8 +10,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const activePage = useAppStore((state) => state.activePage);
   const navigateTo = useAppStore((state) => state.navigateTo);
   const current = navigation.find((item) => item.id === activePage);
+  const headerHidden = useAppStore((state) => state.headerHidden);
+  const isEngine = activePage === "engine";
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -39,17 +42,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <aside className="fixed inset-y-0 left-0 z-50 flex w-60 flex-col bg-[#111827] text-slate-100">
+    <div className="min-h-screen bg-[#f6f7fb]">
+      <aside className={clsx("fixed inset-y-0 left-0 z-50 flex w-60 flex-col bg-[#0f1626] text-slate-100 transition-transform duration-300", !sidebarOpen && "-translate-x-full")}>
         <div className="flex h-14 items-center gap-3 border-b border-white/10 px-4">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-600/20 text-blue-300 ring-1 ring-blue-500/30">
+          <div className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-brand-600 text-white">
             <Shield className="h-4 w-4" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-semibold leading-tight text-white">AegisGov AI</p>
-            <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-slate-400">Governance Control Plane</p>
+            <p className="text-[13px] font-semibold leading-tight text-white">GovernAI</p>
+            <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-slate-400">Output-only AI Governance Engine</p>
           </div>
-          <button className="rounded p-1 text-slate-500 hover:bg-white/5 hover:text-slate-300" aria-label="Collapse navigation">
+          <button onClick={() => setSidebarOpen(false)} className="rounded p-1 text-slate-500 hover:bg-white/5 hover:text-slate-300" aria-label="Collapse navigation">
             <PanelLeftClose className="h-4 w-4" />
           </button>
         </div>
@@ -66,11 +69,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       key={item.id}
                       onClick={() => navigateTo(item.path)}
                       className={clsx(
-                        "flex w-full items-center gap-3 rounded px-2.5 py-2 text-left text-[13px] font-medium transition-colors",
-                        activePage === item.id ? "bg-[#1d2940] text-white" : "text-slate-300 hover:bg-white/5 hover:text-white"
+                        "relative flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium transition-all",
+                        activePage === item.id
+                          ? "bg-white/[0.08] text-white before:absolute before:left-0 before:top-1/2 before:h-5 before:w-[3px] before:-translate-y-1/2 before:rounded-r before:bg-brand-400"
+                          : "text-slate-400 hover:bg-white/5 hover:text-white"
                       )}
                     >
-                      <item.icon className="h-4 w-4" />
+                      <item.icon className={clsx("h-4 w-4", activePage === item.id ? "text-brand-300" : "text-slate-500")} />
                       <span className="flex-1">{item.label}</span>
                       {item.badge && <span className="rounded bg-orange-700/70 px-1.5 py-0.5 text-[10px] text-orange-100">{item.badge}</span>}
                     </button>
@@ -89,9 +94,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      <div className="pl-60">
-        <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4">
+      <div className={clsx("transition-[padding] duration-300", sidebarOpen ? "pl-60" : "pl-0")}>
+        <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-[#e7e9f0] bg-white/85 px-4 backdrop-blur-md">
           <div className="flex min-w-0 flex-1 items-center gap-3">
+            <button
+              onClick={() => setSidebarOpen((v) => !v)}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+              aria-label="Toggle navigation"
+            >
+              <PanelLeft className="h-4 w-4" />
+            </button>
             <button className="flex items-center gap-2 rounded border border-slate-300 bg-white px-3 py-2 text-[12px] font-medium text-slate-900">
               <span className="h-2 w-2 rounded-full bg-emerald-500" />
               Production
@@ -109,7 +121,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 }}
                 onFocus={() => setSearchOpen(true)}
                 onBlur={() => window.setTimeout(() => setSearchOpen(false), 120)}
-                className="h-9 w-full rounded border border-slate-300 bg-slate-50 pl-9 pr-12 text-[13px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500 focus:bg-white"
+                className="h-9 w-full rounded-lg border border-slate-300 bg-slate-50 pl-9 pr-12 text-[13px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-100"
                 placeholder="Search runs, models, evidence, controls..."
               />
               {searchQuery ? (
@@ -139,7 +151,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {activePage !== "engine" && (
               <button
                 onClick={() => navigateTo("/engine")}
-                className="flex items-center gap-2 rounded bg-[#111827] px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-slate-800"
+                className="flex items-center gap-2 rounded-lg bg-brand-600 px-3.5 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-brand-700"
               >
                 <Play className="h-3.5 w-3.5" />
                 Start Governance Run
@@ -155,23 +167,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <main className="p-6">
-          <div className="mb-5 border-b border-slate-200 pb-4">
-            <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-              <span>AegisGov</span>
-              <span>/</span>
-              <span className="text-slate-600">{sectionFor(activePage)}</span>
-              <span>/</span>
-              <span className="font-medium text-slate-950">{current?.label}</span>
-            </div>
-            <div className="mt-2 flex items-start justify-between gap-4">
-              <div>
-                <h1 className="text-[22px] font-semibold tracking-tight text-slate-950">{current?.label}</h1>
-                <p className="mt-0.5 text-[12px] text-slate-500">{pageDescriptions[activePage]}</p>
+        <main className={isEngine ? "" : "p-6"}>
+          {!isEngine && !headerHidden && (
+            <div className="mb-6 border-b border-[#e7e9f0] pb-5 dark:border-white/10">
+              <div className="flex items-center gap-1.5 text-[11px] text-ink-4">
+                <span>GovernAI</span>
+                <span className="opacity-50">/</span>
+                <span className="text-ink-3 dark:text-slate-400">{sectionFor(activePage)}</span>
+                <span className="opacity-50">/</span>
+                <span className="font-medium text-ink-2 dark:text-slate-200">{current?.label}</span>
+              </div>
+              <div className="mt-3 flex items-start justify-between gap-4">
+                <div>
+                  <h1 className="font-display text-[30px] leading-tight text-ink dark:text-slate-50">{current?.label}</h1>
+                  <p className="mt-1.5 max-w-3xl text-[13px] leading-relaxed text-ink-3 dark:text-slate-400">{pageDescriptions[activePage]}</p>
+                </div>
               </div>
             </div>
-          </div>
-          {children}
+          )}
+          <div key={activePage} className={isEngine ? "" : "animate-rise"}>{children}</div>
         </main>
       </div>
     </div>
@@ -181,9 +195,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 const pageDescriptions: Record<PageId, string> = {
   dashboard: "Real-time governance overview - KPIs, risk trends, compliance posture, and agent performance at a glance.",
   systems: "All registered AI systems bound to owners, risk tiers, and frameworks. Click any row to inspect the current governance posture.",
-  engine: "Interactive governance pipeline for target selection, adaptive probe planning, specialist findings, council review, action routing, and sealed ledger evidence.",
+  engine: "The end-to-end governance engine — five layers from context assembly and adaptive probe planning through specialist findings, council deliberation, confidence-bounded action, and sealed ledger evidence. Switch targets and run a live audit.",
   runs: "Live pipeline execution for active governance runs. Shows agent status, findings, and the full 5-stage evaluation flow.",
   agents: "Specialist agents currently probing, testing, and mapping evidence. Expand each agent to see checks, methods, findings, and remediation.",
+  "metric-plan": "The orchestrator-selected metric plan for the current run — tools, owner agents, framework clauses, probe budgets, and thresholds. Review before execution.",
   council: "Multi-step deliberation that synthesises agent findings into a verdict. Each step is expandable with full reasoning and confidence impacts.",
   verdicts: "Final governance outcome for the current run - tier assignment, confidence score, risk dimensions, and prescribed remediation actions.",
   reports: "Clause-level compliance reports across EU AI Act, SR 11-7, and NIST AI RMF. Click rows to read clause definitions and evidence.",
