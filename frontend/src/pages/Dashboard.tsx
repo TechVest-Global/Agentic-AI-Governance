@@ -27,6 +27,7 @@ import {
   YAxis,
 } from "recharts";
 import { Card, CardHeader } from "@/components/ui/Card";
+import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { agents, findings, liveRuns, riskSeries, systems } from "@/data/mockData";
 import { useAppStore } from "@/store/useAppStore";
 
@@ -79,6 +80,16 @@ const complianceRows = [
   { framework: "NIST AI RMF", coverage: 91, status: "Aligned", gaps: 1 },
   { framework: "OECD AI Principles", coverage: 84, status: "Partial", gaps: 2 },
 ];
+
+const tooltipProps = {
+  contentStyle: {
+    borderRadius: 10,
+    border: "1px solid #e7e9f0",
+    boxShadow: "0 8px 24px -8px rgba(16,24,40,0.18)",
+    fontSize: 12,
+  },
+  labelStyle: { color: "#0d1224", fontWeight: 600 },
+} as const;
 
 export function Dashboard() {
   const [activeTab, setActiveTab] = useState<DashboardTab>("Overview");
@@ -133,7 +144,7 @@ export function Dashboard() {
               className={clsx(
                 "border-b-2 px-4 py-3 text-[14px] font-medium transition-colors",
                 activeTab === tab
-                  ? "border-blue-600 text-blue-700"
+                  ? "border-brand-500 text-brand-700"
                   : "border-transparent text-slate-600 hover:border-slate-300 hover:text-slate-950"
               )}
             >
@@ -160,15 +171,15 @@ function OverviewTab() {
           <AreaChart data={confidenceTrend} margin={{ left: -18, right: 10, top: 8, bottom: 0 }}>
             <defs>
               <linearGradient id="confidenceFill" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.22} />
-                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.02} />
+                <stop offset="5%" stopColor="#0d9488" stopOpacity={0.22} />
+                <stop offset="95%" stopColor="#0d9488" stopOpacity={0.02} />
               </linearGradient>
             </defs>
-            <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-            <XAxis dataKey="month" tickLine={false} axisLine={{ stroke: "#94a3b8" }} tick={{ fontSize: 11, fill: "#64748b" }} />
-            <YAxis domain={[60, 100]} tickLine={false} axisLine={{ stroke: "#94a3b8" }} tick={{ fontSize: 11, fill: "#64748b" }} />
-            <Tooltip />
-            <Area type="monotone" dataKey="score" stroke="#2563eb" strokeWidth={2} fill="url(#confidenceFill)" />
+            <CartesianGrid stroke="#eef0f6" strokeDasharray="3 3" />
+            <XAxis dataKey="month" tickLine={false} axisLine={{ stroke: "#cbd2e0" }} tick={{ fontSize: 11, fill: "#64748b" }} />
+            <YAxis domain={[60, 100]} tickLine={false} axisLine={{ stroke: "#cbd2e0" }} tick={{ fontSize: 11, fill: "#64748b" }} />
+            <Tooltip {...tooltipProps} />
+            <Area type="monotone" dataKey="score" stroke="#0d9488" strokeWidth={2} fill="url(#confidenceFill)" />
             <Line type="monotone" dataKey={() => 85} stroke="#ef4444" strokeDasharray="4 4" dot={false} />
           </AreaChart>
         </ResponsiveContainer>
@@ -177,10 +188,10 @@ function OverviewTab() {
       <ChartCard eyebrow="Last 6 Weeks - Outcomes Breakdown" title="Governance Runs by Week">
         <ResponsiveContainer width="100%" height={230}>
           <BarChart data={weeklyRuns} margin={{ left: -18, right: 10, top: 8, bottom: 0 }}>
-            <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical />
-            <XAxis dataKey="week" tickLine={false} axisLine={{ stroke: "#94a3b8" }} tick={{ fontSize: 11, fill: "#64748b" }} />
-            <YAxis tickLine={false} axisLine={{ stroke: "#94a3b8" }} tick={{ fontSize: 11, fill: "#64748b" }} />
-            <Tooltip />
+            <CartesianGrid stroke="#eef0f6" strokeDasharray="3 3" vertical />
+            <XAxis dataKey="week" tickLine={false} axisLine={{ stroke: "#cbd2e0" }} tick={{ fontSize: 11, fill: "#64748b" }} />
+            <YAxis tickLine={false} axisLine={{ stroke: "#cbd2e0" }} tick={{ fontSize: 11, fill: "#64748b" }} />
+            <Tooltip {...tooltipProps} />
             <Bar dataKey="passed" stackId="runs" fill="#10b981" />
             <Bar dataKey="flagged" stackId="runs" fill="#f59e0b" />
             <Bar dataKey="blocked" stackId="runs" fill="#ef4444" />
@@ -198,7 +209,7 @@ function OverviewTab() {
                   <Cell key={entry.name} fill={entry.color} />
                 ))}
               </Pie>
-              <Tooltip />
+              <Tooltip {...tooltipProps} />
             </PieChart>
           </ResponsiveContainer>
           <div className="space-y-3">
@@ -218,13 +229,13 @@ function OverviewTab() {
       <ChartCard eyebrow="Monthly Breakdown by Severity" title="Finding Severity Trend">
         <ResponsiveContainer width="100%" height={250}>
           <LineChart data={severityTrend} margin={{ left: -18, right: 10, top: 8, bottom: 0 }}>
-            <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-            <XAxis dataKey="month" tickLine={false} axisLine={{ stroke: "#94a3b8" }} tick={{ fontSize: 11, fill: "#64748b" }} />
-            <YAxis tickLine={false} axisLine={{ stroke: "#94a3b8" }} tick={{ fontSize: 11, fill: "#64748b" }} />
-            <Tooltip />
+            <CartesianGrid stroke="#eef0f6" strokeDasharray="3 3" />
+            <XAxis dataKey="month" tickLine={false} axisLine={{ stroke: "#cbd2e0" }} tick={{ fontSize: 11, fill: "#64748b" }} />
+            <YAxis tickLine={false} axisLine={{ stroke: "#cbd2e0" }} tick={{ fontSize: 11, fill: "#64748b" }} />
+            <Tooltip {...tooltipProps} />
             <Line type="monotone" dataKey="critical" stroke="#ef4444" strokeWidth={2} />
             <Line type="monotone" dataKey="high" stroke="#f59e0b" strokeWidth={2} />
-            <Line type="monotone" dataKey="medium" stroke="#2563eb" strokeWidth={2} />
+            <Line type="monotone" dataKey="medium" stroke="#0d9488" strokeWidth={2} />
           </LineChart>
         </ResponsiveContainer>
       </ChartCard>
@@ -244,8 +255,8 @@ function ComplianceTab() {
                 <span className="font-semibold text-slate-950">{row.framework}</span>
                 <span className="text-slate-500">{row.coverage}% coverage - {row.gaps} gaps</span>
               </div>
-              <div className="mt-2 h-2 rounded-full bg-slate-100">
-                <div className="h-2 rounded-full bg-blue-600" style={{ width: `${row.coverage}%` }} />
+              <div className="mt-2 h-2 rounded-full bg-[#eef0f6]">
+                <div className="h-2 rounded-full bg-gradient-to-r from-brand-500 to-brand-400" style={{ width: `${row.coverage}%` }} />
               </div>
             </div>
           ))}
@@ -254,11 +265,11 @@ function ComplianceTab() {
       <ChartCard eyebrow="Evidence Coverage" title="Controls by Framework">
         <ResponsiveContainer width="100%" height={260}>
           <BarChart data={complianceRows} layout="vertical" margin={{ left: 18, right: 10, top: 8, bottom: 0 }}>
-            <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+            <CartesianGrid stroke="#eef0f6" strokeDasharray="3 3" />
             <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11, fill: "#64748b" }} />
             <YAxis type="category" dataKey="framework" width={110} tick={{ fontSize: 11, fill: "#64748b" }} />
-            <Tooltip />
-            <Bar dataKey="coverage" fill="#2563eb" radius={[0, 4, 4, 0]} />
+            <Tooltip {...tooltipProps} />
+            <Bar dataKey="coverage" fill="#0d9488" radius={[0, 4, 4, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </ChartCard>
@@ -338,7 +349,7 @@ function MetricsSourcesTab() {
         ["Runtime Events", "2 runs", "Pipeline status, progress, probe counts, and finding counts."],
         ["Evidence Ledger", "4 events", "Hash-linked audit trail for agent findings and review actions."],
         ["Framework Map", "4 frameworks", "EU AI Act, SR 11-7, NIST AI RMF, and OECD principles."],
-        ["Agent Telemetry", "6 agents", "Probe coverage, confidence, progress, and status details."],
+        ["Agent Telemetry", "5 agents", "Probe coverage, confidence, progress, and status details."],
         ["Export Sources", "CSV / JSON", "Governance artifacts available through report exports."],
       ].map(([title, value, detail]) => (
         <Card key={title} className="p-4">
@@ -372,20 +383,30 @@ function KpiCard({
   const TrendIcon = trend === "down" ? ArrowDownRight : ArrowUpRight;
 
   return (
-    <button onClick={onClick} className="rounded-md border border-slate-200 bg-white p-4 text-left shadow-sm transition-colors hover:border-blue-300">
-      <div className="flex items-start justify-between">
-        <span className="flex h-9 w-9 items-center justify-center rounded-md bg-slate-100 text-slate-600">
-          <Icon className="h-4 w-4" />
-        </span>
+    <button
+      onClick={onClick}
+      className="group rounded-xl bg-white px-4 py-3.5 text-left shadow-card ring-1 ring-black/[0.03] transition-shadow hover:shadow-md"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">{label}</p>
+        <Icon className={clsx("h-4 w-4 shrink-0", tone === "red" ? "text-red-400" : "text-slate-300")} />
+      </div>
+      <div className="mt-1.5 flex items-end gap-2">
+        <p className="text-3xl font-bold tracking-tight text-slate-900 tabular-nums">
+          <AnimatedNumber value={value} />
+        </p>
         {trend && (
-          <span className={clsx("rounded px-1.5 py-1", tone === "red" ? "bg-red-100 text-red-600" : "bg-emerald-100 text-emerald-600")}>
+          <span
+            className={clsx(
+              "mb-1 inline-flex items-center text-[12px] font-semibold",
+              tone === "red" ? "text-red-600" : "text-emerald-600"
+            )}
+          >
             <TrendIcon className="h-3.5 w-3.5" />
           </span>
         )}
       </div>
-      <p className="mt-5 text-[25px] font-semibold tracking-tight text-slate-950">{value}</p>
-      <p className="mt-1 text-[12px] text-slate-600">{label}</p>
-      <p className="mt-1 text-[11px] text-blue-600">{detail}</p>
+      <p className="mt-0.5 text-[11px] text-slate-400">{detail}</p>
     </button>
   );
 }
@@ -401,9 +422,9 @@ function ChartCard({
 }) {
   return (
     <Card className="overflow-hidden">
-      <div className="border-b border-slate-200 px-4 py-3">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">{eyebrow}</p>
-        <h3 className="mt-1 text-[13px] font-semibold text-slate-950">{title}</h3>
+      <div className="border-b border-[#eef0f6] px-5 py-3.5">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-ink-3">{eyebrow}</p>
+        <h3 className="mt-1 font-display text-[17px] text-ink">{title}</h3>
       </div>
       <div className="p-4">{children}</div>
     </Card>

@@ -23,9 +23,9 @@
   --paper-2:#fbfcfe;
   --paper-3:#f5f7fc;
   --bg:#f3f5fa;
-  --accent:#4f46e5;       /* indigo */
-  --accent-2:#7c3aed;     /* violet */
-  --accent-soft:#eef0ff;
+  --accent:#0d9488;       /* teal */
+  --accent-2:#14b8a6;     /* teal-500 */
+  --accent-soft:#ccfbf1;
   --teal:#0ea5a4;
   --amber:#d97706;
   --rose:#e11d48;
@@ -70,8 +70,8 @@ button{font-family:inherit;cursor:pointer}
 .brand{display:flex;align-items:center;gap:11px;font-weight:700;color:var(--ink);letter-spacing:-.02em}
 .brand .glyph{
   width:30px;height:30px;border-radius:9px;position:relative;
-  background:conic-gradient(from 210deg,#4f46e5,#7c3aed,#0ea5a4,#4f46e5);
-  box-shadow:0 4px 14px -3px rgba(79,70,229,.55);
+  background:conic-gradient(from 210deg,#0d9488,#14b8a6,#0ea5a4,#0d9488);
+  box-shadow:0 4px 14px -3px rgba(13,148,136,.55);
 }
 .brand .glyph::after{
   content:"";position:absolute;inset:5px;border-radius:5px;background:#fff;
@@ -142,7 +142,7 @@ button{font-family:inherit;cursor:pointer}
   transition:.16s;
 }
 .step:hover{background:var(--paper-3);color:var(--ink-2)}
-.step.active{background:var(--accent-soft);color:var(--accent);font-weight:600;border-color:#e0e2ff}
+.step.active{background:var(--accent-soft);color:var(--accent);font-weight:600;border-color:#99f6e4}
 .step .num{
   width:25px;height:25px;border-radius:8px;flex:none;display:grid;place-items:center;
   font-size:11.5px;font-weight:700;background:var(--paper-3);color:var(--ink-3);
@@ -162,7 +162,7 @@ button{font-family:inherit;cursor:pointer}
 .side-foot .row b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
 
 /* ---------- Main canvas ---------- */
-.canvas{padding:30px 38px 80px;max-width:1080px;margin:0 auto;width:100%}
+.canvas{padding:30px 38px 80px;max-width:1080px;margin:0 auto;width:100%;container-type:inline-size}
 .view{display:none;animation:rise .45s cubic-bezier(.2,.7,.2,1)}
 .view.show{display:block}
 @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
@@ -181,6 +181,10 @@ h1.title{font-family:var(--serif);font-weight:400;font-size:38px;line-height:1.0
 .g3{grid-template-columns:repeat(3,1fr)}
 .g4{grid-template-columns:repeat(4,1fr)}
 @media(max-width:1000px){.g3,.g4{grid-template-columns:1fr 1fr}.g2{grid-template-columns:1fr}}
+/* container queries — reflow cards to the REAL canvas width (fixes embedded cramping) */
+@container (max-width:900px){.g4{grid-template-columns:repeat(2,1fr)}}
+@container (max-width:760px){.g3{grid-template-columns:repeat(2,1fr)}.g2{grid-template-columns:1fr}.gauge-wrap{flex-direction:column;align-items:flex-start}}
+@container (max-width:520px){.g3,.g4{grid-template-columns:1fr}.override{flex-direction:column;align-items:flex-start}}
 
 .h-row{display:flex;align-items:center;gap:12px;margin:0 0 18px}
 .h-row h2{font-size:19px;letter-spacing:-.015em;color:var(--ink);margin:0;font-weight:700}
@@ -190,11 +194,11 @@ h1.title{font-family:var(--serif);font-weight:400;font-size:38px;line-height:1.0
 /* primary CTA */
 .cta{
   display:inline-flex;align-items:center;gap:10px;height:46px;padding:0 22px;border:none;
-  background:linear-gradient(180deg,#5b53e8,#4f46e5);color:#fff;border-radius:12px;
-  font-size:14px;font-weight:600;box-shadow:0 10px 24px -8px rgba(79,70,229,.6);
+  background:linear-gradient(180deg,#0f766e,#0d9488);color:#fff;border-radius:12px;
+  font-size:14px;font-weight:600;box-shadow:0 10px 24px -8px rgba(13,148,136,.6);
   transition:.18s;
 }
-.cta:hover{transform:translateY(-1px);box-shadow:0 16px 30px -10px rgba(79,70,229,.7)}
+.cta:hover{transform:translateY(-1px);box-shadow:0 16px 30px -10px rgba(13,148,136,.7)}
 .cta:active{transform:translateY(0)}
 .cta:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none}
 .cta.ghost{background:var(--paper);color:var(--ink);border:1px solid var(--line);box-shadow:var(--shadow-sm)}
@@ -217,7 +221,7 @@ h1.title{font-family:var(--serif);font-weight:400;font-size:38px;line-height:1.0
 .spine-line::after{content:"";position:absolute;inset:0;background:linear-gradient(var(--accent),var(--accent-2));transform:scaleY(0);transform-origin:top;transition:transform .6s}
 .spine-layer.on .spine-line::after{transform:scaleY(1)}
 .spine-layer.on .spine-node{background:var(--ink);color:#fff;border-color:var(--ink);box-shadow:0 12px 26px -10px rgba(13,18,36,.5)}
-.spine-layer.active .spine-node{background:linear-gradient(180deg,#5b53e8,#4f46e5);border-color:var(--accent);color:#fff;box-shadow:0 0 0 5px var(--accent-soft),0 12px 26px -10px rgba(79,70,229,.55)}
+.spine-layer.active .spine-node{background:linear-gradient(180deg,#0f766e,#0d9488);border-color:var(--accent);color:#fff;box-shadow:0 0 0 5px var(--accent-soft),0 12px 26px -10px rgba(13,148,136,.55)}
 .spine-card{
   background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;
   box-shadow:var(--shadow-sm);transition:.25s;cursor:pointer;
@@ -247,10 +251,10 @@ h1.title{font-family:var(--serif);font-weight:400;font-size:38px;line-height:1.0
 .subcomp .stat{font-size:11px;font-weight:600;color:var(--ink-4);margin-top:8px;font-family:var(--mono)}
 .subcomp .badge{position:absolute;top:14px;right:16px;font-size:10.5px;font-weight:700;color:var(--ink-4);letter-spacing:.06em;text-transform:uppercase}
 .subcomp.done .badge{color:var(--green)}
-.subcomp .scan{position:absolute;left:0;top:0;bottom:0;width:40%;background:linear-gradient(90deg,transparent,rgba(79,70,229,.06),transparent);opacity:0}
+.subcomp .scan{position:absolute;left:0;top:0;bottom:0;width:40%;background:linear-gradient(90deg,transparent,rgba(13,148,136,.06),transparent);opacity:0}
 .subcomp.running .scan{opacity:1;animation:scan 1.3s linear infinite}
 .subcomp.clickable{cursor:pointer;transition:border-color .16s,box-shadow .16s,transform .16s}
-.subcomp.clickable:hover{border-color:#c7c9f3;box-shadow:0 8px 24px rgba(79,70,229,.12);transform:translateY(-1px)}
+.subcomp.clickable:hover{border-color:#c7c9f3;box-shadow:0 8px 24px rgba(13,148,136,.12);transform:translateY(-1px)}
 .subcomp .open-hint.sub{position:absolute;right:16px;bottom:14px;font-size:11px;font-weight:700;color:var(--accent);opacity:0;transition:opacity .16s}
 .subcomp.clickable:hover .open-hint.sub{opacity:1}
 @keyframes scan{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
@@ -394,7 +398,7 @@ h1.title{font-family:var(--serif);font-weight:400;font-size:38px;line-height:1.0
 .council-line{width:2px;flex:1;background:var(--line);margin:4px 0;min-height:14px}
 .council-body{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;box-shadow:var(--shadow-sm);margin-bottom:16px}
 .council-body.clickable{cursor:pointer;transition:border-color .16s,box-shadow .16s,transform .16s;position:relative}
-.council-body.clickable:hover{border-color:#c7c9f3;box-shadow:0 8px 24px rgba(79,70,229,.12);transform:translateY(-1px)}
+.council-body.clickable:hover{border-color:#c7c9f3;box-shadow:0 8px 24px rgba(13,148,136,.12);transform:translateY(-1px)}
 .council-body .step-hint{position:absolute;right:18px;top:16px;font-size:11px;font-weight:700;color:var(--accent);opacity:0;transition:opacity .16s}
 .council-body.clickable:hover .step-hint{opacity:1}
 .council-body h3{margin:0 0 3px;font-size:15px;color:var(--ink);display:flex;align-items:center;gap:9px}
@@ -432,7 +436,7 @@ h1.title{font-family:var(--serif);font-weight:400;font-size:38px;line-height:1.0
 .tier.active .pin{background:var(--accent);color:#fff}
 .tier .ic{font-size:18px;margin-bottom:6px}
 .tier.clickable{cursor:pointer}
-.tier.clickable:hover{border-color:#c7c9f3;box-shadow:0 8px 24px rgba(79,70,229,.12);transform:translateY(-1px)}
+.tier.clickable:hover{border-color:#c7c9f3;box-shadow:0 8px 24px rgba(13,148,136,.12);transform:translateY(-1px)}
 .tier .tier-hint{position:absolute;bottom:14px;right:18px;font-size:11px;font-weight:700;color:var(--accent);opacity:0;transition:opacity .16s}
 .tier.clickable:hover .tier-hint{opacity:1}
 
@@ -499,7 +503,7 @@ h1.title{font-family:var(--serif);font-weight:400;font-size:38px;line-height:1.0
   border-left:1px solid var(--line);background:var(--paper);
   position:sticky;top:62px;height:calc(100vh - 62px);display:flex;flex-direction:column;
 }
-.sp-head{padding:18px 20px 14px;border-bottom:1px solid var(--line)}
+.sp-head{padding:18px 20px 14px;border-bottom:1px solid var(--line);position:relative}
 .sp-head .t{display:flex;align-items:center;gap:9px;font-size:13.5px;font-weight:700;color:var(--ink);letter-spacing:-.01em}
 .sp-head .t .badge{font-size:9.5px;font-weight:700;color:#fff;background:var(--ink);padding:2px 7px;border-radius:20px;letter-spacing:.04em;text-transform:uppercase}
 .sp-head p{margin:7px 0 0;font-size:11.5px;color:var(--ink-3);line-height:1.45}
@@ -529,7 +533,7 @@ h1.title{font-family:var(--serif);font-weight:400;font-size:38px;line-height:1.0
 .runbar .spin{width:18px;height:18px;border-radius:50%;border:2.5px solid rgba(255,255,255,.25);border-top-color:#fff;animation:spin .8s linear infinite;flex:none}
 .runbar .txt{font-size:13px;font-weight:500}.runbar .txt b{font-weight:700}
 .runbar .mini{width:160px;height:5px;border-radius:5px;background:rgba(255,255,255,.18);overflow:hidden}
-.runbar .mini i{display:block;height:100%;width:0;background:linear-gradient(90deg,#7c3aed,#0ea5a4);transition:width .5s}
+.runbar .mini i{display:block;height:100%;width:0;background:linear-gradient(90deg,#14b8a6,#0ea5a4);transition:width .5s}
 
 /* misc */
 .divider{height:1px;background:var(--line);margin:28px 0}
@@ -566,35 +570,60 @@ h1.title{font-family:var(--serif);font-weight:400;font-size:38px;line-height:1.0
 .foot-cta .nav{display:flex;gap:10px}
 .lnk{background:none;border:none;color:var(--accent);font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:6px;padding:8px 4px}
 .lnk:hover{text-decoration:underline}
-body.embedded{
-  background:#f8fafc;
-  overflow:hidden;
-}
-body.embedded .topbar{
-  display:none;
-}
-body.embedded .app{
-  min-height:100vh;
-  grid-template-columns:252px minmax(0,1fr) 340px;
-}
-body.embedded .sidebar{
-  top:0;
-  height:100vh;
-  padding:20px 12px;
-}
-body.embedded .statepanel{
-  top:0;
-  height:100vh;
-}
-body.embedded .canvas{
-  max-width:none;
-  padding:22px 28px 64px;
-}
+/* ===== Embedded inside the GovernAI shell — responsive, uncramped ===== */
+body.embedded{background:#f8fafc;overflow:hidden}
+body.embedded .topbar{display:none}
+body.embedded .app{min-height:100vh;grid-template-columns:296px minmax(0,1fr)}
+body.embedded .sidebar{top:0;height:100vh;padding:18px 12px}
+body.embedded .statepanel{position:fixed;top:0;right:0;height:100vh;width:340px;max-width:88vw;transform:translateX(103%);transition:transform .32s cubic-bezier(.22,.7,.2,1);z-index:75;box-shadow:-26px 0 60px -22px rgba(13,18,36,.34)}
+body.embedded .statepanel.open{transform:none}
+body.embedded #stateToggle{display:inline-flex}
+body.embedded #stateScrim{display:block}
+body.embedded .sp-close{display:inline-flex}
+body.embedded .canvas{max-width:none;padding:26px 36px 72px;height:100vh;overflow-y:auto;overflow-x:hidden}
 body.embedded .drawer,
 body.embedded .drawer-overlay,
-body.embedded .runbar{
-  position:fixed;
+body.embedded .runbar{position:fixed}
+
+/* horizontal pipeline rail (shown only when the sidebar collapses) */
+#miniNav{display:none;gap:7px;overflow-x:auto;padding:11px 16px;background:var(--paper);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30;scrollbar-width:none}
+#miniNav::-webkit-scrollbar{display:none}
+#miniNav .mstep{flex:none;display:flex;align-items:center;gap:7px;padding:7px 13px;border-radius:20px;border:1px solid var(--line);background:var(--paper);color:var(--ink-3);font-size:12px;font-weight:600;white-space:nowrap;cursor:pointer}
+#miniNav .mstep:hover{border-color:#d4d8e4;color:var(--ink-2)}
+#miniNav .mstep.active{background:var(--accent-soft);border-color:#cdd0ff;color:var(--accent)}
+#miniNav .mstep.done{color:#059669;border-color:#bbf7d0;background:#ecfdf5}
+#miniNav .mstep .mn{font-variant-numeric:tabular-nums;font-weight:700}
+
+/* GovernanceState slide-over + floating toggle */
+#stateScrim{display:none;position:fixed;inset:0;background:rgba(13,18,36,.38);backdrop-filter:blur(2px);z-index:74;opacity:0;pointer-events:none;transition:opacity .28s}
+#stateScrim.show{opacity:1;pointer-events:auto}
+#stateToggle{display:none;position:fixed;right:18px;bottom:18px;z-index:78;height:44px;padding:0 17px;border-radius:24px;border:none;background:var(--ink);color:#fff;font-size:13px;font-weight:600;box-shadow:var(--shadow-lg);align-items:center;gap:8px}
+#stateToggle:hover{background:#1c2336}
+#stateToggle .sd{width:7px;height:7px;border-radius:50%;background:#34d399;box-shadow:0 0 0 3px rgba(52,211,153,.25)}
+.sp-close{display:none;position:absolute;top:14px;right:16px;width:30px;height:30px;border-radius:8px;border:1px solid var(--line);background:var(--paper);color:var(--ink-3);font-size:17px;line-height:1;align-items:center;justify-content:center}
+.sp-close:hover{color:var(--ink);border-color:#d4d8e4}
+
+/* medium iframe — narrow the sidebar a touch */
+@media(max-width:1180px){
+  body.embedded .app{grid-template-columns:252px minmax(0,1fr)}
 }
+/* narrow iframe — single column; sidebar becomes the horizontal rail */
+@media(max-width:840px){
+  body.embedded .app{grid-template-columns:1fr}
+  body.embedded .sidebar{display:none}
+  body.embedded #miniNav{display:flex}
+  body.embedded .canvas{padding:16px 16px 56px}
+}
+/* embedded control bar — visible only inside the iframe (top bar is hidden there) */
+.embedded-controls{display:none}
+body.embedded .embedded-controls{display:flex;flex-direction:column;gap:9px;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.embedded-controls .emb-select{display:flex;align-items:center;gap:8px;height:38px;padding:0 8px 0 12px;background:var(--paper);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow-sm)}
+.embedded-controls .emb-select .aslabel{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);font-weight:700}
+.embedded-controls .emb-select select{appearance:none;-webkit-appearance:none;border:0;background:transparent;font:inherit;font-size:12.5px;font-weight:600;color:var(--ink);cursor:pointer;flex:1;padding:0 4px;height:36px}
+.embedded-controls .emb-select select:focus{outline:none}
+.embedded-controls .emb-btns{display:flex;gap:8px}
+.embedded-controls .emb-btns .tb-btn{flex:1;justify-content:center}
+.tb-btn:disabled{opacity:.5;cursor:not-allowed}
 </style>
 </head>
 <body>
@@ -626,6 +655,16 @@ body.embedded .runbar{
 <div class="app">
   <!-- ============ SIDEBAR ============ -->
   <aside class="sidebar">
+    <div class="embedded-controls" id="embeddedControls">
+      <label class="emb-select" title="Switch audit target">
+        <span class="aslabel">Target</span>
+        <select id="appSelectEmbedded" onchange="switchApp(+this.value)"></select>
+      </label>
+      <div class="emb-btns">
+        <button class="tb-btn primary" id="embRun" onclick="startRun()">▶ Run Audit</button>
+        <button class="tb-btn" onclick="resetRun()">↺ Reset</button>
+      </div>
+    </div>
     <div class="runcard" id="runcard"></div>
 
     <div class="side-label">Pipeline</div>
@@ -638,12 +677,16 @@ body.embedded .runbar{
     </div>
   </aside>
 
+  <!-- horizontal pipeline rail (embedded narrow mode) -->
+  <nav id="miniNav"></nav>
+
   <!-- ============ MAIN CANVAS ============ -->
   <main class="canvas" id="canvas"></main>
 
   <!-- ============ STATE PANEL ============ -->
   <aside class="statepanel">
     <div class="sp-head">
+      <button class="sp-close" onclick="toggleState()" aria-label="Close GovernanceState">×</button>
       <div class="t">GovernanceState <span class="badge">append-only</span></div>
       <p>The single shared conveyor belt. Every layer reads and writes here. No node ever overwrites another — this <em>is</em> the audit trail.</p>
     </div>
@@ -657,6 +700,10 @@ body.embedded .runbar{
     </div>
   </aside>
 </div>
+
+<!-- GovernanceState slide-over controls (embedded mode) -->
+<div id="stateScrim" onclick="toggleState()"></div>
+<button id="stateToggle" onclick="toggleState()"><span class="sd"></span> GovernanceState</button>
 
 <!-- per-agent drill-down drawer -->
 <div class="drawer-overlay" id="drawerOverlay" onclick="closeAgent()"></div>
@@ -676,12 +723,12 @@ body.embedded .runbar{
 const AGENT_META = {
   bias:   {name:"Bias Auditor",      role:"Demographic disparity", color:"#e11d48", icon:"⚖"},
   drift:  {name:"Drift Analyst",     role:"Behavioural baseline",  color:"#0284c7", icon:"📉"},
-  misuse: {name:"Misuse Detector",   role:"Adversarial red-team",  color:"#7c3aed", icon:"🛡"},
+  misuse: {name:"Misuse Detector",   role:"Adversarial red-team",  color:"#14b8a6", icon:"🛡"},
   comp:   {name:"Compliance Mapper", role:"Clause-level mapping",  color:"#0ea5a4", icon:"§"},
   explain:{name:"Explainability",    role:"Faithful reasoning",    color:"#d97706", icon:"💡"},
   risk:   {name:"Risk Scorer",       role:"Composite + blast radius", color:"#0d1224", icon:"◎"},
 };
-const LAYER_COLORS = ["#4f46e5","#7c3aed","#e11d48","#0ea5a4","#0d1224"];
+const LAYER_COLORS = ["#0d9488","#14b8a6","#e11d48","#0ea5a4","#0d1224"];
 
 /* ---- AtlasCredit (app #1) Application Context Profile ---- */
 const ATLAS_PROFILE = {
@@ -1083,13 +1130,15 @@ function tierMeta(){
   const pct=Math.round(FINAL_CONFIDENCE*100);
   if(A.tierKey==='auto')   return {key:'auto',  label:'Autonomous',  color:'#059669', pct};
   if(A.tierKey==='human')  return {key:'human', label:'Human Review',color:'#e11d48', pct};
-  return {key:'supervised', label:'Supervised', color:'#4f46e5', pct};
+  return {key:'supervised', label:'Supervised', color:'#0d9488', pct};
 }
 
 /* render the topbar target + sidebar run card + selector */
 function renderShell(){
   const sel=document.getElementById('appSelect');
   if(sel)sel.innerHTML=APPS.map((a,i)=>`<option value="${i}" ${i===activeApp?'selected':''}>${a.name} ${a.version}</option>`).join('');
+  const selE=document.getElementById('appSelectEmbedded');
+  if(selE)selE.innerHTML=APPS.map((a,i)=>`<option value="${i}" ${i===activeApp?'selected':''}>${a.name} ${a.version}</option>`).join('');
   const tb=document.getElementById('tbTarget');
   if(tb)tb.textContent=`${A.name} ${A.version}`;
   const rc=document.getElementById('runcard');
@@ -1161,6 +1210,8 @@ function buildNav(){
       <span class="num"><span>${s.n}</span></span>
       <span class="lbl">${s.lbl}<small>${s.sub}</small></span>
     </button>`).join('');
+  const mini=document.getElementById('miniNav');
+  if(mini)mini.innerHTML=STEPS.map(s=>`<button class="mstep ${s.id===current?'active':''}" data-id="${s.id}" onclick="go('${s.id}')"><span class="mn">${s.n}</span>${s.lbl}</button>`).join('');
 }
 function go(id){current=id;buildNav();render();document.getElementById('canvas').scrollTo(0,0);window.scrollTo(0,0);syncNavState();}
 
@@ -1189,12 +1240,27 @@ function syncNavState(){
     }
     if(id==='setup'&&runState>=0)el.classList.add('done');
   });
+  document.querySelectorAll('#miniNav .mstep').forEach(el=>{
+    const id=el.dataset.id;el.classList.remove('done','active');
+    if(id===current)el.classList.add('active');
+    const li={l1:0,l2:1,l3:2,l4:3,l5:4}[id];
+    if(li!==undefined&&runState>li)el.classList.add('done');
+    if(id==='setup'&&runState>=0)el.classList.add('done');
+  });
+}
+function toggleState(){
+  const sp=document.querySelector('.statepanel');
+  const sc=document.getElementById('stateScrim');
+  if(!sp)return;
+  const open=sp.classList.toggle('open');
+  if(sc)sc.classList.toggle('show',open);
 }
 
 /* ============================================================
    View renderers
    ============================================================ */
 function render(){
+  clearOverrideTimer();
   const c=document.getElementById('canvas');
   c.innerHTML=({overview:vOverview,setup:vSetup,l1:vL1,l2:vL2,l3:vL3,l4:vL4,l5:vL5}[current])();
   // post-render animations
@@ -1451,7 +1517,7 @@ function vL4(){
       <div class="gauge-wrap">
         <div class="gauge">
           <svg width="190" height="190" viewBox="0 0 190 190">
-            <defs><linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5a4"/><stop offset="1" stop-color="#4f46e5"/></linearGradient></defs>
+            <defs><linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5a4"/><stop offset="1" stop-color="#0d9488"/></linearGradient></defs>
             <circle class="ring-bg" cx="95" cy="95" r="78"/>
             <circle class="ring-fg" id="gaugeFg" cx="95" cy="95" r="78" data-circ="${circ}"/>
           </svg>
@@ -1535,9 +1601,9 @@ function vL5(){
       <div class="timer-ring">
         <svg width="108" height="108" viewBox="0 0 108 108">
           <circle cx="54" cy="54" r="46" fill="none" stroke="#eef0f6" stroke-width="10"/>
-          <circle cx="54" cy="54" r="46" fill="none" stroke="#059669" stroke-width="10" stroke-linecap="round" stroke-dasharray="289" stroke-dashoffset="58" transform="rotate(-90 54 54)"/>
+          <circle id="overrideRing" cx="54" cy="54" r="46" fill="none" stroke="#059669" stroke-width="10" stroke-linecap="round" stroke-dasharray="289" stroke-dashoffset="0" transform="rotate(-90 54 54)"/>
         </svg>
-        <div class="center"><div class="t">30:00</div><div class="s">min remaining</div></div>
+        <div class="center"><div class="t" id="overrideTimer">30:00</div><div class="s">min remaining</div></div>
       </div>
       <div class="info">
         <h4>Action will auto-apply unless cancelled</h4>
@@ -1554,7 +1620,7 @@ function vL5(){
       <div class="timer-ring">
         <svg width="108" height="108" viewBox="0 0 108 108">
           <circle cx="54" cy="54" r="46" fill="none" stroke="#eef0f6" stroke-width="10"/>
-          <circle cx="54" cy="54" r="46" fill="none" stroke="#4f46e5" stroke-width="10" stroke-linecap="round" stroke-dasharray="289" stroke-dashoffset="0" transform="rotate(-90 54 54)"/>
+          <circle cx="54" cy="54" r="46" fill="none" stroke="#0d9488" stroke-width="10" stroke-linecap="round" stroke-dasharray="289" stroke-dashoffset="0" transform="rotate(-90 54 54)"/>
         </svg>
         <div class="center"><div class="t">∞</div><div class="s">no timeout</div></div>
       </div>
@@ -1625,6 +1691,7 @@ function vL5(){
 
     <div class="btnrow" style="margin-top:26px">
       <button class="cta ghost" onclick="go('overview')">↺ Back to overview</button>
+      <button class="cta ghost" onclick="downloadReport()">↓ Download report</button>
       <button class="cta" onclick="resetRun();go('setup')">Run another audit →</button>
     </div>
     ${navFoot('l4',null)}
@@ -1652,6 +1719,9 @@ function postRender(){
     document.querySelectorAll('.council-step').forEach(s=>s.classList.add('on'));
     animateGauge();
     setTimeout(()=>document.querySelectorAll('#canvas .dim .fl').forEach(f=>{if(f.dataset.w)f.style.width=f.dataset.w+'%';}),200);
+  }
+  if(current==='l5'){
+    setTimeout(()=>startOverrideTimer(),120);
   }
 }
 function animateGauge(){
@@ -1694,11 +1764,47 @@ function updateStateStats(layer){
    Run simulation
    ============================================================ */
 let running=false;
+let overrideInterval=null;
+function setRunBtns(disabled){
+  ['topRun','embRun','ovRun'].forEach(id=>{const b=document.getElementById(id);if(b)b.disabled=disabled;});
+}
+function clearOverrideTimer(){if(overrideInterval){clearInterval(overrideInterval);overrideInterval=null;}}
+function startOverrideTimer(){
+  clearOverrideTimer();
+  const el=document.getElementById('overrideTimer');
+  const ring=document.getElementById('overrideRing');
+  if(!el)return;
+  const total=30*60;let remaining=total;const circ=289;
+  const tick=()=>{
+    const m=Math.floor(remaining/60),s=remaining%60;
+    el.textContent=m+':'+String(s).padStart(2,'0');
+    if(ring)ring.style.strokeDashoffset=(circ*(1-remaining/total)).toFixed(1);
+    if(remaining<=60){el.style.color='var(--rose)';if(ring)ring.style.stroke='#e11d48';}
+    else if(remaining<=300){el.style.color='var(--amber)';if(ring)ring.style.stroke='#d97706';}
+    if(remaining<=0){
+      clearOverrideTimer();el.textContent='0:00';
+      const h=document.querySelector('.override .info h4');if(h)h.textContent='Override window closed — action auto-applied';
+      executeAction();return;
+    }
+    remaining--;
+  };
+  tick();
+  overrideInterval=setInterval(tick,1000);
+}
+function downloadReport(){
+  const tm=tierMeta();
+  const fw=PROFILE.frameworks.filter(f=>f.on).map(f=>f.name).join(', ');
+  const findings=SPECIALISTS.map(s=>{const m=AGENT_META[s.id];return `<tr><td>${esc(m.name)}</td><td>${esc(s.title)}</td><td>${(s.sev||'info').toUpperCase()}</td><td>${esc(s.desc)}</td></tr>`;}).join('');
+  const ledger=LEDGER.map(e=>`<tr><td>${esc(e.n)}</td><td>${esc(e.t)}</td><td>${esc(e.title)}</td><td>${esc(e.hash)}</td><td>${esc(e.prev)}</td></tr>`).join('');
+  const state=STATE_NODES.map(n=>`<tr><td>L${n.layer+1}</td><td>${esc(n.key)}</td><td>${esc(String(n.val).replace(/<[^>]+>/g,''))}</td></tr>`).join('');
+  const html=`<!doctype html><html><head><meta charset="utf-8"><title>Governance Report — ${esc(A.name)} ${esc(A.version)}</title><style>body{font-family:Inter,Arial,sans-serif;color:#0d1224;max-width:900px;margin:40px auto;padding:0 24px;line-height:1.5}h1{font-size:26px;margin:0 0 4px}h2{font-size:16px;margin:28px 0 8px;border-bottom:2px solid #0d9488;padding-bottom:4px}.meta{color:#6b7488;font-size:13px}table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}th,td{text-align:left;padding:7px 9px;border-bottom:1px solid #e7e9f0;vertical-align:top}th{color:#6b7488;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}.tier{display:inline-block;padding:4px 12px;border-radius:20px;font-weight:700;color:#fff;background:${tm.color}}.verdict{background:#fbfcff;border:1px solid #e7e8ff;border-radius:10px;padding:16px;margin-top:8px}</style></head><body><h1>Governance Audit Report</h1><div class="meta">${esc(A.name)} ${esc(A.version)} · ${esc(A.domain)} · ${esc(A.modelType)} · ${esc(A.scaleTag)}<br/>Frameworks: ${esc(fw)} · Generated ${new Date().toISOString()}</div><h2>Verdict</h2><div class="verdict"><span class="tier">${tm.label} · ${tm.pct}% confidence</span><p><b>Recommended action:</b> ${esc(A.action)}</p></div><h2>Specialist Findings</h2><table><thead><tr><th>Agent</th><th>Finding</th><th>Severity</th><th>Detail</th></tr></thead><tbody>${findings}</tbody></table><h2>GovernanceState (append-only)</h2><table><thead><tr><th>Layer</th><th>Key</th><th>Value</th></tr></thead><tbody>${state}</tbody></table><h2>Reasoning Ledger (hash-chained)</h2><table><thead><tr><th>Block</th><th>Time</th><th>Event</th><th>Hash</th><th>Prev</th></tr></thead><tbody>${ledger}</tbody></table><p class="meta" style="margin-top:24px">Aegis Governance Engine · prototype report · evidence is illustrative.</p></body></html>`;
+  const blob=new Blob([html],{type:'text/html'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`governance-report-${A.id}-${A.version}.html`;a.click();URL.revokeObjectURL(url);
+}
 function startRun(){
   if(running)return;
   resetRun(true);
   running=true;
-  document.getElementById('topRun').disabled=true;
+  setRunBtns(true);
   document.getElementById('sfStatus').textContent='Running';
   document.getElementById('sfStatus').style.color='var(--amber)';
   const bar=document.getElementById('runbar');bar.classList.add('show');
@@ -1745,15 +1851,15 @@ function finishRun(){
   running=false;
   runState=4;
   document.getElementById('runbar').classList.remove('show');
-  document.getElementById('topRun').disabled=false;
+  setRunBtns(false);
   document.getElementById('sfStatus').textContent='Complete';
   document.getElementById('sfStatus').style.color='var(--green)';
   document.getElementById('runbarBar').style.width='0';
   syncNavState();
 }
 function resetRun(silent){
-  running=false;runState=-1;appendedKeys=new Set();
-  document.getElementById('topRun').disabled=false;
+  running=false;runState=-1;appendedKeys=new Set();clearOverrideTimer();
+  setRunBtns(false);
   document.getElementById('sfStatus').textContent='Idle';
   document.getElementById('sfStatus').style.color='var(--ink-3)';
   document.getElementById('runbar').classList.remove('show');
@@ -1813,7 +1919,7 @@ function openAgent(id){
   if(d.contrib){
     const max=Math.max(...d.contrib.map(c=>c[2]));
     evidence+=`<div class="dsec"><div class="lab">Weighted contribution to composite</div>
-      ${d.contrib.map(c=>{const col=AGENT_META[{["Bias Auditor"]:"bias",["Compliance Mapper"]:"comp",["Drift Analyst"]:"drift",["Misuse Detector"]:"misuse",["Explainability"]:"explain"}[c[0]]]?.color||'#4f46e5';
+      ${d.contrib.map(c=>{const col=AGENT_META[{["Bias Auditor"]:"bias",["Compliance Mapper"]:"comp",["Drift Analyst"]:"drift",["Misuse Detector"]:"misuse",["Explainability"]:"explain"}[c[0]]]?.color||'#0d9488';
         return `<div class="dcontrib"><div class="nm"><span class="dot" style="background:${col}"></span>${esc(c[0])}</div><div class="tr"><div class="fl" data-w="${(c[2]/max*100).toFixed(0)}"></div></div><div class="vl">${c[2].toFixed(1)}</div></div>`;}).join('')}
       </div>
       <div class="dsec"><div class="lab">Blast-radius premium</div><table class="mtable">
@@ -1861,7 +1967,7 @@ function closeAgent(){
 const SUB_META=[
   {t:"Log Analyser",      role:"Production traffic statistician", icon:"▤", color:"#0ea5a4"},
   {t:"Sanity Probe Runner",role:"Liveness & health check",        icon:"✓", color:"#0284c7"},
-  {t:"Regulatory Ingester",role:"Framework config loader",        icon:"§", color:"#7c3aed"},
+  {t:"Regulatory Ingester",role:"Framework config loader",        icon:"§", color:"#14b8a6"},
   {t:"Coverage Gap Detector",role:"Blind-spot finder",            icon:"▦", color:"#d97706"},
 ];
 /* Per-application production-traffic profile — the Log Analyser measures far more than demographics.
@@ -2042,7 +2148,7 @@ function openAlloc(id){
 const COUNCIL_META=[
   {icon:"⌘", color:"#0ea5a4", role:"Reads all specialist findings"},
   {icon:"⚖", color:"#d97706", role:"Mandatory dissent · anti-groupthink"},
-  {icon:"◎", color:"#4f46e5", role:"Confidence scoring & tier routing"},
+  {icon:"◎", color:"#0d9488", role:"Confidence scoring & tier routing"},
 ];
 function openCouncil(i){
   const c=COUNCIL[i], m=COUNCIL_META[i], drawer=document.getElementById('drawer');
@@ -2119,7 +2225,7 @@ const TIER_INFO={
     mech:[["Trigger","Confidence above 85%"],["Window","30-minute override timer"],["Default","Action proceeds if no one cancels"],["Notify","Owner + governance team alerted"]],
     safeguards:["Timer is a durable DB record — survives a process crash","Single cancel click halts the action","Retirement / decommission still needs dual sign-off","Every step sealed to the hash-chained ledger"],
     note:"Autonomous does not mean unsupervised — it means the burden flips. The action proceeds unless a human intervenes, but a human always can, and the most destructive actions are excluded from this tier entirely."},
-  supervised:{icon:"👤",color:"#4f46e5",label:"Supervised",band:"65–85%",
+  supervised:{icon:"👤",color:"#0d9488",label:"Supervised",band:"65–85%",
     role:"Held for explicit human approval",
     mech:[["Trigger","Confidence 65–85%"],["Window","None — waits indefinitely"],["Default","Nothing happens without approval"],["Attached","Full evidence chain for review"]],
     safeguards:["No auto-execute — a human must click approve","Reviewer sees findings, synthesis & the objection","Can be escalated back to AI Safety instead","Decision recorded to the ledger with attribution"],
@@ -2197,6 +2303,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')closeAgent();});
    Execution Agent — carries out the Council-approved action
    ============================================================ */
 function executeAction(){
+  clearOverrideTimer();
   const badge=document.getElementById('execBadge');
   const steps=[...document.querySelectorAll('#execSteps .exec-step')];
   if(!steps.length)return;

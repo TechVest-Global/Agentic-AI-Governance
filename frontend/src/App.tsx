@@ -9,6 +9,7 @@ import { CouncilDeliberation } from "@/pages/CouncilDeliberation";
 import { GovernanceEngine } from "@/pages/GovernanceEngine";
 import { Reports } from "@/pages/Reports";
 import { Verdicts } from "@/pages/Verdicts";
+import { MetricPlan } from "@/pages/MetricPlan";
 
 const pages = {
   dashboard: Dashboard,
@@ -16,6 +17,7 @@ const pages = {
   engine: GovernanceEngine,
   runs: GovernanceEngine,
   agents: AgentIntelligence,
+  "metric-plan": MetricPlan,
   council: CouncilDeliberation,
   verdicts: Verdicts,
   reports: Reports,
