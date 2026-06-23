@@ -146,7 +146,10 @@ class MetricConfig(BaseModel):
 
     @field_validator("thresholds")
     @classmethod
-    def thresholds_must_not_be_empty(cls, value: dict[str, SeverityThresholds]) -> dict[str, SeverityThresholds]:
+    def thresholds_must_not_be_empty(
+        cls,
+        value: dict[str, SeverityThresholds],
+    ) -> dict[str, SeverityThresholds]:
         if not value:
             raise ValueError("thresholds must define at least one framework entry")
         return value
@@ -187,7 +190,7 @@ class SeverityRubric(BaseModel):
     score_range: tuple[float, float]
 
     @model_validator(mode="after")
-    def validate_range_order(self) -> "SeverityRubric":
+    def validate_range_order(self) -> SeverityRubric:
         lo, hi = self.score_range
         if lo >= hi:
             raise ValueError(
@@ -259,7 +262,10 @@ class FrameworkConfig(BaseModel):
 
     @field_validator("agent_instructions")
     @classmethod
-    def validate_agent_keys(cls, value: dict[str, AgentInstructionSet]) -> dict[str, AgentInstructionSet]:
+    def validate_agent_keys(
+        cls,
+        value: dict[str, AgentInstructionSet],
+    ) -> dict[str, AgentInstructionSet]:
         valid_agents = set(AgentOwner.__args__)  # type: ignore[attr-defined]
         unknown = set(value.keys()) - valid_agents
         if unknown:

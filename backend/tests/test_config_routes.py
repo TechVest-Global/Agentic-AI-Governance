@@ -53,11 +53,12 @@ def test_default_governance_configs_can_be_bootstrapped_idempotently(
 
     assert first_response.status_code == 200
     first_result = first_response.json()
-    assert first_result["metrics_created"] == 7
+    assert first_result["metrics_created"] == 9
     assert first_result["metrics_skipped"] == 0
     assert first_result["framework_mappings_created"] == 5
     assert first_result["framework_mappings_skipped"] == 0
-    assert "GOV-M003" in first_result["metric_ids_created"]
+    assert "B-1" in first_result["metric_ids_created"]
+    assert "M-1" in first_result["metric_ids_created"]
     assert "nist_ai_rmf/1.0/MANAGE-1" in first_result["control_refs_created"]
 
     second_response = client.post("/api/v1/governance-config/bootstrap")
@@ -65,7 +66,7 @@ def test_default_governance_configs_can_be_bootstrapped_idempotently(
     assert second_response.status_code == 200
     second_result = second_response.json()
     assert second_result["metrics_created"] == 0
-    assert second_result["metrics_skipped"] == 7
+    assert second_result["metrics_skipped"] == 9
     assert second_result["framework_mappings_created"] == 0
     assert second_result["framework_mappings_skipped"] == 5
 
@@ -74,16 +75,18 @@ def test_default_governance_configs_can_be_bootstrapped_idempotently(
         params={"framework_id": "nist_ai_rmf", "primary_agent": "misuse_agent"},
     )
     assert metric_response.status_code == 200
-    assert [metric["metric_id"] for metric in metric_response.json()] == ["GOV-M003"]
+    assert [metric["metric_id"] for metric in metric_response.json()] == ["M-1"]
 
     mapping_response = client.get(
         "/api/v1/framework-mappings",
-        params={"framework_id": "nist_ai_rmf", "metric_id": "GOV-M003"},
+        params={"framework_id": "nist_ai_rmf", "metric_id": "M-1"},
     )
     assert mapping_response.status_code == 200
     assert [mapping["control_ref"] for mapping in mapping_response.json()] == [
+        "GOVERN-1",
         "MANAGE-1",
         "MAP-1",
+        "MEASURE-1",
     ]
 
 

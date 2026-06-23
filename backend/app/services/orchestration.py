@@ -17,14 +17,13 @@ from app.schemas.governance import (
 )
 from app.services import (
     adaptive_orchestrator,
-    agent_execution,
     audit_ledger,
     context_assembly,
-    council,
     governance_state,
-    metric_execution,
-    reports,
 )
+from app.services.action_reporting import reports
+from app.services.deliberation_council import deliberation as council
+from app.services.specialist_agents import agent_execution, metric_execution
 from app.services.run_validation import get_run_or_raise
 
 

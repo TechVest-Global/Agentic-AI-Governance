@@ -26,6 +26,7 @@ import { RuntimeEventStream } from "@/components/execution/RuntimeEventStream";
 import { ArtifactDrawer } from "@/components/execution/ArtifactDrawer";
 import { RuntimeArchitecture } from "@/components/execution/RuntimeArchitecture";
 import { exportJSON, exportCSV, exportPDF, exportLedger, exportEvidenceBundle } from "@/utils/exports";
+import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
 
 const nodeDescriptions: Record<string, { title: string; description: string }> = {
   context: {
@@ -79,8 +80,30 @@ const severityBg: Record<string, string> = {
   Low: "bg-blue-50",
 };
 
+function formatRunStatus(status: string): "Running" | "Complete" | "Waiting" | "Failed" {
+  if (status === "completed" || status === "report_ready") return "Complete";
+  if (status === "failed" || status === "cancelled") return "Failed";
+  if (status === "created") return "Waiting";
+  return "Running";
+}
+
+function phaseProgress(phase: string) {
+  const order = [
+    "created",
+    "context_assembly",
+    "adaptive_orchestrator",
+    "metric_execution",
+    "specialist_agents",
+    "deliberation_council",
+    "action_reporting",
+  ];
+  const index = Math.max(0, order.indexOf(phase));
+  return Math.round(((index + 1) / order.length) * 100);
+}
+
 export function LiveRuns() {
   const navigateTo = useAppStore((state) => state.navigateTo);
+  const backend = useGovernanceBackend();
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
   const [expandedFinding, setExpandedFinding] = useState<string | null>(null);
@@ -88,7 +111,20 @@ export function LiveRuns() {
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<"pipeline" | "execution">("execution");
 
-  const run = liveRuns[0];
+  const run = backend.latestRun && backend.report
+    ? {
+        id: backend.latestRun.id,
+        system: backend.report.ai_system.name,
+        framework: backend.latestRun.selected_frameworks.length
+          ? backend.latestRun.selected_frameworks.join(" + ")
+          : "No frameworks selected",
+        status: formatRunStatus(backend.latestRun.status),
+        progress: phaseProgress(backend.latestRun.current_phase),
+        startedAt: backend.latestRun.started_at ?? backend.latestRun.created_at,
+        probes: backend.report.counts.metric_results ?? 0,
+        findings: backend.report.counts.findings ?? 0,
+      }
+    : liveRuns[0];
 
   function copyHash(hash: string) {
     navigator.clipboard.writeText(hash).catch(() => {});
@@ -104,7 +140,7 @@ export function LiveRuns() {
           <MetricCard label="Probes Sent" value={run.probes} icon={Send} tone="blue" />
         </div>
         <div title="Number of specialist agents currently executing (out of 6 total)">
-          <MetricCard label="Agents Active" value="5 / 6" icon={Bot} tone="amber" />
+          <MetricCard label="Agents Active" value={backend.agentExecutions.length ? `${backend.agentExecutions.filter((agent) => agent.status === "running").length} / ${backend.agentExecutions.length}` : "0 / 6"} icon={Bot} tone="amber" />
         </div>
         <div title="Findings logged so far — click to expand each one below">
           <MetricCard label="Findings So Far" value={run.findings} icon={ShieldAlert} tone="red" />

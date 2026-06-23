@@ -6,7 +6,7 @@ from sqlmodel import Session
 
 from app.db.session import get_session
 from app.schemas.governance import CouncilDeliberationCreate, CouncilDeliberationRead
-from app.services import council as service
+from app.services.deliberation_council import deliberation as service
 
 router = APIRouter(prefix="/evaluation-runs/{run_id}/council")
 SessionDependency = Annotated[Session, Depends(get_session)]

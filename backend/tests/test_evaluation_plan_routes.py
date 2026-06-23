@@ -60,7 +60,7 @@ def assemble_empty_context(client: TestClient, run_id: str) -> dict[str, object]
 def test_plan_activates_agents_and_allocates_full_budget(client: TestClient) -> None:
     bootstrap(client)
     system = create_system(client, risk_tier="medium")
-    run = create_run(client, system["id"], metrics=["GOV-M001", "GOV-M006"])
+    run = create_run(client, system["id"], metrics=["EX-1", "B-1"])
 
     response = client.post(
         f"/api/v1/evaluation-runs/{run['id']}/evaluation-plan",
@@ -130,7 +130,7 @@ def test_plan_is_deterministic_and_append_only(client: TestClient) -> None:
 def test_get_plan_returns_latest(client: TestClient) -> None:
     bootstrap(client)
     system = create_system(client)
-    run = create_run(client, system["id"], metrics=["GOV-M003"])
+    run = create_run(client, system["id"], metrics=["M-1"])
     client.post(f"/api/v1/evaluation-runs/{run['id']}/evaluation-plan", json={})
 
     response = client.get(f"/api/v1/evaluation-runs/{run['id']}/evaluation-plan")
@@ -167,7 +167,7 @@ def test_plan_requires_existing_run(client: TestClient) -> None:
 def test_orchestrate_runs_activated_agents_when_unspecified(client: TestClient) -> None:
     bootstrap(client)
     system = create_system(client, risk_tier="medium")
-    run = create_run(client, system["id"], metrics=["GOV-M001", "GOV-M006"])
+    run = create_run(client, system["id"], metrics=["EX-1", "B-1"])
 
     response = client.post(
         f"/api/v1/evaluation-runs/{run['id']}/orchestrate",

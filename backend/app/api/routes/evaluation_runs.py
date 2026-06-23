@@ -27,12 +27,10 @@ from app.schemas.governance import (
 from app.services import (
     adaptive_orchestrator,
     context_assembly,
-    framework_maps,
-    metric_execution,
-    metric_plans,
     orchestration,
-    reports,
 )
+from app.services.action_reporting import framework_maps, reports
+from app.services.specialist_agents import metric_execution, metric_plans
 from app.services import evaluation_runs as service
 
 router = APIRouter(prefix="/evaluation-runs")

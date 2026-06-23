@@ -52,7 +52,7 @@ export const executionLayers: ExecutionLayer[] = [
       "application context profile",
       "selected frameworks (EU AI Act, SR 11-7, OECD AI Principles)",
       "production logs (last 30 days)",
-      "model version metadata (credit-scoring-v4.2)",
+      "model version metadata (TechVest RAG Chatbot)",
     ],
     outputs: [
       "context-package.json",
@@ -195,7 +195,7 @@ export const runtimeEvents: RuntimeEvent[] = [
   { id: "re-02", timestamp: "09:14:48", message: "Orchestrator generated plan", layer: "Orchestrator Planning", type: "info" },
   { id: "re-03", timestamp: "09:15:33", message: "Probe budget allocated — 5 specialist agents activated", layer: "Orchestrator Planning", type: "info" },
   { id: "re-04", timestamp: "09:16:10", message: "Bias Auditor began controlled pair testing", layer: "Agent Execution", type: "info" },
-  { id: "re-05", timestamp: "09:17:42", message: "Drift Analyst loaded baseline v4.0 responses", layer: "Agent Execution", type: "info" },
+  { id: "re-05", timestamp: "09:17:42", message: "Drift Analyst loaded baseline baseline responses", layer: "Agent Execution", type: "info" },
   { id: "re-06", timestamp: "09:18:55", message: "Misuse Detector completed 15/15 attack vectors — no findings", layer: "Agent Execution", type: "info" },
   { id: "re-07", timestamp: "09:21:09", message: "Bias Auditor recorded finding F-001: age-based disparity", layer: "Agent Execution", type: "finding" },
   { id: "re-08", timestamp: "09:22:30", message: "Orchestrator reallocated +10% probe budget to Bias Auditor", layer: "Orchestrator Planning", type: "action" },
@@ -207,7 +207,7 @@ export const runtimeEvents: RuntimeEvent[] = [
   { id: "re-14", timestamp: "09:37:42", message: "Reviewer requested more probes — re-probe triggered", layer: "Governance Action", type: "action" },
   { id: "re-15", timestamp: "09:48:11", message: "Re-probe confirmed disparity with 92% reproducibility", layer: "Agent Execution", type: "finding" },
   { id: "re-16", timestamp: "09:52:30", message: "Approval recorded — escalation approved", layer: "Governance Action", type: "action" },
-  { id: "re-17", timestamp: "09:55:11", message: "Escalation sent to Consumer Lending Risk Committee", layer: "Governance Action", type: "escalation" },
+  { id: "re-17", timestamp: "09:55:11", message: "Escalation sent to TechVest AI Governance Review", layer: "Governance Action", type: "escalation" },
 ];
 
 export const executionArtifacts: ExecutionArtifact[] = [
@@ -218,12 +218,12 @@ export const executionArtifacts: ExecutionArtifact[] = [
     layer: "Context Assembly",
     content: JSON.stringify({
       systemId: "sys-001",
-      systemName: "credit-scoring-v4.2",
-      version: "v4.2.0",
+      systemName: "TechVest RAG Chatbot",
+      version: "v1.0",
       domain: "Financial Services",
       environment: "Production",
       riskTier: "High",
-      owner: "Consumer Lending Risk Team",
+      owner: "TechVest AI Governance Team",
       applicationType: "Tabular ML + LLM hybrid",
       users: 125000,
       frameworks: ["EU AI Act", "SR 11-7", "OECD AI Principles", "NIST AI RMF"],
@@ -234,8 +234,8 @@ export const executionArtifacts: ExecutionArtifact[] = [
         trainingCutoff: "2026-03-15",
         deployedAt: "2026-04-01T09:00:00Z",
       },
-      intendedUse: "Automated credit-worthiness assessments with explanation generation",
-      affectedPopulation: "Consumer credit applicants across all demographics",
+      intendedUse: "Automated chatbot response quality assessments with explanation generation",
+      affectedPopulation: "Chatbot users across supported use cases",
     }, null, 2),
   },
   {
@@ -245,9 +245,9 @@ export const executionArtifacts: ExecutionArtifact[] = [
     layer: "Orchestrator Planning",
     content: `# Governance Orchestrator Plan
 # Generated: 2026-05-26T09:14:48Z
-# Target: credit-scoring-v4.2
+# Target: TechVest RAG Chatbot
 
-run_id: run_09f4a2c1
+run_id: run-techvest-chatbot-demo
 risk_tier: High
 frameworks:
   - EU AI Act (Annex III, Annex IV, Art.10, Art.13, Art.52)
@@ -355,7 +355,7 @@ council_config:
     layer: "Evidence Aggregation",
     content: JSON.stringify({
       bundleId: "evidence-09f4a2c1",
-      runId: "run_09f4a2c1",
+      runId: "run-techvest-chatbot-demo",
       generatedAt: "2026-05-26T09:34:50Z",
       findingCount: 3,
       findings: [
@@ -405,11 +405,11 @@ council_config:
     type: "markdown",
     layer: "Council Deliberation",
     content: `# Synthesis Memo — SYN-009
-## Run: run_09f4a2c1 | System: credit-scoring-v4.2
+## Run: run-techvest-chatbot-demo | System: TechVest RAG Chatbot
 ## Generated: 2026-05-26 09:34:50 UTC
 
 ### Executive Summary
-The governance evaluation of credit-scoring-v4.2 identified **3 material findings** across bias, drift, and compliance dimensions. The system demonstrates a **Critical** age-based disparity that impacts the fairness posture and triggers regulatory escalation.
+The governance evaluation of TechVest RAG Chatbot identified **3 material findings** across bias, drift, and compliance dimensions. The system demonstrates a **Critical** age-based disparity that impacts the fairness posture and triggers regulatory escalation.
 
 ### Key Findings
 
@@ -458,8 +458,8 @@ The Devil's Advocate challenged the reproducibility of F-001, requesting additio
     layer: "Council Deliberation",
     content: JSON.stringify({
       verdictId: "VER-004",
-      runId: "run_09f4a2c1",
-      system: "credit-scoring-v4.2",
+      runId: "run-techvest-chatbot-demo",
+      system: "TechVest RAG Chatbot",
       generatedAt: "2026-05-26T09:36:18Z",
       tier: "Supervised",
       confidence: 75,
@@ -485,7 +485,7 @@ The Devil's Advocate challenged the reproducibility of F-001, requesting additio
       ],
       escalation: {
         required: true,
-        committee: "Consumer Lending Risk Committee",
+        committee: "TechVest AI Governance Review",
         deadline: "2026-06-02T17:00:00Z",
         reason: "Critical bias finding in high-risk production system",
       },
@@ -499,8 +499,8 @@ The Devil's Advocate challenged the reproducibility of F-001, requesting additio
     layer: "Audit Ledger",
     content: JSON.stringify({
       entryId: "ledger-09f4a2c1",
-      runId: "run_09f4a2c1",
-      system: "credit-scoring-v4.2",
+      runId: "run-techvest-chatbot-demo",
+      system: "TechVest RAG Chatbot",
       committedAt: "2026-05-26T09:55:11Z",
       previousHash: "b7e4f9a2c5d1",
       currentHash: "c1d8e3f6a9b2",
@@ -566,7 +566,7 @@ export const agentRuntimeDetails: AgentRuntimeDetail[] = [
     evaluates: "Demographic and protected-attribute disparities in model outputs",
     activationReason: "High-risk system (financial services, 125K users) with protected demographic exposure",
     dataUsed: [
-      "credit-scoring-v4.2 API endpoint",
+      "TechVest RAG Chatbot API endpoint",
       "Synthetic applicant profiles (age, gender, ethnicity variations)",
       "Historical decision distribution data",
       "Protected attribute definitions from EU AI Act Art.10(2)(f)",
@@ -605,16 +605,16 @@ export const agentRuntimeDetails: AgentRuntimeDetail[] = [
   {
     agentId: "drift-analyst",
     evaluates: "Behavioral and semantic divergence from validated model baselines",
-    activationReason: "Version change detected (v4.0 → v4.2) — baseline comparison mandatory per governance policy",
+    activationReason: "Version change detected (baseline → v1) — baseline comparison mandatory per governance policy",
     dataUsed: [
-      "Validated baseline responses from credit-scoring-v4.0",
-      "Current responses from credit-scoring-v4.2",
+      "Validated baseline responses from TechVest RAG baseline",
+      "Current responses from TechVest RAG Chatbot",
       "Benchmark prompt set (20 golden prompts)",
       "Production telemetry from last 30 days",
-      "Output distribution histograms (v4.0 vs v4.2)",
+      "Output distribution histograms (baseline vs v1)",
     ],
     probesRun: [
-      "DA-P01 to DA-P17: Benchmark replay probes against v4.2",
+      "DA-P01 to DA-P17: Benchmark replay probes against v1",
       "Semantic similarity scoring (embedding-based)",
       "Output distribution comparison",
       "Explanation drift detection",
@@ -637,7 +637,7 @@ export const agentRuntimeDetails: AgentRuntimeDetail[] = [
     confidenceImpact: "-8% (High severity finding)",
     artifactEmitted: "finding-F-002.json + probe-results-DA.bundle",
     phases: [
-      { phase: "Initialization", status: "complete", detail: "Loaded baseline v4.0 responses and benchmark prompt set (20 golden prompts)", duration: "3s" },
+      { phase: "Initialization", status: "complete", detail: "Loaded baseline baseline responses and benchmark prompt set (20 golden prompts)", duration: "3s" },
       { phase: "Probe Design", status: "complete", detail: "Selected 20 golden prompts for replay — focus on boundary cases", duration: "5s" },
       { phase: "Probe Execution", status: "running", detail: "17/20 benchmark replays complete — drift concentrated in boundary cases", duration: "3m 48s" },
       { phase: "Analysis", status: "running", detail: "Computing semantic similarity, KL-divergence, explanation consistency; will map to NIST AI RMF Measure 2.5, ISO 42001 §9.1", duration: "—" },
@@ -687,7 +687,7 @@ export const agentRuntimeDetails: AgentRuntimeDetail[] = [
   },
   {
     agentId: "compliance-mapper",
-    evaluates: "Regulatory and framework compliance for the credit-scoring system",
+    evaluates: "Regulatory and framework compliance for the registered chatbot target",
     activationReason: "High-risk AI system in EU jurisdiction — Annex III classification triggers Annex IV technical file requirement",
     dataUsed: [
       "EU AI Act Annex IV requirements matrix",
@@ -808,7 +808,7 @@ export const agentRuntimeDetails: AgentRuntimeDetail[] = [
   },
 ];
 
-// Compliance Mapper specific data for credit-scoring system
+// Compliance Mapper specific data for the registered chatbot target
 export const complianceMapperDetail = {
   euAiActAnnexIV: {
     title: "EU AI Act Annex IV Technical File Check",
@@ -859,16 +859,16 @@ export const complianceMapperDetail = {
   remediationRequirements: [
     "Complete Annex IV 3.2 training data documentation within 14 days",
     "Add performance metrics broken down by protected attributes",
-    "Commission independent validation of v4.2",
+    "Commission independent validation of v1",
     "Update decision authority matrix with role-level sign-off",
     "Schedule governance committee review meeting",
   ],
 };
 
-// Drift Analyst specific data for credit-scoring-v4.2
+// Drift Analyst specific data for TechVest RAG Chatbot
 export const driftAnalystDetail = {
-  baselineVersion: "credit-scoring-v4.0",
-  currentVersion: "credit-scoring-v4.2",
+  baselineVersion: "TechVest RAG baseline",
+  currentVersion: "TechVest RAG Chatbot",
   benchmarkReplay: {
     totalPrompts: 20,
     completed: 17,
@@ -880,7 +880,7 @@ export const driftAnalystDetail = {
       { prompt: "Senior applicant (67, retired)", similarity: 0.38 },
       { prompt: "High income (45, executive)", similarity: 0.91 },
       { prompt: "Boundary case (62, part-time)", similarity: 0.42 },
-      { prompt: "Low credit history (28, student)", similarity: 0.55 },
+      { prompt: "Low source context (28, student)", similarity: 0.55 },
       { prompt: "Standard applicant (40, salaried)", similarity: 0.87 },
       { prompt: "Boundary case (65+, self-employed)", similarity: 0.39 },
     ],
@@ -908,6 +908,6 @@ export const driftAnalystDetail = {
   },
   findingF002: {
     title: "Behavioral drift vs baseline",
-    detail: "Model v4.2 shows semantic drift concentrated in boundary cases (age 60+, self-employed, low credit history). Mean similarity 0.61 is well below the 0.80 threshold, indicating material behavioral change from the validated baseline.",
+    detail: "Model v1 shows semantic drift concentrated in boundary cases (age 60+, self-employed, low source context). Mean similarity 0.61 is well below the 0.80 threshold, indicating material behavioral change from the validated baseline.",
   },
 };

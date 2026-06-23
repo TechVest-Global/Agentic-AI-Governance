@@ -24,7 +24,7 @@ def create_run(client: TestClient, system_id: str) -> dict[str, object]:
         json={
             "ai_system_id": system_id,
             "selected_frameworks": ["nist_ai_rmf"],
-            "selected_metrics": ["GOV-M001", "GOV-M002"],
+            "selected_metrics": ["EX-1", "M-1"],
         },
     )
     assert response.status_code == 201

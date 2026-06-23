@@ -21,6 +21,12 @@ dev = [
     "pytest>=8.2.0",
     "ruff>=0.5.0",
 ]
+garak = [
+    "garak>=0.13.0",
+]
+pyrit = [
+    "pyrit>=0.14.0",
+]
 
 [tool.setuptools]
 package-dir = {"" = "backend"}

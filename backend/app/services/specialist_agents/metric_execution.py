@@ -8,8 +8,8 @@ from app.models.evidence import EvidenceRecord, MetricResult
 from app.schemas.governance import MetricExecutionCreate, MetricExecutionRead
 from app.services.evaluators.base import MetricEvaluationInput
 from app.services.evaluators.registry import get_evaluator
-from app.services.metric_plans import build_metric_plan
 from app.services.run_validation import get_run_or_raise
+from app.services.specialist_agents.metric_plans import build_metric_plan
 
 
 def run_mock_metrics(
