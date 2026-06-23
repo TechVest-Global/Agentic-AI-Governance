@@ -15,8 +15,8 @@ function downloadBlob(content: string, filename: string, type: string) {
 
 export function exportJSON() {
   const data = {
-    runId: "run_09f4a2c1",
-    system: "credit-scoring-v4.2",
+    runId: "run-techvest-chatbot-demo",
+    system: "TechVest RAG Chatbot",
     exportedAt: new Date().toISOString(),
     agents: agents,
     findings: findings,
@@ -71,7 +71,7 @@ export function exportEvidenceBundle() {
 export function exportPDF() {
   // Trigger a report-style view in a new window
   const reportHtml = `<!DOCTYPE html>
-<html><head><title>Governance Report — credit-scoring-v4.2</title>
+<html><head><title>Governance Report — TechVest RAG Chatbot</title>
 <style>
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 800px; margin: 0 auto; padding: 40px; color: #1e293b; }
 h1 { font-size: 24px; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; }
@@ -89,7 +89,7 @@ th { background: #f8fafc; font-weight: 600; }
 @media print { body { padding: 20px; } }
 </style></head><body>
 <h1>AI Governance Report</h1>
-<p class="meta">System: credit-scoring-v4.2 | Run: run_09f4a2c1 | Date: ${new Date().toISOString().split("T")[0]} | Frameworks: EU AI Act, SR 11-7, OECD AI Principles</p>
+<p class="meta">System: TechVest RAG Chatbot | Run: run-techvest-chatbot-demo | Date: ${new Date().toISOString().split("T")[0]} | Frameworks: NIST AI RMF, OWASP LLM Top 10, ISO 42001</p>
 
 <h2>Executive Summary</h2>
 <p>Governance evaluation identified 3 material findings (1 Critical, 1 High, 1 Medium). System assigned <strong>Supervised Operation</strong> tier with mandatory human review for 65+ applicant decisions.</p>

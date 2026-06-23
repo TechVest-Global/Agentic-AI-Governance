@@ -26,7 +26,6 @@ import {
   agentRuntimeDetails,
   complianceMapperDetail,
   driftAnalystDetail,
-  type AgentRuntimeDetail,
 } from "@/data/executionLayerData";
 
 type AgentTab = "Overview" | "Probes" | "Evidence" | "Frameworks" | "Remediation" | "Runtime";
@@ -118,7 +117,7 @@ const agents: IntelligenceAgent[] = [
     frameworks: ["NIST AI RMF Measure 2.5", "ISO 42001 §9.1", "EU AI Act Art.15"],
     remediation: ["review prompt template changes", "revalidate baseline", "increase replay coverage", "flag model owner"],
     timeline: [
-      { label: "Initialization", status: "complete", detail: "Loaded baseline v4.0 responses and benchmarks" },
+      { label: "Initialization", status: "complete", detail: "Loaded baseline baseline responses and benchmarks" },
       { label: "Probe Design", status: "complete", detail: "Selected 20 golden prompts for replay" },
       { label: "Probe Execution", status: "running", detail: "17/20 benchmark replays complete" },
       { label: "Analysis", status: "running", detail: "Computing semantic similarity and KL-divergence" },
@@ -216,6 +215,7 @@ export function AgentIntelligence() {
   const backendCompleted = backend.agentExecutions.filter((agent) => agent.status === "completed").length;
   const backendFailed = backend.agentExecutions.filter((agent) => agent.status === "failed").length;
   const backendFindings = backend.agentExecutions.reduce((sum, agent) => sum + agent.finding_count, 0);
+  const targetSystemName = backend.report?.ai_system.name ?? "TechVest RAG Chatbot";
 
   return (
     <div className="space-y-5">
@@ -228,7 +228,7 @@ export function AgentIntelligence() {
               </div>
               <div className="min-w-0">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-brand-700">Specialist Agent Swarm</p>
-                <h2 className="mt-1 text-[20px] font-semibold tracking-tight text-slate-950">Parallel governance intelligence for credit-scoring-v4.2</h2>
+                <h2 className="mt-1 text-[20px] font-semibold tracking-tight text-slate-950">Parallel governance intelligence for {targetSystemName}</h2>
                 <p className="mt-2 max-w-3xl text-[13px] leading-5 text-slate-600">
                   Specialist agents probe the same target from different risk perspectives, write evidence into shared run state, and carry confidence impacts into council scoring.
                 </p>
@@ -686,7 +686,7 @@ function RuntimeDetail({ label, value }: { label: string; value: string }) {
   );
 }
 
-// Compliance Mapper specific detail for credit-scoring system
+// Compliance Mapper specific detail for the registered target system
 function ComplianceMapperDetail() {
   const [expandedSection, setExpandedSection] = useState<string | null>("euAiActAnnexIV");
   const d = complianceMapperDetail;
@@ -700,7 +700,7 @@ function ComplianceMapperDetail() {
 
   return (
     <div className="mt-4 space-y-3">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Credit-Scoring Compliance Detail</p>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Chatbot Compliance Detail</p>
 
       {sections.map(({ key, data }) => (
         <div key={key} className="rounded border border-slate-200 overflow-hidden">
@@ -778,13 +778,13 @@ function ComplianceMapperDetail() {
   );
 }
 
-// Drift Analyst specific detail for credit-scoring-v4.2
+// Drift Analyst specific detail for TechVest RAG Chatbot
 function DriftAnalystDetail() {
   const d = driftAnalystDetail;
 
   return (
     <div className="mt-4 space-y-4">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Drift Analysis — credit-scoring-v4.2 vs baseline</p>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Drift Analysis — TechVest RAG Chatbot vs baseline</p>
 
       {/* Version comparison */}
       <div className="grid gap-3 md:grid-cols-3">

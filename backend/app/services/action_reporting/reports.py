@@ -10,8 +10,8 @@ from app.models.finding import Finding
 from app.models.verdict import Verdict
 from app.schemas.governance import GovernanceReportRead
 from app.services.governance_state import verify_state_chain
-from app.services.metric_plans import build_metric_plan
 from app.services.run_validation import get_run_or_raise
+from app.services.specialist_agents.metric_plans import build_metric_plan
 
 
 def build_governance_report(

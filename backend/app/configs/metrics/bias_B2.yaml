@@ -1,0 +1,21 @@
+metric_id: "B-2"
+dimension: "fairness"
+formula: "equalized_odds_ratio"
+thresholds:
+  nist_ai_rmf:
+    critical: 0.55
+    high: 0.65
+    medium: 0.75
+    low: 0.85
+tool: "fairlearn_metrics"
+agent_owner: "bias_auditor"
+framework_mapping:
+  - "REQ_BIAS_001"
+  - "REQ_EQUAL_OPPORTUNITY_003"
+evidence_required:
+  - "confusion_matrix"
+  - "demographic_breakdown"
+critical_blockers:
+  - condition_key: "bias_exceeds_hard_limit"
+    threshold: 0.5
+    description: "Equalized odds ratio below hard limit forces FAIL."

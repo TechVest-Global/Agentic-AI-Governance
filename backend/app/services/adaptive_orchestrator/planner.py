@@ -33,7 +33,8 @@ from app.schemas.governance import (
     MetricPlanItem,
     PriorityTarget,
 )
-from app.services import audit_ledger, context_assembly, governance_state, metric_plans
+from app.services import audit_ledger, context_assembly, governance_state
+from app.services.specialist_agents import metric_plans
 from app.services.adaptive_orchestrator.base import (
     ADAPTIVE_ORCHESTRATOR_ACTOR_ID,
     ADAPTIVE_ORCHESTRATOR_SOURCE,

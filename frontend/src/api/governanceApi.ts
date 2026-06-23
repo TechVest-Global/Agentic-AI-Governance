@@ -1,6 +1,65 @@
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "http://127.0.0.1:8000/api/v1";
 
+
+export type BackendAISystem = {
+  id: string;
+  name: string;
+  description?: string | null;
+  owner: string;
+  system_type: string;
+  risk_tier: "low" | "medium" | "high";
+  deployment_environment: string;
+  selected_frameworks: string[];
+  model_provider: string;
+  model_name?: string | null;
+  model_version?: string | null;
+  target_endpoint_ref?: string | null;
+  metadata_json: Record<string, unknown>;
+  status: "registered" | "active" | "inactive" | "archived";
+  created_at: string;
+  updated_at?: string | null;
+};
+
+export type BackendAISystemCreate = {
+  name: string;
+  description?: string | null;
+  owner: string;
+  system_type: string;
+  risk_tier: "low" | "medium" | "high";
+  deployment_environment: string;
+  selected_frameworks: string[];
+  model_provider: string;
+  model_name?: string | null;
+  model_version?: string | null;
+  target_endpoint_ref?: string | null;
+  metadata_json?: Record<string, unknown>;
+};
+
+export type BackendAISystemCapability = {
+  id: string;
+  ai_system_id: string;
+  name: string;
+  description?: string | null;
+  capability_type: "inference" | "retrieval" | "generation" | "action" | "integration" | "other";
+  endpoint_ref: string;
+  http_method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  input_schema: Record<string, unknown>;
+  output_schema: Record<string, unknown>;
+  permissions: string[];
+  side_effect_level: "none" | "read" | "write" | "destructive";
+  requires_human_review: boolean;
+  enabled: boolean;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+  updated_at?: string | null;
+};
+
+export type BackendAISystemCapabilityCreate = Omit<
+  BackendAISystemCapability,
+  "id" | "ai_system_id" | "created_at" | "updated_at"
+>;
+
 export type EvaluationRun = {
   id: string;
   ai_system_id: string;
@@ -168,3 +227,23 @@ export async function runCouncilDeliberation(runId: string): Promise<CouncilDeli
   });
 }
 
+export async function listAISystems(): Promise<BackendAISystem[]> {
+  return request<BackendAISystem[]>("/ai-systems");
+}
+
+export async function createAISystem(payload: BackendAISystemCreate): Promise<BackendAISystem> {
+  return request<BackendAISystem>("/ai-systems", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createAISystemCapability(
+  systemId: string,
+  payload: BackendAISystemCapabilityCreate,
+): Promise<BackendAISystemCapability> {
+  return request<BackendAISystemCapability>(`/ai-systems/${systemId}/capabilities`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}

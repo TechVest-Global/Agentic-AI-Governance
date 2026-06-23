@@ -30,6 +30,7 @@ import { Card, CardHeader } from "@/components/ui/Card";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { agents, findings, liveRuns, riskSeries, systems } from "@/data/mockData";
 import { useAppStore } from "@/store/useAppStore";
+import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
 
 type DashboardTab = "Overview" | "Compliance" | "Risk Analysis" | "Agent Performance" | "Metrics & Sources";
 
@@ -94,8 +95,14 @@ const tooltipProps = {
 export function Dashboard() {
   const [activeTab, setActiveTab] = useState<DashboardTab>("Overview");
   const navigateTo = useAppStore((state) => state.navigateTo);
-  const activeRuns = liveRuns.filter((run) => run.status === "Running").length;
+  const backend = useGovernanceBackend();
+  const activeRuns = backend.latestRun
+    ? backend.latestRun.status === "completed" || backend.latestRun.status === "failed"
+      ? 0
+      : 1
+    : liveRuns.filter((run) => run.status === "Running").length;
   const blockedSystems = systems.filter((system) => system.status === "Blocked").length;
+  const openFindings = backend.report?.counts.findings ?? findings.length;
 
   return (
     <div className="space-y-5">
@@ -117,9 +124,9 @@ export function Dashboard() {
         />
         <KpiCard
           icon={ShieldAlert}
-          value={findings.length}
+          value={openFindings}
           label="Open Findings"
-          detail="+1 Critical"
+          detail={backend.usingBackend ? "from latest backend run" : "prototype fallback"}
           trend="down"
           tone="red"
           onClick={() => navigateTo("/verdicts")}

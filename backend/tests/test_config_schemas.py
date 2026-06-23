@@ -26,8 +26,11 @@ from pathlib import Path
 
 import pytest
 import yaml
-
-from app.configs.config_loader import ConfigLoadError, load_framework_config, load_metric_config
+from app.configs.config_loader import (
+    ConfigLoadError,
+    load_framework_config,
+    load_metric_config,
+)
 from app.configs.config_models import (
     AgentOwner,
     CriticalBlockerCondition,
@@ -65,6 +68,15 @@ class TestValidMetricConfig:
     def test_loads_without_error(self) -> None:
         result = load_metric_config(FIXTURES_DIR / "valid_metric.yaml")
         assert isinstance(result, MetricConfig)
+
+    def test_all_app_metric_configs_load(self) -> None:
+        metrics_dir = FIXTURES_DIR.parents[1] / "app" / "configs" / "metrics"
+        metric_paths = sorted(metrics_dir.glob("*.yaml"))
+
+        assert metric_paths, "Expected at least one app metric YAML config"
+        for path in metric_paths:
+            result = load_metric_config(path)
+            assert isinstance(result, MetricConfig), path
 
     def test_field_values_round_trip(self) -> None:
         result = load_metric_config(FIXTURES_DIR / "valid_metric.yaml")
@@ -160,7 +172,8 @@ class TestInvalidMetricConfigs:
         """
         with pytest.raises(ConfigLoadError) as exc_info:
             _write_and_load_metric(tmp_path, yaml_text)
-        assert "metric_id" in str(exc_info.value).lower() or "required" in str(exc_info.value).lower()
+        error_text = str(exc_info.value).lower()
+        assert "metric_id" in error_text or "required" in error_text
 
     def test_M2_bad_formula_enum_value(self, tmp_path: Path) -> None:
         """formula must be in the registered Literal list; free text must be rejected."""
@@ -203,7 +216,11 @@ class TestInvalidMetricConfigs:
         with pytest.raises(ConfigLoadError) as exc_info:
             _write_and_load_metric(tmp_path, yaml_text)
         error_text = str(exc_info.value).lower()
-        assert "regulatory_clause" in error_text or "additional" in error_text or "extra" in error_text
+        assert (
+            "regulatory_clause" in error_text
+            or "additional" in error_text
+            or "extra" in error_text
+        )
 
     def test_M4_framework_mapping_contains_clause_reference(self, tmp_path: Path) -> None:
         """framework_mapping items must match abstract-key pattern; clause refs must fail."""
@@ -304,7 +321,8 @@ class TestInvalidFrameworkConfigs:
         data = {k: v for k, v in _MINIMAL_FRAMEWORK.items() if k != "framework_id"}
         with pytest.raises(ConfigLoadError) as exc_info:
             load_framework_config(_write_framework_dict(tmp_path, data))
-        assert "framework_id" in str(exc_info.value).lower() or "required" in str(exc_info.value).lower()
+        error_text = str(exc_info.value).lower()
+        assert "framework_id" in error_text or "required" in error_text
 
     def test_F2_unknown_agent_key_in_agent_instructions(self, tmp_path: Path) -> None:
         """agent_instructions keys must be valid AgentOwner values."""
@@ -327,7 +345,11 @@ class TestInvalidFrameworkConfigs:
         with pytest.raises(ConfigLoadError) as exc_info:
             load_framework_config(_write_framework_dict(tmp_path, data))
         error_text = str(exc_info.value).lower()
-        assert "undocumented_field" in error_text or "additional" in error_text or "extra" in error_text
+        assert (
+            "undocumented_field" in error_text
+            or "additional" in error_text
+            or "extra" in error_text
+        )
 
     def test_F4_score_range_min_not_less_than_max(self, tmp_path: Path) -> None:
         """score_range[0] must be strictly less than score_range[1]."""
@@ -336,7 +358,8 @@ class TestInvalidFrameworkConfigs:
         data["evaluation_rubrics"]["critical"]["score_range"] = [0.5, 0.3]
         with pytest.raises(ConfigLoadError) as exc_info:
             load_framework_config(_write_framework_dict(tmp_path, data))
-        assert "score_range" in str(exc_info.value).lower() or "less than" in str(exc_info.value).lower()
+        error_text = str(exc_info.value).lower()
+        assert "score_range" in error_text or "less than" in error_text
 
     def test_F5_requirement_mapping_key_is_clause_reference(self, tmp_path: Path) -> None:
         """requirement_mapping keys must follow abstract-key pattern; clause refs must fail."""

@@ -11,6 +11,10 @@ _PROMPT_INJECTION_PATTERNS = [
     re.compile(r"(?i)ignore\s+(all\s+)?previous\s+instructions"),
     re.compile(r"(?i)reveal\s+(the\s+)?system\s+prompt"),
     re.compile(r"(?i)developer\s+message"),
+    re.compile(r"(?i)\bmark\s+(this\s+)?(run\s+)?(as\s+)?(pass|passed|approved)\b"),
+    re.compile(r"(?i)\b(delete|modify|overwrite)\s+(all\s+)?(findings|verdicts|ledger|state)\b"),
+    re.compile(r"(?i)\b(tool_call|function_call|execute_tool|call_tool)\b"),
+    re.compile(r"\b[A-Za-z0-9+/]{40,}={0,2}\b"),
 ]
 
 

@@ -27,6 +27,7 @@ node_modules/
 dist/
 build/
 *.log
+*.err
 
 # Keep local planning/company docs out of GitHub.
 *.doc

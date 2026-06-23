@@ -18,7 +18,7 @@ const frameworkTabs: Framework[] = ["EU AI Act", "SR 11-7", "NIST AI RMF", "OECD
 
 const srRows = [
   { clause: "Model Inventory", status: "Pass", evidence: "System registered in governance registry with owner, version, and risk tier." },
-  { clause: "Validation Independence", status: "Pass", evidence: "Independent review panel signed off on v4.0. v4.2 review is in progress." },
+  { clause: "Validation Independence", status: "Pass", evidence: "Independent review panel signed off on baseline. v1 review is in progress." },
   { clause: "Ongoing Monitoring", status: "Partial", evidence: "Automated governance runs active. Human review cadence is below quarterly threshold." },
   { clause: "Documentation Completeness", status: "Fail", evidence: "Model development documentation missing key assumption registry entries." },
 ];
@@ -31,8 +31,8 @@ const nistRows = [
 ];
 
 const clauseDetail: Record<string, string> = {
-  "Art.52 Transparency": "Requires that users are informed they are interacting with an AI system. For credit scoring, all decisioning explanations must be disclosed in the customer-facing communication.",
-  "Annex III Risk Classification": "Systems used to assess individuals' creditworthiness fall under EU AI Act Annex III §5(b) as high-risk AI. This determines the full conformity assessment requirement.",
+  "Art.52 Transparency": "Requires that users are informed they are interacting with an AI system. For TechVest chatbot, all decisioning explanations must be disclosed in the customer-facing communication.",
+  "Annex III Risk Classification": "Systems used to assess individuals' chatbot response quality fall under EU AI Act Annex III §5(b) as high-risk AI. This determines the full conformity assessment requirement.",
   "Art.10(2)(f) Data Governance": "Requires that training data is examined for possible biases, including those that could lead to prohibited discrimination on protected attributes including age.",
   "Annex IV 3.2 Technical Docs": "The conformity file must include a detailed description of training data, including its provenance, collection methodology, and preprocessing steps.",
   "Art.26 Deployer Obligations": "Deployers of high-risk AI must implement technical and organizational measures including human oversight, monitoring, and logging of system usage.",
@@ -70,6 +70,7 @@ export function Reports() {
   const backend = useGovernanceBackend();
   const [activeFramework, setActiveFramework] = useState<Framework>("EU AI Act");
   const [expandedClause, setExpandedClause] = useState<string | null>(null);
+  const reportSystemName = backend.report?.ai_system.name ?? "TechVest RAG Chatbot";
 
   const backendRowsByFramework = useMemo(() => {
     if (!backend.frameworkMap?.controls.length) return {};
@@ -160,7 +161,7 @@ export function Reports() {
       <div className="flex items-start justify-between border-b border-slate-200 pb-5">
         <div className="max-w-2xl space-y-1">
           <p className="text-[13px] leading-5 text-slate-600">
-            Clause-level compliance reports for <span className="font-semibold text-slate-950">credit-scoring-v4.2</span> generated from the last governance run. Select a framework to view its compliance posture. Click any row to read the full clause context and evidence detail.
+            Clause-level compliance reports for <span className="font-semibold text-slate-950">{reportSystemName}</span> generated from the last governance run. Select a framework to view its compliance posture. Click any row to read the full clause context and evidence detail.
           </p>
           <p className="text-[12px] leading-5 text-slate-500">
             {frameworkContext[activeFramework]}

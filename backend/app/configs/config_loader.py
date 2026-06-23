@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Union
 
 import jsonschema
 import yaml
@@ -30,6 +29,7 @@ from app.configs.config_models import FrameworkConfig, MetricConfig
 # alongside the source.  The loader resolves them relative to this file so imports
 # work regardless of the working directory.
 _SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
+_METRICS_DIR = Path(__file__).resolve().parent / "metrics"
 _METRIC_SCHEMA_PATH = _SCHEMA_DIR / "metric_config.schema.json"
 _FRAMEWORK_SCHEMA_PATH = _SCHEMA_DIR / "framework_config.schema.json"
 
@@ -44,7 +44,12 @@ class ConfigLoadError(Exception):
         detail: Human-readable explanation of the failure.
     """
 
-    def __init__(self, config_path: Path, detail: str, schema_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        config_path: Path,
+        detail: str,
+        schema_path: Path | None = None,
+    ) -> None:
         self.config_path = config_path
         self.schema_path = schema_path
         self.detail = detail
@@ -77,7 +82,12 @@ def _load_json_schema(schema_path: Path) -> dict:
     return json.loads(schema_path.read_text(encoding="utf-8"))
 
 
-def _validate_against_schema(data: object, schema: dict, config_path: Path, schema_path: Path) -> None:
+def _validate_against_schema(
+    data: object,
+    schema: dict,
+    config_path: Path,
+    schema_path: Path,
+) -> None:
     """Validate data against JSON Schema, raising ConfigLoadError on failure."""
     validator_cls = jsonschema.validators.validator_for(schema)
     validator_cls.check_schema(schema)
@@ -93,7 +103,7 @@ def _validate_against_schema(data: object, schema: dict, config_path: Path, sche
         raise ConfigLoadError(config_path, detail, schema_path=schema_path)
 
 
-def load_metric_config(path: Union[str, Path]) -> MetricConfig:
+def load_metric_config(path: str | Path) -> MetricConfig:
     """Load and validate a metric YAML config file.
 
     Pipeline: YAML parse → JSON Schema validation → Pydantic parse → MetricConfig.
@@ -116,7 +126,10 @@ def load_metric_config(path: Union[str, Path]) -> MetricConfig:
     except ValidationError as exc:
         # JSON Schema passed but Pydantic caught something finer-grained (e.g. a
         # cross-field constraint).  Surface the Pydantic errors clearly.
-        messages = [f"  [{' → '.join(str(l) for l in e['loc'])}] {e['msg']}" for e in exc.errors()]
+        messages = [
+            f"  [{' -> '.join(str(location) for location in error['loc'])}] {error['msg']}"
+            for error in exc.errors()
+        ]
         raise ConfigLoadError(
             config_path,
             "Pydantic validation failed after schema check:\n" + "\n".join(messages),
@@ -124,7 +137,14 @@ def load_metric_config(path: Union[str, Path]) -> MetricConfig:
         ) from exc
 
 
-def load_framework_config(path: Union[str, Path]) -> FrameworkConfig:
+def load_metric_configs_from_dir(directory: str | Path | None = None) -> list[MetricConfig]:
+    """Load every metric YAML config in a directory in deterministic order."""
+    config_dir = Path(directory) if directory is not None else _METRICS_DIR
+    metric_paths = sorted(config_dir.glob("*.yaml"))
+    return [load_metric_config(path) for path in metric_paths]
+
+
+def load_framework_config(path: str | Path) -> FrameworkConfig:
     """Load and validate a framework YAML config file.
 
     Pipeline: YAML parse → JSON Schema validation → Pydantic parse → FrameworkConfig.
@@ -145,7 +165,10 @@ def load_framework_config(path: Union[str, Path]) -> FrameworkConfig:
     try:
         return FrameworkConfig.model_validate(data)
     except ValidationError as exc:
-        messages = [f"  [{' → '.join(str(l) for l in e['loc'])}] {e['msg']}" for e in exc.errors()]
+        messages = [
+            f"  [{' -> '.join(str(location) for location in error['loc'])}] {error['msg']}"
+            for error in exc.errors()
+        ]
         raise ConfigLoadError(
             config_path,
             "Pydantic validation failed after schema check:\n" + "\n".join(messages),

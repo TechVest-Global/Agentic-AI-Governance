@@ -6,7 +6,7 @@ from sqlmodel import Session
 
 from app.db.session import get_session
 from app.schemas.governance import AgentExecutionRead, AgentRunCreate, AgentRunRead
-from app.services import agent_execution as service
+from app.services.specialist_agents import agent_execution as service
 
 router = APIRouter(prefix="/evaluation-runs/{run_id}/agents")
 SessionDependency = Annotated[Session, Depends(get_session)]

@@ -1,0 +1,17 @@
+metric_id: "B-3"
+dimension: "fairness"
+formula: "calibration_score"
+thresholds:
+  nist_ai_rmf:
+    critical: 0.6
+    high: 0.7
+    medium: 0.8
+    low: 0.9
+tool: "fairlearn_metrics"
+agent_owner: "bias_auditor"
+framework_mapping:
+  - "REQ_BIAS_001"
+  - "REQ_CALIBRATION_004"
+evidence_required:
+  - "calibration_curve"
+  - "demographic_breakdown"

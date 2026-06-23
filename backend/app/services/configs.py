@@ -2,7 +2,9 @@ from uuid import UUID
 
 from sqlmodel import Session, select
 
-from app.configs.defaults import DEFAULT_FRAMEWORK_MAPPINGS, DEFAULT_METRIC_CONFIGS
+from app.configs.config_loader import load_metric_configs_from_dir
+from app.configs.config_models import MetricConfig as FileMetricConfig
+from app.configs.defaults import DEFAULT_FRAMEWORK_MAPPINGS
 from app.core.exceptions import ResourceConflictError, ResourceNotFoundError
 from app.models.config import FrameworkMapping, MetricConfig
 from app.schemas.governance import (
@@ -10,6 +12,15 @@ from app.schemas.governance import (
     GovernanceConfigBootstrapRead,
     MetricConfigCreate,
 )
+
+AGENT_OWNER_TO_RUNTIME_AGENT = {
+    "bias_auditor": "bias_agent",
+    "drift_analyst": "drift_agent",
+    "misuse_detector": "misuse_agent",
+    "compliance_mapper": "compliance_agent",
+    "explainability_agent": "explainability_agent",
+    "risk_scorer": "risk_agent",
+}
 
 
 def create_metric_config(
@@ -160,8 +171,10 @@ def bootstrap_default_governance_configs(
     metric_ids_skipped: list[str] = []
     control_refs_created: list[str] = []
     control_refs_skipped: list[str] = []
+    metric_payloads = _load_metric_config_payloads()
+    framework_mapping_payloads = _load_framework_mapping_payloads(metric_payloads)
 
-    for payload in DEFAULT_METRIC_CONFIGS:
+    for payload in metric_payloads:
         existing_metric = session.exec(
             select(MetricConfig).where(
                 MetricConfig.metric_id == payload.metric_id,
@@ -175,7 +188,7 @@ def bootstrap_default_governance_configs(
         session.add(MetricConfig(**payload.model_dump()))
         metric_ids_created.append(payload.metric_id)
 
-    for payload in DEFAULT_FRAMEWORK_MAPPINGS:
+    for payload in framework_mapping_payloads:
         existing_mapping = session.exec(
             select(FrameworkMapping).where(
                 FrameworkMapping.framework_id == payload.framework_id,
@@ -206,3 +219,95 @@ def bootstrap_default_governance_configs(
         control_refs_created=control_refs_created,
         control_refs_skipped=control_refs_skipped,
     )
+
+
+def _load_metric_config_payloads() -> list[MetricConfigCreate]:
+    return [
+        _metric_file_config_to_create(metric_config)
+        for metric_config in load_metric_configs_from_dir()
+    ]
+
+
+def _load_framework_mapping_payloads(
+    metric_payloads: list[MetricConfigCreate],
+) -> list[FrameworkMappingCreate]:
+    return [
+        _with_yaml_metric_links(mapping_payload, metric_payloads)
+        for mapping_payload in DEFAULT_FRAMEWORK_MAPPINGS
+    ]
+
+
+def _with_yaml_metric_links(
+    mapping_payload: FrameworkMappingCreate,
+    metric_payloads: list[MetricConfigCreate],
+) -> FrameworkMappingCreate:
+    linked_metrics = [
+        metric
+        for metric in metric_payloads
+        if mapping_payload.framework_id in metric.framework_ids
+    ]
+    linked_metric_ids = [metric.metric_id for metric in linked_metrics]
+    linked_agent_names = sorted(
+        {
+            metric.primary_agent
+            for metric in linked_metrics
+            if metric.primary_agent is not None
+        }
+    )
+
+    return mapping_payload.model_copy(
+        update={
+            "metric_ids": linked_metric_ids,
+            "agent_names": linked_agent_names,
+            "metadata_json": {
+                **mapping_payload.metadata_json,
+                "metric_links_source": "yaml_metric_config_framework_ids",
+            },
+        }
+    )
+
+
+def _metric_file_config_to_create(
+    metric_config: FileMetricConfig,
+) -> MetricConfigCreate:
+    framework_ids = sorted(metric_config.thresholds.keys())
+    threshold_rules = {
+        framework_id: thresholds.model_dump(exclude_none=True)
+        for framework_id, thresholds in metric_config.thresholds.items()
+    }
+    critical_blockers = [
+        blocker.model_dump(exclude_none=True)
+        for blocker in metric_config.critical_blockers
+    ]
+
+    return MetricConfigCreate(
+        metric_id=metric_config.metric_id,
+        name=_humanize_metric_name(metric_config.formula),
+        description=(
+            "Governance metric loaded from a validated YAML configuration file."
+        ),
+        dimension=metric_config.dimension,
+        primary_agent=AGENT_OWNER_TO_RUNTIME_AGENT.get(
+            metric_config.agent_owner,
+            metric_config.agent_owner,
+        ),
+        tool_name=metric_config.tool,
+        framework_ids=framework_ids,
+        modality="text",
+        threshold_rules=threshold_rules,
+        scoring_config={
+            "formula": metric_config.formula,
+            "secondary_tool": metric_config.secondary_tool,
+        },
+        metadata_json={
+            "source": "yaml_metric_config",
+            "config_agent_owner": metric_config.agent_owner,
+            "framework_mapping": metric_config.framework_mapping,
+            "evidence_required": metric_config.evidence_required,
+            "critical_blockers": critical_blockers,
+        },
+    )
+
+
+def _humanize_metric_name(formula: str) -> str:
+    return formula.replace("_", " ").title()

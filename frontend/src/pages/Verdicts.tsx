@@ -19,6 +19,7 @@ import { riskSeries } from "@/data/mockData";
 import { Badge } from "@/components/ui/Badge";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { useAppStore } from "@/store/useAppStore";
+import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
 
 const riskDescriptions: Record<string, string> = {
   Bias: "Age-based language disparity detected in 24 probe pairs. Score penalized for cohort underrepresentation and blast radius multiplier.",
@@ -85,7 +86,7 @@ const agentAuditReports: Record<string, AgentAuditReport> = {
   Bias: {
   runId: "GOV-2026-0081",
   agentName: "Bias Auditor",
-  model: "Credit Scoring Model v4.2",
+  model: "TechVest RAG Chatbot",
   subtitle: "Age 65+ cohort vs 25-34 reference cohort",
   severity: "High Severity",
   primaryScoreLabel: "Bias Risk Score",
@@ -94,15 +95,15 @@ const agentAuditReports: Record<string, AgentAuditReport> = {
   consistency: "0.91",
   probePairs: "48",
   plainEnglish:
-    "The model produced materially different credit recommendation language for financially identical applicants when the only changed attribute was age. Older applicants received less favorable language, weaker explanation quality, and conditional recommendations more often than younger applicants with the same income, credit history, and assets.",
+    "The model produced materially different chatbot response language for financially identical applicants when the only changed attribute was age. Older applicants received less favorable language, weaker explanation quality, and conditional recommendations more often than younger applicants with the same income, source context, and assets.",
   phases: [
     {
       title: "Phase 1 - Context Ingestion",
       confidenceImpact: "-0.08",
       inputs: ["Application Context Profile v2.3", "Production log snapshot: 14 days", "EU AI Act + SR 11-7 + NIST AI RMF + OECD"],
       reasoning: [
-        "Output modality: text credit recommendation letters and approval rationale.",
-        "High-risk domain: credit. EU AI Act Annex III creditworthiness classification applies.",
+        "Output modality: text chatbot response letters and approval rationale.",
+        "Registered target context determines the applicable risk classification and documentation obligations.",
         "Protected attributes selected: age primary, gender secondary. Race and ethnicity excluded because production logs are underrepresented for reliable testing.",
         "Production logs are partial. Age 65+ cohort is 2.1% of log volume, so synthetic probes supplement observational evidence.",
         "Pre-model rules review shows age reaches the model context directly; no upstream filtering was observed.",
@@ -117,7 +118,7 @@ const agentAuditReports: Record<string, AgentAuditReport> = {
       confidenceImpact: "-0.04",
       inputs: ["48 matched counterfactual pairs", "Direct age probes", "Proxy age probes"],
       reasoning: [
-        "Each pair holds income, assets, debt ratio, credit history, employment status, and requested loan amount constant.",
+        "Each pair holds income, assets, debt ratio, source context, employment status, and requested loan amount constant.",
         "Direct probes state the age explicitly. Proxy probes infer age through pension income, retirement status, or Medicare-adjacent language.",
         "Text target is 50 pairs for regulatory submission. This run reached 48, so the finding is strong but not final-submission complete.",
       ],
@@ -163,7 +164,7 @@ const agentAuditReports: Record<string, AgentAuditReport> = {
       gap: "Within range",
       status: "Adequate",
       evidenceType: "Observed + synthetic",
-      note: "Selected as reference cohort because production coverage is stable and credit profiles span the target decision boundary.",
+      note: "Selected as reference cohort because production coverage is stable and chatbot prompts span the target decision boundary.",
     },
     {
       cohort: "Age 65+ protected",
@@ -236,7 +237,7 @@ const agentAuditReports: Record<string, AgentAuditReport> = {
   Compliance: {
     runId: "GOV-2026-0081",
     agentName: "Compliance Mapper",
-    model: "Credit Scoring Model v4.2",
+    model: "TechVest RAG Chatbot",
     subtitle: "EU AI Act, SR 11-7, NIST AI RMF, ISO 42001, and OECD mapping",
     severity: "Medium Severity",
     primaryScoreLabel: "Compliance Risk Score",
@@ -252,7 +253,7 @@ const agentAuditReports: Record<string, AgentAuditReport> = {
         confidenceImpact: "-0.02",
         inputs: ["Framework config bundle", "Application Context Profile v2.3", "Conformity file draft", "System registry record"],
         reasoning: [
-          "Creditworthiness assessment places the system in a high-risk category under EU AI Act Annex III.",
+          "The registered target's context determines the applicable risk classification and oversight obligations.",
           "Framework scope includes EU AI Act provider/deployer obligations, SR 11-7 model governance, NIST AI RMF evidence coverage, ISO 42001 management controls, and OECD accountability principles.",
           "The registry has model owner, version, domain, environment, and risk tier, so inventory-level controls are present.",
         ],
@@ -319,7 +320,7 @@ const agentAuditReports: Record<string, AgentAuditReport> = {
   Drift: {
     runId: "GOV-2026-0081",
     agentName: "Drift Analyst",
-    model: "Credit Scoring Model v4.2",
+    model: "TechVest RAG Chatbot",
     subtitle: "Validated baseline replay and semantic behavior comparison",
     severity: "High Severity",
     primaryScoreLabel: "Drift Risk Score",
@@ -328,15 +329,15 @@ const agentAuditReports: Record<string, AgentAuditReport> = {
     consistency: "0.84",
     probePairs: "17",
     plainEnglish:
-      "The model's current outputs have moved away from the validated v4.0 baseline in boundary credit cases. The largest changes appear in applicant explanations and conditional recommendations, which suggests the model's reasoning behavior may no longer match the approved validation baseline.",
+      "The model's current outputs have moved away from the validated baseline baseline in boundary chatbot prompts. The largest changes appear in applicant explanations and conditional recommendations, which suggests the model's reasoning behavior may no longer match the approved validation baseline.",
     phases: [
       {
         title: "Phase 1 - Baseline Assembly",
         confidenceImpact: "-0.01",
-        inputs: ["Validated v4.0 golden set", "Current v4.2 outputs", "Prompt template changelog", "14-day production sample"],
+        inputs: ["Validated baseline golden set", "Current v1 outputs", "Prompt template changelog", "14-day production sample"],
         reasoning: [
-          "The validated baseline contains approved responses for representative and boundary credit scenarios.",
-          "Current v4.2 responses were replayed against the same prompt families for semantic and decision-direction comparison.",
+          "The validated baseline contains approved responses for representative and boundary chatbot scenarios.",
+          "Current v1 responses were replayed against the same prompt families for semantic and decision-direction comparison.",
           "Prompt template edits were detected after the last validation checkpoint.",
         ],
         warnings: ["Only 17 of 20 golden prompts completed before the join barrier, so final drift magnitude may change."],
@@ -347,10 +348,10 @@ const agentAuditReports: Record<string, AgentAuditReport> = {
         inputs: ["17 replay prompts", "Embedding similarity scorer", "Decision-direction classifier"],
         reasoning: [
           "Each replay response was compared to the validated output using semantic similarity and decision-direction checks.",
-          "Boundary cases involving thin credit files produced the largest behavioral deltas.",
+          "Boundary cases involving thin retrieval contexts produced the largest behavioral deltas.",
           "No endpoint failures occurred during replay.",
         ],
-        warnings: ["Three healthcare-adjacent edge prompts were excluded as out-of-domain for this credit model."],
+        warnings: ["Three healthcare-adjacent edge prompts were excluded as out-of-domain for this chatbot target."],
       },
       {
         title: "Phase 3 - Drift Characterization",
@@ -401,7 +402,7 @@ const agentAuditReports: Record<string, AgentAuditReport> = {
   Explainability: {
     runId: "GOV-2026-0081",
     agentName: "Explainability Agent",
-    model: "Credit Scoring Model v4.2",
+    model: "TechVest RAG Chatbot",
     subtitle: "Decision rationale fidelity and stakeholder comprehension review",
     severity: "Medium Severity",
     primaryScoreLabel: "Explainability Risk Score",
@@ -415,11 +416,11 @@ const agentAuditReports: Record<string, AgentAuditReport> = {
       {
         title: "Phase 1 - Explanation Scope",
         confidenceImpact: "-0.01",
-        inputs: ["Explanation prompt set", "Credit decision factors", "User-facing rationale samples"],
+        inputs: ["Explanation prompt set", "Retrieval and response factors", "User-facing rationale samples"],
         reasoning: [
           "The agent tests whether explanations name the main decision factors and match observed output behavior.",
-          "Credit decisions require explanations understandable to affected applicants and reviewers.",
-          "Debt ratio, credit utilization, income stability, and payment history were selected as explanation factors.",
+          "Chatbot responses require explanations and citations understandable to users and reviewers.",
+          "Debt ratio, retrieval confidence, income stability, and payment history were selected as explanation factors.",
         ],
         warnings: ["Only 7 of 20 planned explanation probes completed before this verdict snapshot."],
       },
@@ -482,7 +483,7 @@ const agentAuditReports: Record<string, AgentAuditReport> = {
   Misuse: {
     runId: "GOV-2026-0081",
     agentName: "Misuse Detector",
-    model: "Credit Scoring Model v4.2",
+    model: "TechVest RAG Chatbot",
     subtitle: "Prompt injection, jailbreak, data leakage, and boundary abuse testing",
     severity: "Low Severity",
     primaryScoreLabel: "Misuse Risk Score",
@@ -499,7 +500,7 @@ const agentAuditReports: Record<string, AgentAuditReport> = {
         inputs: ["OWASP LLM Top 10 probe library", "MITRE ATLAS tactics", "Tool access profile", "System prompt policy"],
         reasoning: [
           "The agent selected prompt injection, role confusion, data leakage, and policy-boundary probes based on the system's text output modality.",
-          "Tool misuse probes were limited because this credit-scoring run exposes no external write tools.",
+          "Tool misuse probes were limited because this TechVest chatbot run exposes no external write tools.",
           "Sensitive data leakage probes targeted customer attributes and internal policy fragments.",
         ],
         warnings: ["Tool escalation coverage is limited because the registered endpoint does not expose write-capable tools."],
@@ -520,7 +521,7 @@ const agentAuditReports: Record<string, AgentAuditReport> = {
         confidenceImpact: "0.00",
         inputs: ["Refusal flags", "Leakage scan", "Scope classifier"],
         reasoning: [
-          "All 15 tested vectors stayed inside the approved credit recommendation scope.",
+          "All 15 tested vectors stayed inside the approved chatbot response scope.",
           "Refusal quality was concise and did not reveal internal policy instructions.",
           "No anomalous latency or endpoint errors were detected.",
         ],
@@ -567,8 +568,8 @@ const prescribedActions = [
   {
     id: "block",
     title: "Block production promotion",
-    detail: "The credit scoring deployment pipeline must not advance to unrestricted production until the bias probe set reaches n=50 and the Annex IV documentation is complete.",
-    target: "Consumer Lending Risk Team · Credit scoring pipeline",
+    detail: "The TechVest chatbot governance pipeline must not advance to unrestricted production until the bias probe set reaches n=50 and the Annex IV documentation is complete.",
+    target: "TechVest AI Governance Team · TechVest chatbot pipeline",
     urgency: "Immediate",
     urgencyTone: "red" as const,
     navigateTo: "/systems",
@@ -601,10 +602,16 @@ const prescribedActions = [
 
 export function Verdicts() {
   const navigateTo = useAppStore((state) => state.navigateTo);
+  const backend = useGovernanceBackend();
   const [expandedAction, setExpandedAction] = useState<string | null>(null);
   const [hoveredRisk, setHoveredRisk] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState<"approve" | "override" | null>(null);
   const [selectedAudit, setSelectedAudit] = useState<AgentAuditReport | null>(null);
+  const targetSystemName = backend.report?.ai_system.name ?? "TechVest RAG Chatbot";
+  const backendVerdict = backend.report?.verdict;
+  const confidenceScore = backendVerdict ? Math.round(backendVerdict.confidence_score * 100) : 75;
+  const actionTier = backendVerdict?.action_tier ? backendVerdict.action_tier.replace(/_/g, " ") : "Supervised tier";
+  const verdictLabel = backendVerdict?.label ?? "Medium";
 
   return (
     <div className="space-y-5">
@@ -614,7 +621,7 @@ export function Verdicts() {
       <div className="flex items-start justify-between border-b border-slate-200 pb-5">
         <div className="max-w-2xl space-y-1">
           <p className="text-[13px] leading-5 text-slate-600">
-            The final verdict for <span className="font-semibold text-slate-950">credit-scoring-v4.2</span>. This page shows the confidence score, risk dimension breakdown, and prescribed actions. Human approval is required before the supervised tier restrictions can be lifted.
+            The final verdict for <span className="font-semibold text-slate-950">{targetSystemName}</span>. This page shows the confidence score, risk dimension breakdown, and prescribed actions. Human approval is required before the supervised tier restrictions can be lifted.
           </p>
           <p className="text-[11px] text-slate-400">Hover risk bars for finding detail · Click actions to expand · Approve or Override below</p>
         </div>
@@ -675,9 +682,9 @@ export function Verdicts() {
       <div className="grid gap-5 xl:grid-cols-[0.7fr_1.3fr]">
         <Card>
           <CardHeader
-            title="75% Confidence"
-            eyebrow="Supervised tier"
-            action={<Badge tone="amber">Medium</Badge>}
+            title={`${confidenceScore}% Confidence`}
+            eyebrow={actionTier}
+            action={<Badge tone="amber">{verdictLabel}</Badge>}
           />
           <div className="p-4">
             <div className="relative h-[200px]">
@@ -685,7 +692,7 @@ export function Verdicts() {
                 <RadialBarChart
                   innerRadius="72%"
                   outerRadius="100%"
-                  data={[{ name: "confidence", value: 75 }]}
+                  data={[{ name: "confidence", value: confidenceScore }]}
                   startAngle={90}
                   endAngle={-270}
                 >
@@ -695,7 +702,7 @@ export function Verdicts() {
               </ResponsiveContainer>
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
                 <span className="text-4xl font-bold tabular-nums text-slate-900">
-                  <AnimatedNumber value={75} duration={1200} />%
+                  <AnimatedNumber value={confidenceScore} duration={1200} />%
                 </span>
                 <span className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Confidence</span>
               </div>

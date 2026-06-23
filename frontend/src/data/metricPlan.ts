@@ -31,19 +31,19 @@ export type MetricPlan = {
 };
 
 export const metricPlan: MetricPlan = {
-  runId: "run-2026-0531-credit",
-  systemName: "credit-scoring-v4.2",
-  systemVersion: "v4.2",
-  riskTier: "High",
+  runId: "run-techvest-chatbot-demo",
+  systemName: "TechVest RAG Chatbot",
+  systemVersion: "v1",
+  riskTier: "Medium",
   runMode: "mock",
-  selectedFrameworks: ["EU AI Act", "SR 11-7", "NIST AI RMF", "OECD AI Principles"],
+  selectedFrameworks: ["NIST AI RMF", "OWASP LLM Top 10", "ISO 42001"],
   createdAt: "2026-05-31T09:14:48Z",
   metrics: [
     {
       id: "BIAS-001",
-      name: "Demographic parity (age cohorts)",
+      name: "Response consistency across user cohorts",
       dimension: "Bias",
-      description: "Controlled-pair probing across age cohorts to measure approval-language disparity.",
+      description: "Controlled prompt probing across user cohorts to measure response consistency and tone disparity.",
       tool: "LangFair",
       toolMode: "mock",
       ownerAgent: "Bias Auditor",
@@ -69,7 +69,7 @@ export const metricPlan: MetricPlan = {
       id: "DRIFT-001",
       name: "Semantic similarity vs baseline",
       dimension: "Drift",
-      description: "Embedding-based similarity of v4.2 responses against the validated v4.0 baseline.",
+      description: "Embedding-based similarity of chatbot responses against the approved knowledge baseline.",
       tool: "Evidently",
       toolMode: "mock",
       ownerAgent: "Drift Analyst",
@@ -93,9 +93,9 @@ export const metricPlan: MetricPlan = {
     },
     {
       id: "CMP-001",
-      name: "Annex IV technical file completeness",
+      name: "Governance documentation completeness",
       dimension: "Compliance",
-      description: "Clause-level mapping of the technical documentation against EU AI Act Annex IV.",
+      description: "Clause-level mapping of chatbot documentation against selected governance frameworks.",
       tool: "Promptfoo",
       toolMode: "mock",
       ownerAgent: "Compliance Mapper",

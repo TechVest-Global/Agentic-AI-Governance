@@ -194,7 +194,7 @@ def test_agent_failure_is_stored_as_degraded_execution(
     system = create_system(client, name="Failing Agent System")
     run = create_run(client, system["id"], [])
     monkeypatch.setattr(
-        "app.services.agent_execution.select_agents",
+        "app.services.specialist_agents.agent_execution.select_agents",
         lambda agent_names=None: [FailingAgent()],
     )
 

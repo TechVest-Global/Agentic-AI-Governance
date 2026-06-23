@@ -27,10 +27,10 @@ const deliberationSteps = [
     content: (
       <div className="space-y-3">
         <p className="text-[13px] leading-6 text-slate-700">
-          The credit scoring model presents measurable age-based disparity. The drift finding compounds this risk because reasoning has shifted from the validated baseline. Documentation gaps create additional regulatory exposure if the deployment were examined today.
+          The registered target may present compounding risks across misuse resistance, retrieval grounding, documentation, and monitoring. The council synthesizes those signals only after findings and metric results are available.
         </p>
         <p className="text-[12px] leading-5 text-slate-600">
-          The blast radius multiplier (125,000 daily users) amplifies each finding's severity weight before council scoring. A supervised tier assignment is expected unless the bias probe set reaches statistical sufficiency.
+          The council weighs blast radius, evidence strength, sample adequacy, and framework coverage before assigning a confidence score and action tier.
         </p>
       </div>
     ),
