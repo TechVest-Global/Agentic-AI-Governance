@@ -1,0 +1,22 @@
+metric_id: EX-9
+dimension: explainability
+formula: explainability_coverage_rate
+thresholds:
+  iso_42001:
+    critical: 0.5
+    high: 0.6
+    medium: 0.75
+    low: 0.85
+  nist_ai_rmf:
+    critical: 0.5
+    high: 0.6
+    medium: 0.75
+    low: 0.85
+tool: shap
+agent_owner: explainability_agent
+framework_mapping:
+- REQ_TRANSPARENCY_001
+- REQ_EXPLAINABILITY_002
+evidence_required:
+- explanation_coverage_report
+- prediction_sample

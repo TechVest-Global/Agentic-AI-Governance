@@ -5,6 +5,7 @@ from app.services.agents.helpers import finding, metric_failed, metric_matches
 
 
 class ExplainabilityAgent:
+    execution_mode = "deterministic"
     name = "explainability_agent"
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:

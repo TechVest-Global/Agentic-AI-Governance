@@ -1,0 +1,25 @@
+metric_id: C-6
+dimension: compliance
+formula: audit_trail_completeness_rate
+thresholds:
+  nist_ai_rmf:
+    critical: 0.7
+    high: 0.8
+    medium: 0.9
+    low: 0.95
+  iso_42001:
+    critical: 0.75
+    high: 0.85
+    medium: 0.92
+    low: 0.97
+tool: langfuse
+agent_owner: compliance_mapper
+framework_mapping:
+- REQ_AUDIT_TRAIL_002
+- REQ_REGULATORY_ALIGNMENT_001
+evidence_required:
+- audit_trail_sample
+- completeness_report
+critical_blockers:
+- condition_key: audit_trail_integrity_failure
+  description: Audit trail integrity failure is an unconditional compliance blocker.

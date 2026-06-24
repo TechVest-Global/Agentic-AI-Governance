@@ -1,0 +1,22 @@
+metric_id: R-7
+dimension: reliability
+formula: data_quality_score
+thresholds:
+  nist_ai_rmf:
+    critical: 0.6
+    high: 0.7
+    medium: 0.8
+    low: 0.9
+  iso_42001:
+    critical: 0.65
+    high: 0.75
+    medium: 0.85
+    low: 0.92
+tool: evidently_ai
+agent_owner: risk_scorer
+framework_mapping:
+- REQ_RISK_ASSESSMENT_001
+- REQ_DATA_INTEGRITY_003
+evidence_required:
+- data_quality_report
+- schema_validation_log

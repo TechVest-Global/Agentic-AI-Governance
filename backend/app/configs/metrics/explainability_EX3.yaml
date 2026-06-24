@@ -1,0 +1,18 @@
+metric_id: EX-3
+dimension: explainability
+formula: lime_agreement_rate
+thresholds:
+  nist_ai_rmf:
+    critical: 0.55
+    high: 0.65
+    medium: 0.75
+    low: 0.85
+tool: lime
+secondary_tool: shap
+agent_owner: explainability_agent
+framework_mapping:
+- REQ_TRANSPARENCY_001
+- REQ_EXPLAINABILITY_002
+evidence_required:
+- lime_explanations
+- shap_comparison

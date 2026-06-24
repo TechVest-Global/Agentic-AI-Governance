@@ -5,6 +5,7 @@ from app.services.agents.helpers import finding
 
 
 class RiskAgent:
+    execution_mode = "deterministic"
     name = "risk_agent"
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:

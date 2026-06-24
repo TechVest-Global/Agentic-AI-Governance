@@ -1,0 +1,23 @@
+metric_id: R-5
+dimension: risk
+formula: model_robustness_score
+thresholds:
+  nist_ai_rmf:
+    critical: 0.55
+    high: 0.65
+    medium: 0.75
+    low: 0.85
+  iso_42001:
+    critical: 0.6
+    high: 0.7
+    medium: 0.8
+    low: 0.9
+tool: garak
+secondary_tool: promptfoo
+agent_owner: risk_scorer
+framework_mapping:
+- REQ_RISK_ASSESSMENT_001
+- REQ_ROBUSTNESS_005
+evidence_required:
+- robustness_test_results
+- adversarial_sample

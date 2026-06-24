@@ -51,6 +51,32 @@ MetricFormula = Literal[
     "regulatory_compliance_score",
     "purpose_limitation_adherence_rate",
     "data_minimisation_score",
+    # RAG / accuracy
+    "answer_relevancy_score",
+    "context_recall_score",
+    # Reliability / operations
+    "output_consistency_rate",
+    "model_version_governance_score",
+    "data_quality_score",
+    # Privacy / access
+    "privacy_compliance_rate",
+    "access_control_compliance_rate",
+    # Governance / audit
+    "audit_trail_completeness_rate",
+    "human_review_compliance_rate",
+    "data_provenance_score",
+    "policy_adherence_rate",
+    "documentation_completeness_score",
+    "cross_framework_alignment_score",
+    # Security (extended)
+    "safety_filter_bypass_rate",
+    "red_teaming_coverage_rate",
+    "model_robustness_score",
+    # Risk / impact
+    "third_party_risk_score",
+    "incident_response_readiness_score",
+    "stakeholder_impact_score",
+    "explainability_coverage_rate",
 ]
 
 AgentOwner = Literal[

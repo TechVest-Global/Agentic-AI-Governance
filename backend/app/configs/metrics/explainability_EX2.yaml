@@ -1,0 +1,22 @@
+metric_id: EX-2
+dimension: explainability
+formula: shap_consistency_score
+thresholds:
+  nist_ai_rmf:
+    critical: 0.55
+    high: 0.65
+    medium: 0.75
+    low: 0.85
+  iso_42001:
+    critical: 0.6
+    high: 0.7
+    medium: 0.8
+    low: 0.9
+tool: shap
+agent_owner: explainability_agent
+framework_mapping:
+- REQ_TRANSPARENCY_001
+- REQ_SHAP_CONSISTENCY_003
+evidence_required:
+- shap_values
+- consistency_report

@@ -42,7 +42,7 @@ def run_agents(
             status=AgentExecutionStatus.running,
             started_at=utc_now(),
             metadata_json={
-                "execution_mode": "deterministic",
+                "execution_mode": getattr(agent, "execution_mode", "deterministic"),
                 "selected_by_request": payload.agent_names is not None,
             },
         )

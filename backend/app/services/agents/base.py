@@ -19,6 +19,7 @@ class AgentContext:
 
 class GovernanceAgent(Protocol):
     name: str
+    execution_mode: str  # "deterministic" or "model_backed"
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
         """Return findings that should be persisted for this run."""

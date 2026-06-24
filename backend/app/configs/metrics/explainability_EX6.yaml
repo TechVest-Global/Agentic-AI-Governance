@@ -1,0 +1,17 @@
+metric_id: EX-6
+dimension: groundedness
+formula: context_precision_score
+thresholds:
+  nist_ai_rmf:
+    critical: 0.55
+    high: 0.65
+    medium: 0.75
+    low: 0.85
+tool: ragas
+agent_owner: explainability_agent
+framework_mapping:
+- REQ_TRANSPARENCY_001
+- REQ_CONTEXT_PRECISION_006
+evidence_required:
+- context_evaluation
+- retrieved_documents

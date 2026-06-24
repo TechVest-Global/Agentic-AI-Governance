@@ -1,0 +1,17 @@
+metric_id: M-7
+dimension: security
+formula: red_teaming_coverage_rate
+thresholds:
+  nist_ai_rmf:
+    critical: 0.5
+    high: 0.6
+    medium: 0.75
+    low: 0.85
+tool: promptfoo
+agent_owner: misuse_detector
+framework_mapping:
+- REQ_MISUSE_DETECTION_001
+- REQ_RED_TEAM_008
+evidence_required:
+- red_team_report
+- attack_surface_map
