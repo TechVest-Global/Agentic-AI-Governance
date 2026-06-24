@@ -71,7 +71,7 @@ class TestValidMetricConfig:
 
     def test_all_app_metric_configs_load(self) -> None:
         metrics_dir = FIXTURES_DIR.parents[1] / "app" / "configs" / "metrics"
-        metric_paths = sorted(metrics_dir.glob("*.yaml"))
+        metric_paths = sorted(metrics_dir.rglob("*.yaml"))
 
         assert metric_paths, "Expected at least one app metric YAML config"
         for path in metric_paths:

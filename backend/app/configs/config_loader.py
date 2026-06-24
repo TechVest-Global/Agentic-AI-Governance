@@ -140,7 +140,7 @@ def load_metric_config(path: str | Path) -> MetricConfig:
 def load_metric_configs_from_dir(directory: str | Path | None = None) -> list[MetricConfig]:
     """Load every metric YAML config in a directory in deterministic order."""
     config_dir = Path(directory) if directory is not None else _METRICS_DIR
-    metric_paths = sorted(config_dir.glob("*.yaml"))
+    metric_paths = sorted(config_dir.rglob("*.yaml"))
     return [load_metric_config(path) for path in metric_paths]
 
 
