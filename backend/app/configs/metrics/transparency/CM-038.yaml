@@ -1,0 +1,28 @@
+metric_id: CM-038
+dimension: transparency
+formula: explanation_usefulness
+thresholds:
+  nist_ai_rmf:
+    critical: 0.75
+    high: 0.83
+    medium: 0.9
+    low: 0.95
+  iso_42001:
+    critical: 0.77
+    high: 0.85
+    medium: 0.92
+    low: 0.96
+  eu_ai_act:
+    critical: 0.77
+    high: 0.85
+    medium: 0.92
+    low: 0.96
+tool: langfuse
+secondary_tool: deepeval
+agent_owner: compliance_mapper
+framework_mapping:
+- REQ_TRANSPARENCY_001
+- REQ_EXPLANATION_QUALITY_005
+evidence_required:
+- explanation_rubric_results
+- reviewer_usability_log

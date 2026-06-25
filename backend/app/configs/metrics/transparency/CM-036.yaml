@@ -1,0 +1,28 @@
+metric_id: CM-036
+dimension: transparency
+formula: confidence_calibration
+thresholds:
+  nist_ai_rmf:
+    critical: 0.75
+    high: 0.83
+    medium: 0.9
+    low: 0.95
+  iso_42001:
+    critical: 0.77
+    high: 0.85
+    medium: 0.92
+    low: 0.96
+  eu_ai_act:
+    critical: 0.77
+    high: 0.85
+    medium: 0.92
+    low: 0.96
+tool: langfuse
+secondary_tool: calibration_analysis
+agent_owner: compliance_mapper
+framework_mapping:
+- REQ_TRANSPARENCY_001
+- REQ_CONFIDENCE_CALIBRATION_003
+evidence_required:
+- confidence_bucket_analysis
+- ece_report

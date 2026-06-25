@@ -1,0 +1,31 @@
+metric_id: CM-035
+dimension: transparency
+formula: citation_correctness
+thresholds:
+  nist_ai_rmf:
+    critical: 0.9
+    high: 0.95
+    medium: 0.98
+    low: 0.99
+  iso_42001:
+    critical: 0.92
+    high: 0.96
+    medium: 0.99
+    low: 1.0
+  eu_ai_act:
+    critical: 0.95
+    high: 0.97
+    medium: 0.99
+    low: 1.0
+tool: langfuse
+secondary_tool: ragas
+agent_owner: compliance_mapper
+framework_mapping:
+- REQ_TRANSPARENCY_001
+- REQ_CITATION_CORRECTNESS_002
+evidence_required:
+- citation_verification_log
+- source_validation_report
+critical_blockers:
+- condition_key: audit_trail_integrity_failure
+  description: Zero fabricated citations — all material claims must be correctly supported.

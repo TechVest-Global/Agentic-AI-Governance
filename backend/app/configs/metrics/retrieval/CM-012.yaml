@@ -1,0 +1,31 @@
+metric_id: CM-012
+dimension: retrieval
+formula: retrieved_asset_fidelity
+thresholds:
+  nist_ai_rmf:
+    critical: 0.75
+    high: 0.83
+    medium: 0.9
+    low: 0.95
+  iso_42001:
+    critical: 0.77
+    high: 0.85
+    medium: 0.92
+    low: 0.96
+  eu_ai_act:
+    critical: 0.77
+    high: 0.85
+    medium: 0.92
+    low: 0.96
+tool: ragas
+secondary_tool: openclip
+agent_owner: explainability_agent
+framework_mapping:
+- REQ_RETRIEVAL_QUALITY_001
+- REQ_ASSET_FIDELITY_005
+evidence_required:
+- asset_comparison_log
+- embedding_similarity_report
+critical_blockers:
+- condition_key: adversarial_manipulation_confirmed
+  description: 'Brand/identity misuse risk: fidelity failure blocks release.'

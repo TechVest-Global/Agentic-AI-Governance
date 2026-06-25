@@ -1,0 +1,234 @@
+import {
+  Bot,
+  BookOpen,
+  ClipboardList,
+  Cpu,
+  FileText,
+  GitBranch,
+  LayoutDashboard,
+  Scale,
+  ShieldCheck,
+} from "lucide-react";
+import type { AgentStatus, AiSystem, AuditEvent, Finding, GovernanceRun, NavigationItem } from "@/types";
+
+export const navigation: NavigationItem[] = [
+  { id: "dashboard", label: "Dashboard", section: "Govern", path: "/dashboard", icon: LayoutDashboard },
+  { id: "systems", label: "AI Systems", section: "Govern", path: "/systems", icon: ShieldCheck },
+  { id: "engine", label: "Governance Engine", section: "Govern", path: "/engine", icon: Cpu },
+  { id: "agents", label: "Agent Intelligence", section: "Govern", path: "/agents", icon: Bot },
+  { id: "metric-plan", label: "Metric Plan", section: "Govern", path: "/metric-plan", icon: ClipboardList },
+  { id: "council", label: "Council Deliberation", section: "Govern", path: "/council", icon: Scale },
+  { id: "verdicts", label: "Verdicts", section: "Govern", path: "/verdicts", icon: GitBranch, badge: "4" },
+  { id: "reports", label: "Reports", section: "Assurance", path: "/reports", icon: FileText },
+  { id: "ledger", label: "Audit Ledger", section: "Assurance", path: "/ledger", icon: BookOpen },
+];
+
+export const systems: AiSystem[] = [
+  {
+    id: "sys-techvest-chatbot",
+    name: "TechVest RAG Chatbot",
+    version: "v1",
+    users: "Internal pilot",
+    applicationType: "RAG Chatbot",
+    domain: "Customer Operations",
+    environment: "Staging",
+    riskTier: "Medium",
+    owner: "TechVest Global",
+    lastRun: "No run yet",
+    verdict: "Medium",
+    confidence: 0,
+    nextReview: "Not scheduled",
+    status: "Active",
+  },
+];
+
+export const liveRuns: GovernanceRun[] = [
+  {
+    id: "run-techvest-chatbot-demo",
+    system: "TechVest RAG Chatbot",
+    framework: "NIST AI RMF + OWASP LLM Top 10 + ISO 42001",
+    status: "Waiting",
+    progress: 0,
+    startedAt: "Awaiting first backend run",
+    probes: 0,
+    findings: 0,
+  },
+];
+
+export const agents: AgentStatus[] = [
+  { name: "Bias Auditor", role: "Protected attribute parity", status: "Running", progress: 48, probes: 24, findings: 1, confidence: 84 },
+  { name: "Drift Analyst", role: "Baseline divergence", status: "Running", progress: 85, probes: 17, findings: 1, confidence: 78 },
+  { name: "Misuse Detector", role: "Jailbreak and boundary tests", status: "Complete", progress: 100, probes: 15, findings: 0, confidence: 92 },
+  { name: "Compliance Mapper", role: "Clause-level mapping", status: "Running", progress: 71, probes: 12, findings: 1, confidence: 73 },
+  { name: "Explainability Agent", role: "Reasoning fidelity", status: "Running", progress: 35, probes: 7, findings: 0, confidence: 64 },
+];
+
+export const councilMembers: AgentStatus[] = [
+  { name: "Risk Scorer", role: "Composite adjudication", status: "Waiting", progress: 0, probes: 0, findings: 0, confidence: 0 },
+  { name: "Synthesis Agent", role: "Cross-agent pattern synthesis", status: "Waiting", progress: 0, probes: 0, findings: 0, confidence: 0 },
+  { name: "Devil's Advocate", role: "Challenge weak evidence", status: "Waiting", progress: 0, probes: 0, findings: 0, confidence: 0 },
+  { name: "Verdict Agent", role: "Confidence scoring & tier routing", status: "Waiting", progress: 0, probes: 0, findings: 0, confidence: 0 },
+];
+
+export const findings: Finding[] = [
+  {
+    id: "f-demo-001",
+    agent: "Misuse Detector",
+    title: "Prompt-injection boundary checks pending",
+    severity: "Medium",
+    framework: "OWASP LLM Top 10 / NIST AI RMF",
+    evidence: "The TechVest chatbot target is registered, but adversarial prompt tests have not been executed yet.",
+    confidence: 0,
+  },
+  {
+    id: "f-demo-002",
+    agent: "Compliance Mapper",
+    title: "Application context profile needs completion",
+    severity: "Low",
+    framework: "ISO 42001 / NIST AI RMF Govern",
+    evidence: "Owner, model provider, endpoint, and first capability can be registered from the portal before the first governance run.",
+    confidence: 0,
+  },
+];
+
+export const auditEvents: AuditEvent[] = [
+  {
+    id: "evt-001",
+    timestamp: "04:31",
+    actor: "Bias Auditor",
+    type: "agent-finding",
+    description: "Probe pair #24 compared 65+ vs 25-34 cohorts and flagged a 34% disparity.",
+    hash: "c1d8e3f6a9b2",
+    parentHash: "b7e4f9a2c5d1",
+  },
+  {
+    id: "evt-002",
+    timestamp: "04:28",
+    actor: "Compliance Mapper",
+    type: "framework-check",
+    description: "EU AI Act Annex IV section 3.2 failed due to missing technical documentation.",
+    hash: "e9f3a6b8d2c1",
+    parentHash: "c1d8e3f6a9b2",
+  },
+  {
+    id: "evt-003",
+    timestamp: "04:25",
+    actor: "Drift Analyst",
+    type: "drift-check",
+    description: "Semantic similarity against baseline reached 0.61, below the 0.80 threshold.",
+    hash: "f2c7d4e1a8b5",
+    parentHash: "e9f3a6b8d2c1",
+  },
+  {
+    id: "evt-004",
+    timestamp: "04:14",
+    actor: "Orchestrator",
+    type: "plan-update",
+    description: "Reallocated 10% additional probe budget to Bias Auditor after coverage gap analysis.",
+    hash: "a8b1c5d9e3f7",
+    parentHash: "f2c7d4e1a8b5",
+  },
+];
+
+export const complianceRows = [
+  { clause: "Art.52 Transparency", status: "Pass", evidence: "Disclosure present in 15/15 sampled responses." },
+  { clause: "Annex III Risk Classification", status: "Pass", evidence: "Correctly classified as high risk." },
+  { clause: "Art.10(2)(f) Data Governance", status: "Fail", evidence: "Age cohort 65+ underrepresented; disparity detected." },
+  { clause: "Annex IV 3.2 Technical Docs", status: "Fail", evidence: "Training data description missing." },
+  { clause: "Art.26 Deployer Obligations", status: "Partial", evidence: "Monitoring exists but cadence is insufficient." },
+];
+
+export const oecdRows = [
+  {
+    clause: "P1.1 Stakeholder benefit assessment",
+    status: "Aligned",
+    evidence: "Stakeholder benefit analysis exists for chatbot users, chatbot operations, and affected customer groups.",
+    principle: "Inclusive growth, sustainable development, and well-being",
+  },
+  {
+    clause: "P1.2 Worker impact consideration",
+    status: "Partially aligned",
+    evidence: "Operational staffing impacts are documented, but skill transition planning is not complete.",
+    principle: "Inclusive growth, sustainable development, and well-being",
+  },
+  {
+    clause: "P1.3 Environmental sustainability",
+    status: "Partially aligned",
+    evidence: "Inference energy estimates are tracked. Carbon impact and mitigation measures are not yet reviewed.",
+    principle: "Inclusive growth, sustainable development, and well-being",
+  },
+  {
+    clause: "P2.2 Non-discrimination and fairness",
+    status: "Not aligned",
+    evidence: "Controlled probe pairs show materially more negative recommendations for applicants aged 65+.",
+    principle: "Human-centred values and fairness",
+  },
+  {
+    clause: "P2.3 Human oversight mechanisms",
+    status: "Partially aligned",
+    evidence: "Override route exists for supervised decisions, but escalation procedure testing is incomplete.",
+    principle: "Human-centred values and fairness",
+  },
+  {
+    clause: "P2.4 Redress and recourse",
+    status: "Partially aligned",
+    evidence: "Complaint workflow exists. Customer appeal evidence is not consistently linked to model decisions.",
+    principle: "Human-centred values and fairness",
+  },
+  {
+    clause: "P3.1 AI system disclosure",
+    status: "Aligned",
+    evidence: "User-facing disclosure appears in sampled decision communications and agent responses.",
+    principle: "Transparency and explainability",
+  },
+  {
+    clause: "P3.2 Explainability of decisions",
+    status: "Partially aligned",
+    evidence: "Explanations are available, but debt-ratio factors are underexplained in early probes.",
+    principle: "Transparency and explainability",
+  },
+  {
+    clause: "P3.4 Auditability",
+    status: "Aligned",
+    evidence: "Hash-linked audit trail captures probes, findings, review actions, and parent hashes.",
+    principle: "Transparency and explainability",
+  },
+  {
+    clause: "P4.5 Ongoing monitoring and maintenance",
+    status: "Partially aligned",
+    evidence: "Governance runs and drift checks are active. Monitoring cadence is below the required threshold.",
+    principle: "Robustness, security, and safety",
+  },
+  {
+    clause: "P4.6 Adversarial robustness",
+    status: "Aligned",
+    evidence: "Prompt injection and boundary probes held across the current misuse detector run.",
+    principle: "Robustness, security, and safety",
+  },
+  {
+    clause: "P5.1 Governance mechanisms",
+    status: "Aligned",
+    evidence: "Named owner, risk tier, committee path, and governance run history are present.",
+    principle: "Accountability",
+  },
+  {
+    clause: "P5.2 Decision accountability mapping",
+    status: "Partially aligned",
+    evidence: "Accountable team is assigned. Consequential decision authority matrix needs role-level sign-off.",
+    principle: "Accountability",
+  },
+  {
+    clause: "P5.6 Supply chain accountability",
+    status: "Partially aligned",
+    evidence: "Provider and model version are registered. Vendor accountability evidence is incomplete.",
+    principle: "Accountability",
+  },
+];
+
+export const riskSeries = [
+  { name: "Bias", score: 68 },
+  { name: "Compliance", score: 54 },
+  { name: "Drift", score: 72 },
+  { name: "Explainability", score: 21 },
+  { name: "Misuse", score: 8 },
+];
