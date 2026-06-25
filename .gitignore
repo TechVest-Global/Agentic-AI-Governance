@@ -47,3 +47,36 @@ docs/person1-backend-progress-*.html
 # Local team scheduling and assignment tracker; product/engineering truth lives
 # in the specification and companion technical documents.
 docs/PROJECT_PLAN.md
+
+# OS / IDE artifacts
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*.code-workspace
+
+# Test fixtures that contain intentionally broken templates (invalid YAML, wrong hashes).
+# These are dev-only — not needed in production builds.
+backend/app/configs/templates/fixtures/
+
+# Alembic auto-generated migration scripts are source-controlled, but the
+# compiled __pycache__ inside migrations/ is not (already covered by __pycache__/).
+
+# Pytest and coverage artefacts
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# MyPy / Ruff / type-checker caches
+.mypy_cache/
+.ruff_cache/
+
+# Jupyter notebooks if any end up in the repo accidentally
+*.ipynb_checkpoints/
+
+# Temporary script outputs and scratchpad files
+*.tmp
+*.bak

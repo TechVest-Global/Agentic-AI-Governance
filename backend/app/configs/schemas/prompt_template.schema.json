@@ -1,0 +1,65 @@
+{
+  "additionalProperties": false,
+  "description": "A single versioned, immutable prompt slice (\u00a71, \u00a73, or \u00a74).\n\nIdentity is the content_hash, not the template_id or version.\nTwo templates with identical text will have the same hash regardless\nof their id or version label.",
+  "properties": {
+    "template_id": {
+      "description": "Stable human-readable identifier. Convention: \"{agent}.{phase_purpose}\". Agent prefix must be one of the registered agent names.",
+      "title": "Template Id",
+      "type": "string"
+    },
+    "section": {
+      "description": "Which prompt slice: 'role' (\u00a71), 'phase' (\u00a73), or 'output_schema' (\u00a74).",
+      "enum": [
+        "role",
+        "phase",
+        "output_schema"
+      ],
+      "title": "Section",
+      "type": "string"
+    },
+    "version": {
+      "description": "Human-facing version label (integer string or semver). NOT the identity \u2014 the content_hash is.",
+      "minLength": 1,
+      "title": "Version",
+      "type": "string"
+    },
+    "content_hash": {
+      "description": "SHA-256 hex digest of the canonical text. Validated on load.",
+      "maxLength": 64,
+      "minLength": 64,
+      "title": "Content Hash",
+      "type": "string"
+    },
+    "text": {
+      "description": "Parameterised template text. Use {variable_name} for placeholders.",
+      "minLength": 1,
+      "title": "Text",
+      "type": "string"
+    },
+    "variables": {
+      "description": "Declared variable names that appear in text. Every declared variable must appear in text and every {placeholder} in text must be declared here.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Variables",
+      "type": "array"
+    },
+    "description": {
+      "description": "One line describing what this template slice is for.",
+      "minLength": 1,
+      "title": "Description",
+      "type": "string"
+    }
+  },
+  "required": [
+    "template_id",
+    "section",
+    "version",
+    "content_hash",
+    "text",
+    "description"
+  ],
+  "title": "PromptTemplate",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
