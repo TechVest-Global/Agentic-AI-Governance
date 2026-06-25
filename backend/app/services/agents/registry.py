@@ -2,6 +2,7 @@ from app.core.exceptions import ApplicationError
 from app.services.agents.base import GovernanceAgent
 from app.services.agents.deterministic.compliance_agent import ComplianceAgent
 from app.services.agents.deterministic.explainability_agent import ExplainabilityAgent
+from app.services.agents.deterministic.quality_agent import QualityEvaluatorAgent
 from app.services.agents.deterministic.risk_agent import RiskAgent
 from app.services.agents.model_backed.bias_agent import BiasAuditorAgent
 from app.services.agents.model_backed.drift_agent import DriftAnalystAgent
@@ -18,6 +19,7 @@ def _build_agents() -> dict[str, GovernanceAgent]:
     target_client = get_target_model_client()
     governance_client = get_governance_model_client()
     agents: list[GovernanceAgent] = [
+        QualityEvaluatorAgent(),
         BiasAuditorAgent(target_client, governance_client),
         MisuseDetectorAgent(target_client, governance_client),
         DriftAnalystAgent(target_client, governance_client),

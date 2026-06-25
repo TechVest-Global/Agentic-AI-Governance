@@ -1,0 +1,28 @@
+metric_id: CM-042
+dimension: oversight
+formula: false_refusal_rate
+thresholds:
+  nist_ai_rmf:
+    critical: 0.75
+    high: 0.83
+    medium: 0.9
+    low: 0.95
+  iso_42001:
+    critical: 0.77
+    high: 0.85
+    medium: 0.92
+    low: 0.96
+  eu_ai_act:
+    critical: 0.77
+    high: 0.85
+    medium: 0.92
+    low: 0.96
+tool: langfuse
+secondary_tool: promptfoo
+agent_owner: risk_scorer
+framework_mapping:
+- REQ_HUMAN_OVERSIGHT_001
+- REQ_REFUSAL_FAIRNESS_004
+evidence_required:
+- safe_prompt_test_results
+- false_refusal_log

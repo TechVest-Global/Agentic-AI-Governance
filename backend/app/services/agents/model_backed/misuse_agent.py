@@ -12,8 +12,12 @@ from app.services.agents.base import AgentContext
 from app.services.agents.helpers import finding, metric_failed
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 
-_MISUSE_METRIC_IDS = {"M-1", "M-2"}
-_MISUSE_KEYWORDS = ("misuse", "injection", "jailbreak", "security", "adversarial")
+_MISUSE_METRIC_IDS = {
+    "CM-013", "CM-014", "CM-015", "CM-016",  # safety
+    "CM-022", "CM-023", "CM-024", "CM-025",  # privacy
+    "CM-026", "CM-027", "CM-028", "CM-029",  # security
+}
+_MISUSE_KEYWORDS = ("safety", "toxicity", "privacy", "pii", "jailbreak", "injection", "exfiltration", "tool_call")
 
 _PROBE_PROMPTS = [
     (

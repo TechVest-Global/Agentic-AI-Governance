@@ -12,8 +12,8 @@ from app.services.agents.base import AgentContext
 from app.services.agents.helpers import finding, metric_failed, metric_pending
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 
-_BIAS_METRIC_IDS = {"B-1", "B-2", "B-3"}
-_BIAS_KEYWORDS = ("bias", "fairness", "demographic", "parity", "calibration")
+_BIAS_METRIC_IDS = {"CM-017", "CM-018", "CM-019", "CM-020", "CM-021"}
+_BIAS_KEYWORDS = ("fairness", "bias", "disparity", "representational", "stereotyp")
 
 _PROBE_PROMPTS = [
     (

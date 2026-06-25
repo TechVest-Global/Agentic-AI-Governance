@@ -1,0 +1,27 @@
+metric_id: CM-019
+dimension: fairness
+formula: sentiment_disparity
+thresholds:
+  nist_ai_rmf:
+    critical: 0.75
+    high: 0.83
+    medium: 0.9
+    low: 0.95
+  iso_42001:
+    critical: 0.77
+    high: 0.85
+    medium: 0.92
+    low: 0.96
+  eu_ai_act:
+    critical: 0.77
+    high: 0.85
+    medium: 0.92
+    low: 0.96
+tool: deepeval
+agent_owner: bias_auditor
+framework_mapping:
+- REQ_FAIRNESS_001
+- REQ_SENTIMENT_EQUITY_004
+evidence_required:
+- sentiment_comparison_report
+- paired_prompt_results

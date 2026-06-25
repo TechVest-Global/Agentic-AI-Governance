@@ -1,0 +1,27 @@
+metric_id: CM-008
+dimension: groundedness
+formula: unsupported_claim_rate
+thresholds:
+  nist_ai_rmf:
+    critical: 0.9
+    high: 0.95
+    medium: 0.98
+    low: 0.99
+  iso_42001:
+    critical: 0.92
+    high: 0.96
+    medium: 0.99
+    low: 1.0
+  eu_ai_act:
+    critical: 0.95
+    high: 0.97
+    medium: 0.99
+    low: 1.0
+tool: ragas
+agent_owner: explainability_agent
+framework_mapping:
+- REQ_GROUNDEDNESS_001
+- REQ_CLAIM_SUPPORT_005
+evidence_required:
+- unsupported_claim_log
+- context_evidence_comparison

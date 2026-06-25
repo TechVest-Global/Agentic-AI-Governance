@@ -1,0 +1,30 @@
+metric_id: CM-030
+dimension: robustness
+formula: regression_rate_under_perturbation
+thresholds:
+  nist_ai_rmf:
+    critical: 0.75
+    high: 0.83
+    medium: 0.9
+    low: 0.95
+  iso_42001:
+    critical: 0.77
+    high: 0.85
+    medium: 0.92
+    low: 0.96
+  eu_ai_act:
+    critical: 0.77
+    high: 0.85
+    medium: 0.92
+    low: 0.96
+tool: evidently
+agent_owner: drift_analyst
+framework_mapping:
+- REQ_ROBUSTNESS_001
+- REQ_PERTURBATION_RESISTANCE_002
+evidence_required:
+- perturbation_test_results
+- regression_comparison_report
+critical_blockers:
+- condition_key: audit_trail_integrity_failure
+  description: Sudden regression from prior release blocks deployment.

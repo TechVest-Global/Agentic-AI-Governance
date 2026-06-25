@@ -12,8 +12,8 @@ from app.services.agents.base import AgentContext
 from app.services.agents.helpers import finding, metric_failed, metric_pending
 from app.services.agents.model_backed.base import ModelBackedAgent
 
-_DRIFT_METRIC_IDS = {"D-1", "D-2"}
-_DRIFT_KEYWORDS = ("drift", "stability", "monitoring", "distribution", "psi")
+_DRIFT_METRIC_IDS = {"CM-030", "CM-031", "CM-032", "CM-033", "CM-034"}
+_DRIFT_KEYWORDS = ("robustness", "consistency", "perturbation", "drift", "asr")
 
 _GOVERNANCE_PROMPT_TEMPLATE = """\
 You are a model monitoring specialist evaluating an AI system for drift.

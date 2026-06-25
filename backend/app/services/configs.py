@@ -14,6 +14,7 @@ from app.schemas.governance import (
 )
 
 AGENT_OWNER_TO_RUNTIME_AGENT = {
+    "quality_evaluator": "quality_agent",
     "bias_auditor": "bias_agent",
     "drift_analyst": "drift_agent",
     "misuse_detector": "misuse_agent",

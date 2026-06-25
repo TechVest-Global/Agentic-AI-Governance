@@ -169,7 +169,7 @@ def test_all_agents_can_create_risk_and_misuse_findings(client: TestClient) -> N
     finding_types = {finding["finding_type"] for finding in result["findings"]}
     assert {"risk", "misuse"}.issubset(finding_types)
     assert result["findings_created"] >= 2
-    assert len(result["executions"]) == 6
+    assert len(result["executions"]) == 7
     assert {execution["agent_name"] for execution in result["executions"]} >= {
         "risk_agent",
         "misuse_agent",

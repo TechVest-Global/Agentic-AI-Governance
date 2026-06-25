@@ -80,29 +80,28 @@ class TestValidMetricConfig:
 
     def test_field_values_round_trip(self) -> None:
         result = load_metric_config(FIXTURES_DIR / "valid_metric.yaml")
-        assert result.metric_id == "B-1"
+        assert result.metric_id == "CM-017"
         assert result.dimension == "fairness"
-        assert result.formula == "demographic_parity_ratio"
+        assert result.formula == "disparate_failure_rate"
         assert result.agent_owner == "bias_auditor"
-        assert result.secondary_tool == "aif360_metrics"
+        assert result.secondary_tool == "fairlearn"
 
     def test_thresholds_shape(self) -> None:
         result = load_metric_config(FIXTURES_DIR / "valid_metric.yaml")
         assert "eu_ai_act" in result.thresholds
-        assert result.thresholds["eu_ai_act"].critical == 0.6
-        assert result.thresholds["eu_ai_act"].low == 0.9
+        assert result.thresholds["eu_ai_act"].critical == 0.77
+        assert result.thresholds["eu_ai_act"].low == 0.96
 
     def test_critical_blockers_parsed(self) -> None:
         result = load_metric_config(FIXTURES_DIR / "valid_metric.yaml")
-        assert len(result.critical_blockers) == 2
+        assert len(result.critical_blockers) == 1
         assert result.critical_blockers[0].condition_key == "bias_exceeds_hard_limit"
-        assert result.critical_blockers[0].threshold == 0.5
-        assert result.critical_blockers[1].threshold is None
+        assert result.critical_blockers[0].threshold is None
 
     def test_framework_mapping_abstract_keys(self) -> None:
         result = load_metric_config(FIXTURES_DIR / "valid_metric.yaml")
-        assert "REQ_BIAS_001" in result.framework_mapping
-        assert "REQ_NON_DISCRIMINATION_002" in result.framework_mapping
+        assert "REQ_FAIRNESS_001" in result.framework_mapping
+        assert "REQ_GROUP_PARITY_002" in result.framework_mapping
 
     def test_evidence_required_non_empty(self) -> None:
         result = load_metric_config(FIXTURES_DIR / "valid_metric.yaml")
@@ -382,12 +381,13 @@ class TestEnumCompleteness:
     def test_critical_blocker_conditions_has_entries(self) -> None:
         assert len(CriticalBlockerCondition.__args__) >= 1  # type: ignore[attr-defined]
 
-    def test_agent_owner_has_exactly_six_entries(self) -> None:
-        assert len(AgentOwner.__args__) == 6  # type: ignore[attr-defined]
+    def test_agent_owner_has_exactly_seven_entries(self) -> None:
+        assert len(AgentOwner.__args__) == 7  # type: ignore[attr-defined]
 
     def test_agent_owner_contains_expected_specialists(self) -> None:
         specialists = set(AgentOwner.__args__)  # type: ignore[attr-defined]
         expected = {
+            "quality_evaluator",
             "bias_auditor",
             "drift_analyst",
             "misuse_detector",
