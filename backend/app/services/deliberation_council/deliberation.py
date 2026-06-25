@@ -46,7 +46,10 @@ from app.schemas.governance import (
     CouncilDeliberationRead,
     GovernanceStateEntryCreate,
 )
+from app.models.llm_call_log import LLMCallLog
 from app.services import audit_ledger, governance_state
+from app.services.model_clients.gateway import drain_log_capture, start_log_capture
+from app.configs.prompt_registry import PromptRegistry
 from app.services.deliberation_council.devils_advocate_agent import (
     DevilsAdvocateAgent,
     Objection,
@@ -92,11 +95,14 @@ def deliberate(
     if existing_verdict is not None:
         raise ResourceConflictError("Verdict", "run_id", str(run_id))
 
-    # Build council agents (uses the registry; falls back to mock in dev mode)
+    start_log_capture()
+
+    # Build council agents — share one registry load across all three agents
     governance_client = _get_governance_client()
-    synthesis_agent = SynthesisAgent(governance_client)
-    da_agent = DevilsAdvocateAgent(governance_client)
-    verdict_agent = VerdictAgent(governance_client)
+    registry = PromptRegistry.from_directory()
+    synthesis_agent = SynthesisAgent(governance_client, registry)
+    da_agent = DevilsAdvocateAgent(governance_client, registry)
+    verdict_agent = VerdictAgent(governance_client, registry)
 
     # Load persisted iteration counter (survives crash-resume)
     starting_iteration = _read_iteration_counter(run)
@@ -238,6 +244,8 @@ def deliberate(
         metric_count=len(metric_results),
     )
 
+    for entry in drain_log_capture():
+        session.add(LLMCallLog(run_id=run_id, **entry))
     session.commit()
     session.refresh(verdict_record)
 

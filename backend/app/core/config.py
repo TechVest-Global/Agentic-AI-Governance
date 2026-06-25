@@ -30,6 +30,19 @@ class Settings(BaseSettings):
     azure_ai_foundry_project_name: str | None = None
     azure_ai_foundry_deployment_name: str | None = None
 
+    # Judge model (Azure OpenAI) — powers the Deliberation Council agents
+    judge_endpoint: str | None = None
+    judge_api_key: str | None = None
+    judge_deployment_name: str | None = None
+    judge_api_version: str = "2025-01-01-preview"
+
+    # LiteLLM Proxy — when set, all LLM calls route through the proxy instead
+    # of hitting Azure OpenAI directly. Enables fallback, caching, cost tracking.
+    # Set LITELLM_PROXY_URL=http://localhost:4000 to activate.
+    litellm_proxy_url: str | None = None
+    litellm_master_key: str | None = None
+    litellm_model: str = "judge-model"
+
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore"
     )

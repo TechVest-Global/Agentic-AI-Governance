@@ -1,0 +1,48 @@
+# LiteLLM Proxy Configuration — Agentic AI Governance
+#
+# Exposes a single virtual model name "judge-model" that routes to Azure OpenAI.
+# Governance agents point at http://litellm-proxy:4000 instead of Azure directly.
+# LiteLLM handles: routing, retries, rate limiting, cost tracking, and the dashboard.
+#
+# Dashboard: http://localhost:4000/ui (master_key = LITELLM_MASTER_KEY in .env)
+# Fallback:  add a second model_list entry with the same model_name to enable
+#            automatic failover to a secondary deployment.
+
+model_list:
+  - model_name: judge-model
+    litellm_params:
+      model: azure/gpt-4.1
+      api_base: os.environ/JUDGE_ENDPOINT
+      api_key: os.environ/JUDGE_API_KEY
+      api_version: "2025-01-01-preview"
+    model_info:
+      description: "Primary governance judge — Azure OpenAI GPT-4.1"
+      max_tokens: 8096
+
+  # Uncomment and configure to enable automatic fallback to a second deployment:
+  # - model_name: judge-model
+  #   litellm_params:
+  #     model: azure/gpt-4o
+  #     api_base: os.environ/FALLBACK_ENDPOINT
+  #     api_key: os.environ/FALLBACK_API_KEY
+  #     api_version: "2024-10-21"
+  #   model_info:
+  #     description: "Fallback governance judge — Azure OpenAI GPT-4o"
+
+router_settings:
+  routing_strategy: simple-shuffle
+  num_retries: 2
+  retry_after: 5
+  allowed_fails: 1
+  cooldown_time: 30
+
+litellm_settings:
+  request_timeout: 120
+  drop_params: true
+  set_verbose: false
+  json_logs: true
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/LITELLM_DATABASE_URL
+  store_model_in_db: true

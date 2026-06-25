@@ -8,9 +8,11 @@ from app.models.base import utc_now
 from app.models.enums import AgentExecutionStatus, RunPhase, RunStatus
 from app.models.evidence import EvidenceRecord, MetricResult
 from app.models.finding import Finding
+from app.models.llm_call_log import LLMCallLog
 from app.schemas.governance import AgentRunCreate, AgentRunRead, AgentRunSummary
 from app.services.agents.base import AgentContext
 from app.services.agents.registry import select_agents
+from app.services.model_clients.gateway import drain_log_capture, start_log_capture
 from app.services.run_validation import get_run_or_raise
 
 
@@ -21,6 +23,7 @@ def run_agents(
     payload: AgentRunCreate,
 ) -> AgentRunRead:
     run = get_run_or_raise(session, run_id)
+    start_log_capture()
     ai_system = session.get(AISystem, run.ai_system_id)
     context = AgentContext(
         ai_system=ai_system,
@@ -79,6 +82,8 @@ def run_agents(
     }
     run.updated_at = utc_now()
     session.add(run)
+    for entry in drain_log_capture():
+        session.add(LLMCallLog(run_id=run_id, **entry))
     session.commit()
     for finding in created_findings:
         session.refresh(finding)

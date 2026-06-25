@@ -20,6 +20,7 @@ from app.schemas.governance import (
     GovernancePipelineRunCreate,
     GovernancePipelineRunRead,
     GovernanceReportRead,
+    LLMCallLogSummary,
     MetricExecutionCreate,
     MetricExecutionRead,
     MetricPlanRead,
@@ -32,6 +33,7 @@ from app.services import (
 from app.services.action_reporting import framework_maps, reports
 from app.services.specialist_agents import metric_execution, metric_plans
 from app.services import evaluation_runs as service
+from app.services.llm_gateway import call_log as llm_call_log_service
 
 router = APIRouter(prefix="/evaluation-runs")
 SessionDependency = Annotated[Session, Depends(get_session)]
@@ -180,3 +182,11 @@ def run_mock_metrics(
     session: SessionDependency,
 ) -> MetricExecutionRead:
     return metric_execution.run_mock_metrics(session, run_id=run_id, payload=payload)
+
+
+@router.get("/{run_id}/llm-calls", response_model=LLMCallLogSummary)
+def get_llm_call_logs(
+    run_id: UUID,
+    session: SessionDependency,
+) -> LLMCallLogSummary:
+    return llm_call_log_service.get_llm_call_log_summary(session, run_id=run_id)
