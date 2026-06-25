@@ -26,6 +26,13 @@ regulation_text:
       - "protected_attributes"
 
 agent_instructions:
+  quality_evaluator:
+    focus: "Evaluate task success, instruction adherence, schema compliance, and action completion rates."
+    methodology:
+      - "Run gold test set against explicit pass/fail criteria."
+      - "Validate output schema and format compliance."
+      - "Measure action-completion rate against approved workflow states."
+    output_format: "structured_finding"
   bias_auditor:
     focus: "Assess demographic parity and equal treatment across all protected groups defined in Article 10."
     methodology:

@@ -21,39 +21,64 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 # ---------------------------------------------------------------------------
 
 MetricFormula = Literal[
-    # Fairness / bias
-    "demographic_parity_ratio",
-    "equalized_odds_ratio",
-    "predictive_parity_ratio",
-    "calibration_score",
-    "counterfactual_fairness_rate",
-    "individual_fairness_score",
-    # Drift
-    "concept_drift_psi",
-    "data_drift_ks_statistic",
-    "feature_importance_stability",
-    # Robustness / misuse
-    "adversarial_robustness_rate",
-    "prompt_injection_resistance_rate",
-    "jailbreak_resistance_rate",
-    "output_toxicity_rate",
-    "pii_leakage_rate",
-    # Accuracy / faithfulness
+    # Task Fulfilment / Instruction Following (CM-001 to CM-004)
+    "task_success_rate",
+    "instruction_following_pass_rate",
+    "schema_format_adherence_rate",
+    "action_completion_rate",
+    # Groundedness / Hallucination Control (CM-005 to CM-008)
     "hallucination_rate",
     "faithfulness_score",
-    "context_precision_score",
-    # Explainability
-    "explanation_fidelity_score",
-    "shap_consistency_score",
-    "lime_agreement_rate",
-    # Composite / compliance
-    "composite_risk_score",
-    "regulatory_compliance_score",
-    "purpose_limitation_adherence_rate",
-    "data_minimisation_score",
+    "citation_coverage_rate",
+    "unsupported_claim_rate",
+    # Retrieval Quality (CM-009 to CM-012)
+    "context_recall_at_k",
+    "context_precision",
+    "answer_relevancy",
+    "retrieved_asset_fidelity",
+    # Safety Policy Violation (CM-013 to CM-016)
+    "policy_violation_rate",
+    "toxicity_score",
+    "refusal_f1_score",
+    "unsafe_completion_rate",
+    # Fairness / Bias / Representational Harm (CM-017 to CM-021)
+    "disparate_failure_rate",
+    "toxicity_disparity",
+    "sentiment_disparity",
+    "representational_harm_rate",
+    "stereotyping_rate",
+    # Privacy / Data Leakage / Memorization (CM-022 to CM-025)
+    "pii_leakage_rate",
+    "secret_leakage_rate",
+    "memorization_extraction_rate",
+    "redaction_failure_rate",
+    # Security / Prompt Injection / Jailbreak (CM-026 to CM-029)
+    "jailbreak_success_rate",
+    "prompt_injection_success_rate",
+    "data_exfiltration_success_rate",
+    "unsafe_tool_call_rate",
+    # Robustness / Consistency (CM-030 to CM-034)
+    "regression_rate_under_perturbation",
+    "consistency_score",
+    "identity_style_drift",
+    "temporal_consistency",
+    "asr_robustness",
+    # Transparency / Provenance / Traceability (CM-035 to CM-039)
+    "citation_correctness",
+    "confidence_calibration",
+    "provenance_detection_rate",
+    "explanation_usefulness",
+    "trace_completeness",
+    # Human Oversight / Escalation Effectiveness (CM-040 to CM-044)
+    "escalation_f1_score",
+    "human_override_rate",
+    "false_refusal_rate",
+    "uncertainty_calibration",
+    "review_queue_hit_rate",
 ]
 
 AgentOwner = Literal[
+    "quality_evaluator",
     "bias_auditor",
     "drift_analyst",
     "misuse_detector",

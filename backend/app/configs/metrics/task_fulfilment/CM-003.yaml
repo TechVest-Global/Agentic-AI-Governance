@@ -1,0 +1,31 @@
+metric_id: CM-003
+dimension: task_fulfilment
+formula: schema_format_adherence_rate
+thresholds:
+  nist_ai_rmf:
+    critical: 0.9
+    high: 0.95
+    medium: 0.98
+    low: 0.99
+  iso_42001:
+    critical: 0.92
+    high: 0.96
+    medium: 0.99
+    low: 1.0
+  eu_ai_act:
+    critical: 0.92
+    high: 0.96
+    medium: 0.99
+    low: 1.0
+tool: promptfoo
+secondary_tool: pydantic_json_schema
+agent_owner: quality_evaluator
+framework_mapping:
+- REQ_TASK_FULFILMENT_001
+- REQ_OUTPUT_FORMAT_004
+evidence_required:
+- schema_validation_log
+- invalid_output_sample
+critical_blockers:
+- condition_key: audit_trail_integrity_failure
+  description: Any invalid output that triggers downstream action blocks release.

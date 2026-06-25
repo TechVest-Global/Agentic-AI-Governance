@@ -1,0 +1,32 @@
+metric_id: CM-037
+dimension: transparency
+formula: provenance_detection_rate
+thresholds:
+  nist_ai_rmf:
+    critical: 0.9
+    high: 0.95
+    medium: 0.98
+    low: 0.99
+  iso_42001:
+    critical: 0.92
+    high: 0.96
+    medium: 0.99
+    low: 1.0
+  eu_ai_act:
+    critical: 0.95
+    high: 0.97
+    medium: 0.99
+    low: 1.0
+tool: langfuse
+secondary_tool: c2pa_verifier
+agent_owner: compliance_mapper
+framework_mapping:
+- REQ_TRANSPARENCY_001
+- REQ_PROVENANCE_004
+evidence_required:
+- provenance_metadata_check
+- watermark_verification_log
+critical_blockers:
+- condition_key: data_provenance_unverifiable
+  description: Missing provenance metadata blocks release where synthetic media disclosure
+    is required.

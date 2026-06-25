@@ -5,6 +5,7 @@ from app.services.agents.helpers import finding, metric_failed, metric_matches
 
 
 class ComplianceAgent:
+    execution_mode = "deterministic"
     name = "compliance_agent"
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:

@@ -1,0 +1,27 @@
+metric_id: CM-009
+dimension: retrieval
+formula: context_recall_at_k
+thresholds:
+  nist_ai_rmf:
+    critical: 0.7
+    high: 0.78
+    medium: 0.85
+    low: 0.92
+  iso_42001:
+    critical: 0.72
+    high: 0.8
+    medium: 0.87
+    low: 0.94
+  eu_ai_act:
+    critical: 0.72
+    high: 0.8
+    medium: 0.87
+    low: 0.94
+tool: ragas
+agent_owner: explainability_agent
+framework_mapping:
+- REQ_RETRIEVAL_QUALITY_001
+- REQ_CONTEXT_RECALL_002
+evidence_required:
+- ground_truth_relevant_chunks
+- retrieved_chunk_log
