@@ -659,4 +659,45 @@ class GovernancePipelineRunRead(APIModel):
     metric_execution: MetricExecutionRead
     agent_run: AgentRunRead
     council: CouncilDeliberationRead
+
+
+# ---------------------------------------------------------------------------
+# LLM Call Logs — audit trail for every LLM API call in the pipeline
+# ---------------------------------------------------------------------------
+
+
+class LLMCallLogRead(APIModel):
+    id: UUID
+    run_id: UUID | None = None
+    agent_name: str | None = None
+    task: str
+    call_type: str
+    model: str
+    deployment_name: str | None = None
+    client_mode: str
+    routed_via: str | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+    estimated_cost_usd: float | None = None
+    latency_ms: int
+    status: str
+    request_chars: int
+    response_chars: int
+    trace_id: str | None = None
+    policy_flags: list[str] = Field(default_factory=list)
+    created_at: datetime
+
+
+class LLMCallLogSummary(APIModel):
+    run_id: UUID
+    call_count: int
+    total_prompt_tokens: int
+    total_completion_tokens: int
+    total_tokens: int
+    estimated_total_cost_usd: float
+    live_call_count: int
+    mock_call_count: int
+    error_count: int
+    calls: list[LLMCallLogRead] = Field(default_factory=list)
     report: GovernanceReportRead
