@@ -1,10 +1,12 @@
 from app.core.exceptions import ApplicationError
 from app.services.evaluators.base import MetricEvaluator
 from app.services.evaluators.mock import MockMetricEvaluator
+from app.services.evaluators.threshold import ThresholdMetricEvaluator
 
 EVALUATORS: dict[str, MetricEvaluator] = {
     evaluator.name: evaluator
     for evaluator in (
+        ThresholdMetricEvaluator(),
         MockMetricEvaluator(),
     )
 }

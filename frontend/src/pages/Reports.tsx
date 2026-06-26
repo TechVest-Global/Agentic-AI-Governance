@@ -131,10 +131,10 @@ export function Reports() {
       <Card className="p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-700">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-700 dark:text-blue-400">
               Backend Report Connection
             </p>
-            <p className="mt-1 text-[13px] text-slate-700">
+            <p className="mt-1 text-[13px] text-slate-700 dark:text-slate-300">
               {backend.usingBackend && backend.report
                 ? `Loaded run ${backend.report.run.id.slice(0, 8)} for ${backend.report.ai_system.name}.`
                 : backend.loading
@@ -158,23 +158,23 @@ export function Reports() {
       </Card>
 
       {/* Intro */}
-      <div className="flex items-start justify-between border-b border-slate-200 pb-5">
+      <div className="flex items-start justify-between border-b border-slate-200 dark:border-slate-700 pb-5">
         <div className="max-w-2xl space-y-1">
-          <p className="text-[13px] leading-5 text-slate-600">
-            Clause-level compliance reports for <span className="font-semibold text-slate-950">{reportSystemName}</span> generated from the last governance run. Select a framework to view its compliance posture. Click any row to read the full clause context and evidence detail.
+          <p className="text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+            Clause-level compliance reports for <span className="font-semibold text-slate-950 dark:text-white">{reportSystemName}</span> generated from the last governance run. Select a framework to view its compliance posture. Click any row to read the full clause context and evidence detail.
           </p>
-          <p className="text-[12px] leading-5 text-slate-500">
+          <p className="text-[12px] leading-5 text-slate-500 dark:text-slate-400">
             {frameworkContext[activeFramework]}
-            {isOecd && <span className="font-medium text-slate-700"> Representative rows shown from the 42-indicator assessment.</span>}
+            {isOecd && <span className="font-medium text-slate-700 dark:text-slate-300"> Representative rows shown from the 42-indicator assessment.</span>}
           </p>
-          <p className="text-[11px] text-slate-400">Click rows to expand evidence and clause definition · Switch frameworks using the tabs above the table</p>
+          <p className="text-[11px] text-slate-400 dark:text-slate-500">Click rows to expand evidence and clause definition · Switch frameworks using the tabs above the table</p>
         </div>
         <div className="flex shrink-0 gap-2">
           {["PDF", "JSON", "CSV"].map((format) => (
             <button
               key={format}
               title={`Export this compliance report as ${format}`}
-              className="flex items-center gap-1.5 rounded border border-slate-300 bg-white px-3 py-2 text-[12px] font-medium text-slate-800 transition-colors hover:border-slate-400 hover:bg-slate-50"
+              className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-[12px] font-medium text-slate-800 dark:text-slate-200 transition-colors hover:border-slate-400 dark:hover:border-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700"
             >
               <Download className="h-4 w-4" /> {format}
             </button>
@@ -184,27 +184,27 @@ export function Reports() {
 
       {/* Summary metrics */}
       <div className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded border border-emerald-200 bg-emerald-50 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">{summaryCopy.pass}</p>
-          <p className="mt-1 text-[28px] font-bold text-emerald-800">{passCount}</p>
-          <p className="text-[11px] text-emerald-700">{summaryCopy.passHint}</p>
+        <div className="rounded border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/50 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">{summaryCopy.pass}</p>
+          <p className="mt-1 text-[28px] font-bold text-emerald-800 dark:text-emerald-300">{passCount}</p>
+          <p className="text-[11px] text-emerald-700 dark:text-emerald-400">{summaryCopy.passHint}</p>
         </div>
-        <div className="rounded border border-amber-200 bg-amber-50 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">{summaryCopy.partial}</p>
-          <p className="mt-1 text-[28px] font-bold text-amber-800">{partialCount}</p>
-          <p className="text-[11px] text-amber-700">{summaryCopy.partialHint}</p>
+        <div className="rounded border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/50 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">{summaryCopy.partial}</p>
+          <p className="mt-1 text-[28px] font-bold text-amber-800 dark:text-amber-300">{partialCount}</p>
+          <p className="text-[11px] text-amber-700 dark:text-amber-400">{summaryCopy.partialHint}</p>
         </div>
-        <div className="rounded border border-red-200 bg-red-50 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-red-600">{summaryCopy.fail}</p>
-          <p className="mt-1 text-[28px] font-bold text-red-800">{failCount}</p>
-          <p className="text-[11px] text-red-700">{summaryCopy.failHint}</p>
+        <div className="rounded border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/50 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-red-600 dark:text-red-400">{summaryCopy.fail}</p>
+          <p className="mt-1 text-[28px] font-bold text-red-800 dark:text-red-300">{failCount}</p>
+          <p className="text-[11px] text-red-700 dark:text-red-400">{summaryCopy.failHint}</p>
         </div>
       </div>
 
       {/* Framework selector + table */}
       <Card>
         {/* Framework tabs */}
-        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-0">
+        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 px-4 py-0">
           <div className="flex gap-1 pt-2">
             {tabOptions.map((fw) => (
               <button
@@ -213,15 +213,15 @@ export function Reports() {
                 className={clsx(
                   "rounded-t border border-b-0 px-3 py-2 text-[12px] font-medium transition-colors",
                   resolvedFramework === fw
-                    ? "border-slate-300 bg-white text-slate-950"
-                    : "border-transparent text-slate-500 hover:text-slate-900"
+                    ? "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-950 dark:text-white"
+                    : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
                 )}
               >
                 {fw}
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-1.5 pb-1 text-[11px] text-slate-400">
+          <div className="flex items-center gap-1.5 pb-1 text-[11px] text-slate-400 dark:text-slate-500">
             <FileText className="h-3.5 w-3.5" />
             {backend.report?.ai_system.name ?? "prototype"} · {backend.latestRun?.current_phase ?? "mock data"}
           </div>
@@ -230,12 +230,12 @@ export function Reports() {
         {/* Table */}
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left">
-            <thead className="bg-slate-50">
-              <tr className="border-b border-slate-200">
+            <thead className="bg-slate-50 dark:bg-slate-800">
+              <tr className="border-b border-slate-200 dark:border-slate-700">
                 <th className="w-6 px-4 py-3" />
-                <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">{activeFramework} {isOecd ? "Indicator" : "Clause"}</th>
-                <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Status</th>
-                <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Evidence Summary</th>
+                <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300">{activeFramework} {isOecd ? "Indicator" : "Clause"}</th>
+                <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300">Status</th>
+                <th className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300">Evidence Summary</th>
               </tr>
             </thead>
             <tbody>
@@ -247,53 +247,53 @@ export function Reports() {
                     <tr
                       onClick={() => setExpandedClause(isExpanded ? null : row.clause)}
                       className={clsx(
-                        "group cursor-pointer border-t border-slate-100 transition-colors",
-                        isExpanded ? "bg-blue-50" : "hover:bg-slate-50"
+                        "group cursor-pointer border-t border-slate-100 dark:border-slate-700/50 transition-colors",
+                        isExpanded ? "bg-blue-50 dark:bg-blue-950/30" : "hover:bg-slate-50 dark:hover:bg-slate-800"
                       )}
                     >
-                      <td className="px-4 py-3 text-slate-400">
+                      <td className="px-4 py-3 text-slate-400 dark:text-slate-500">
                         {isExpanded
-                          ? <ChevronDown className="h-3.5 w-3.5 text-blue-600" />
-                          : <ChevronRight className="h-3.5 w-3.5 group-hover:text-slate-700" />}
+                          ? <ChevronDown className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                          : <ChevronRight className="h-3.5 w-3.5 group-hover:text-slate-700 dark:group-hover:text-slate-300" />}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-start gap-1.5">
                           <div>
-                            <p className="text-[13px] font-medium text-slate-950">{row.clause}</p>
-                            {row.principle && <p className="mt-0.5 text-[10px] text-slate-500">{row.principle}</p>}
+                            <p className="text-[13px] font-medium text-slate-950 dark:text-white">{row.clause}</p>
+                            {row.principle && <p className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">{row.principle}</p>}
                           </div>
-                          {detail && <Info className="h-3.5 w-3.5 shrink-0 text-slate-400" />}
+                          {detail && <Info className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500" />}
                         </div>
                       </td>
                       <td className="px-4 py-3">
                         <Badge tone={toneForStatus(row.status)}>{row.status}</Badge>
                       </td>
-                      <td className="px-4 py-3 text-[12px] text-slate-700">{row.evidence}</td>
+                      <td className="px-4 py-3 text-[12px] text-slate-700 dark:text-slate-300">{row.evidence}</td>
                     </tr>
                     {isExpanded && (
-                      <tr key={`${row.clause}-expanded`} className="border-t border-blue-100 bg-blue-50/60">
+                      <tr key={`${row.clause}-expanded`} className="border-t border-blue-100 dark:border-blue-900/50 bg-blue-50/60 dark:bg-blue-950/20">
                         <td />
                         <td colSpan={3} className="px-4 py-3">
                           <div className="space-y-3">
                             <div>
-                              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Full Evidence</p>
-                              <p className="mt-1 text-[12px] leading-5 text-slate-700">{row.evidence}</p>
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Full Evidence</p>
+                              <p className="mt-1 text-[12px] leading-5 text-slate-700 dark:text-slate-300">{row.evidence}</p>
                             </div>
                             {row.principle && (
                               <div>
-                                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">OECD Principle</p>
-                                <p className="mt-1 text-[12px] leading-5 text-slate-700">{row.principle}</p>
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">OECD Principle</p>
+                                <p className="mt-1 text-[12px] leading-5 text-slate-700 dark:text-slate-300">{row.principle}</p>
                               </div>
                             )}
                             {detail && (
-                              <div className="rounded border border-slate-200 bg-white p-3">
-                                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Clause Definition</p>
-                                <p className="mt-1 text-[12px] leading-5 text-slate-700">{detail}</p>
+                              <div className="rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3">
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Clause Definition</p>
+                                <p className="mt-1 text-[12px] leading-5 text-slate-700 dark:text-slate-300">{detail}</p>
                               </div>
                             )}
                             <div>
-                              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Remediation</p>
-                              <p className="mt-1 text-[12px] text-slate-700">
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Remediation</p>
+                              <p className="mt-1 text-[12px] text-slate-700 dark:text-slate-300">
                                 {row.status === "Fail" || row.status === "Not aligned"
                                   ? "This item is failing. Add it to the remediation queue and assign an owner with a deadline before the next governance review."
                                   : row.status === "Partial" || row.status === "Partially aligned"

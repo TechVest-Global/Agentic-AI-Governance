@@ -142,7 +142,7 @@ export function Dashboard() {
         />
       </div>
 
-      <div className="border-b border-slate-200">
+      <div className="border-b border-slate-200 dark:border-slate-700">
         <div className="flex flex-wrap gap-1">
           {tabs.map((tab) => (
             <button
@@ -152,7 +152,7 @@ export function Dashboard() {
                 "border-b-2 px-4 py-3 text-[14px] font-medium transition-colors",
                 activeTab === tab
                   ? "border-brand-500 text-brand-700"
-                  : "border-transparent text-slate-600 hover:border-slate-300 hover:text-slate-950"
+                  : "border-transparent text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-600 hover:text-slate-950"
               )}
             >
               {tab}
@@ -221,12 +221,12 @@ function OverviewTab() {
           </ResponsiveContainer>
           <div className="space-y-3">
             {riskDistribution.map((entry) => (
-              <div key={entry.name} className="flex items-center justify-between rounded border border-slate-200 px-3 py-2 text-[12px]">
-                <span className="flex items-center gap-2 font-medium text-slate-700">
+              <div key={entry.name} className="flex items-center justify-between rounded border border-slate-200 dark:border-slate-700 px-3 py-2 text-[12px]">
+                <span className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
                   <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
                   {entry.name}
                 </span>
-                <span className="font-semibold text-slate-950">{entry.value}</span>
+                <span className="font-semibold text-slate-950 dark:text-white">{entry.value}</span>
               </div>
             ))}
           </div>
@@ -255,14 +255,14 @@ function ComplianceTab() {
     <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
       <Card>
         <CardHeader title="Framework Compliance Coverage" eyebrow="Controls" />
-        <div className="divide-y divide-slate-100">
+        <div className="divide-y divide-slate-100 dark:divide-slate-700">
           {complianceRows.map((row) => (
             <div key={row.framework} className="px-4 py-4">
               <div className="flex items-center justify-between gap-3 text-[12px]">
-                <span className="font-semibold text-slate-950">{row.framework}</span>
-                <span className="text-slate-500">{row.coverage}% coverage - {row.gaps} gaps</span>
+                <span className="font-semibold text-slate-950 dark:text-white">{row.framework}</span>
+                <span className="text-slate-500 dark:text-slate-400">{row.coverage}% coverage - {row.gaps} gaps</span>
               </div>
-              <div className="mt-2 h-2 rounded-full bg-[#eef0f6]">
+              <div className="mt-2 h-2 rounded-full bg-[#eef0f6] dark:bg-slate-700">
                 <div className="h-2 rounded-full bg-gradient-to-r from-brand-500 to-brand-400" style={{ width: `${row.coverage}%` }} />
               </div>
             </div>
@@ -292,11 +292,11 @@ function RiskAnalysisTab() {
           {riskSeries.map((risk) => (
             <div key={risk.name}>
               <div className="flex items-center justify-between text-[12px]">
-                <span className="font-medium text-slate-700">{risk.name}</span>
-                <span className="font-semibold text-slate-950">{risk.score}</span>
+                <span className="font-medium text-slate-700 dark:text-slate-300">{risk.name}</span>
+                <span className="font-semibold text-slate-950 dark:text-white">{risk.score}</span>
               </div>
-              <div className="mt-1.5 h-2 rounded-full bg-slate-100">
-                <div className="h-2 rounded-full bg-slate-900" style={{ width: `${risk.score}%` }} />
+              <div className="mt-1.5 h-2 rounded-full bg-slate-100 dark:bg-slate-700">
+                <div className="h-2 rounded-full bg-slate-900 dark:bg-slate-300" style={{ width: `${risk.score}%` }} />
               </div>
             </div>
           ))}
@@ -304,14 +304,14 @@ function RiskAnalysisTab() {
       </ChartCard>
       <Card>
         <CardHeader title="Current Findings" eyebrow="Open Issues" />
-        <div className="divide-y divide-slate-100">
+        <div className="divide-y divide-slate-100 dark:divide-slate-700">
           {findings.map((finding) => (
             <div key={finding.id} className="px-4 py-3">
               <div className="flex items-center justify-between gap-3">
-                <p className="text-[12px] font-semibold text-slate-950">{finding.title}</p>
-                <span className="rounded bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-700">{finding.severity}</span>
+                <p className="text-[12px] font-semibold text-slate-950 dark:text-white">{finding.title}</p>
+                <span className="rounded bg-red-50 dark:bg-red-950/50 px-2 py-0.5 text-[10px] font-semibold text-red-700 dark:text-red-400">{finding.severity}</span>
               </div>
-              <p className="mt-1 text-[11px] text-slate-500">{finding.framework}</p>
+              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{finding.framework}</p>
             </div>
           ))}
         </div>
@@ -327,15 +327,15 @@ function AgentPerformanceTab() {
         <Card key={agent.name} className="p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-start gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded bg-slate-100 text-slate-600">
+              <div className="flex h-9 w-9 items-center justify-center rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
                 <Bot className="h-4 w-4" />
               </div>
               <div>
-                <h3 className="text-[13px] font-semibold text-slate-950">{agent.name}</h3>
-                <p className="mt-0.5 text-[11px] text-slate-500">{agent.role}</p>
+                <h3 className="text-[13px] font-semibold text-slate-950 dark:text-white">{agent.name}</h3>
+                <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">{agent.role}</p>
               </div>
             </div>
-            <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">{agent.status}</span>
+            <span className="rounded bg-slate-100 dark:bg-slate-700 px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:text-slate-300">{agent.status}</span>
           </div>
           <div className="mt-4 grid grid-cols-3 gap-3 text-[12px]">
             <MiniStat label="Progress" value={`${agent.progress}%`} />
@@ -360,10 +360,10 @@ function MetricsSourcesTab() {
         ["Export Sources", "CSV / JSON", "Governance artifacts available through report exports."],
       ].map(([title, value, detail]) => (
         <Card key={title} className="p-4">
-          <Database className="h-4 w-4 text-slate-500" />
-          <p className="mt-3 text-[13px] font-semibold text-slate-950">{title}</p>
-          <p className="mt-1 text-[20px] font-semibold text-slate-950">{value}</p>
-          <p className="mt-2 text-[11px] leading-5 text-slate-500">{detail}</p>
+          <Database className="h-4 w-4 text-slate-500 dark:text-slate-400" />
+          <p className="mt-3 text-[13px] font-semibold text-slate-950 dark:text-white">{title}</p>
+          <p className="mt-1 text-[20px] font-semibold text-slate-950 dark:text-white">{value}</p>
+          <p className="mt-2 text-[11px] leading-5 text-slate-500 dark:text-slate-400">{detail}</p>
         </Card>
       ))}
     </div>
@@ -392,14 +392,14 @@ function KpiCard({
   return (
     <button
       onClick={onClick}
-      className="group rounded-xl bg-white px-4 py-3.5 text-left shadow-card ring-1 ring-black/[0.03] transition-shadow hover:shadow-md"
+      className="group rounded-xl bg-white dark:bg-slate-900 px-4 py-3.5 text-left shadow-card ring-1 ring-black/[0.03] dark:ring-white/6 transition-shadow hover:shadow-md"
     >
       <div className="flex items-start justify-between gap-2">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">{label}</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">{label}</p>
         <Icon className={clsx("h-4 w-4 shrink-0", tone === "red" ? "text-red-400" : "text-slate-300")} />
       </div>
       <div className="mt-1.5 flex items-end gap-2">
-        <p className="text-3xl font-bold tracking-tight text-slate-900 tabular-nums">
+        <p className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white tabular-nums">
           <AnimatedNumber value={value} />
         </p>
         {trend && (
@@ -413,7 +413,7 @@ function KpiCard({
           </span>
         )}
       </div>
-      <p className="mt-0.5 text-[11px] text-slate-400">{detail}</p>
+      <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">{detail}</p>
     </button>
   );
 }
@@ -429,9 +429,9 @@ function ChartCard({
 }) {
   return (
     <Card className="overflow-hidden">
-      <div className="border-b border-[#eef0f6] px-5 py-3.5">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-ink-3">{eyebrow}</p>
-        <h3 className="mt-1 font-display text-[17px] text-ink">{title}</h3>
+      <div className="border-b border-[#eef0f6] dark:border-slate-700 px-5 py-3.5">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-ink-3 dark:text-slate-400">{eyebrow}</p>
+        <h3 className="mt-1 font-display text-[17px] text-ink dark:text-white">{title}</h3>
       </div>
       <div className="p-4">{children}</div>
     </Card>
@@ -440,7 +440,7 @@ function ChartCard({
 
 function Legend({ items }: { items: Array<[string, string]> }) {
   return (
-    <div className="mt-2 flex justify-center gap-4 text-[11px] text-slate-600">
+    <div className="mt-2 flex justify-center gap-4 text-[11px] text-slate-600 dark:text-slate-400">
       {items.map(([label, color]) => (
         <span key={label} className="flex items-center gap-1.5">
           <span className="h-2.5 w-2.5" style={{ backgroundColor: color }} />
@@ -453,9 +453,9 @@ function Legend({ items }: { items: Array<[string, string]> }) {
 
 function MiniStat({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded border border-slate-200 bg-slate-50 p-3">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
-      <p className="mt-1 text-[16px] font-semibold text-slate-950">{value}</p>
+    <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{label}</p>
+      <p className="mt-1 text-[16px] font-semibold text-slate-950 dark:text-white">{value}</p>
     </div>
   );
 }

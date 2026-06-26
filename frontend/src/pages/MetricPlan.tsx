@@ -38,11 +38,11 @@ export function MetricPlan() {
               <ClipboardList className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-700">Metric Plan Review</p>
-              <h2 className="mt-1 text-[20px] font-semibold tracking-tight text-slate-950">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-700 dark:text-blue-400">Metric Plan Review</p>
+              <h2 className="mt-1 text-[20px] font-semibold tracking-tight text-slate-950 dark:text-white">
                 {plan.metrics.length} metrics selected for {plan.systemName}
               </h2>
-              <p className="mt-2 max-w-3xl text-[13px] leading-5 text-slate-600">
+              <p className="mt-2 max-w-3xl text-[13px] leading-5 text-slate-600 dark:text-slate-400">
                 The orchestrator selected these metrics based on the system type, <span className="font-medium">{plan.riskTier}</span> risk tier,
                 and {plan.selectedFrameworks.length} selected frameworks. Review the plan before the run executes.
               </p>
@@ -104,7 +104,7 @@ export function MetricPlan() {
             onClick={() => setDimensionFilter(dim as MetricDimension | "All")}
             className={clsx(
               "rounded border px-3 py-1.5 text-[12px] font-medium transition-colors",
-              dimensionFilter === dim ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+              dimensionFilter === dim ? "border-slate-900 bg-slate-900 dark:border-brand-600 dark:bg-brand-700 text-white" : "border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
             )}
           >
             {dim}
@@ -118,7 +118,7 @@ export function MetricPlan() {
         <div className="overflow-x-auto">
           <table className="w-full text-left text-[12px]">
             <thead>
-              <tr className="border-b border-slate-200 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+              <tr className="border-b border-slate-200 dark:border-slate-700 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
                 <th className="px-4 py-2.5">Metric</th>
                 <th className="px-4 py-2.5">Dimension</th>
                 <th className="px-4 py-2.5">Tool</th>
@@ -161,16 +161,16 @@ function MetricRow({ metric }: { metric: PlannedMetric }) {
     <>
       <tr
         onClick={() => setExpanded((v) => !v)}
-        className="cursor-pointer border-b border-slate-100 hover:bg-slate-50"
+        className="cursor-pointer border-b border-slate-100 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-800/60"
       >
         <td className="px-4 py-3">
-          <p className="font-mono text-[11px] font-semibold text-slate-950">{metric.id}</p>
-          <p className="mt-0.5 text-[11px] text-slate-600">{metric.name}</p>
+          <p className="font-mono text-[11px] font-semibold text-slate-950 dark:text-white">{metric.id}</p>
+          <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">{metric.name}</p>
         </td>
         <td className="px-4 py-3"><Badge tone={dimensionTone[metric.dimension]}>{metric.dimension}</Badge></td>
         <td className="px-4 py-3">
-          <span className="font-mono text-[11px] text-slate-800">{metric.tool}</span>
-          <span className="ml-1.5 rounded bg-slate-100 px-1 py-0.5 text-[9px] font-medium uppercase text-slate-500">{metric.toolMode}</span>
+          <span className="font-mono text-[11px] text-slate-800 dark:text-slate-200">{metric.tool}</span>
+          <span className="ml-1.5 rounded bg-slate-100 dark:bg-slate-700 px-1 py-0.5 text-[9px] font-medium uppercase text-slate-500 dark:text-slate-400">{metric.toolMode}</span>
         </td>
         <td className="px-4 py-3 text-[11px] text-slate-700">{metric.ownerAgent}</td>
         <td className="px-4 py-3 font-medium tabular-nums text-slate-900">{metric.probeBudget}</td>
@@ -178,13 +178,13 @@ function MetricRow({ metric }: { metric: PlannedMetric }) {
         <td className="px-4 py-3"><Badge tone={statusTone[metric.status]}>{metric.status}</Badge></td>
       </tr>
       {expanded && (
-        <tr className="border-b border-slate-100 bg-slate-50/60">
+        <tr className="border-b border-slate-100 dark:border-slate-700/50 bg-slate-50/60 dark:bg-slate-800/40">
           <td colSpan={7} className="px-4 py-3">
-            <p className="text-[12px] leading-5 text-slate-700">{metric.description}</p>
+            <p className="text-[12px] leading-5 text-slate-700 dark:text-slate-300">{metric.description}</p>
             <div className="mt-2 flex flex-wrap gap-1.5">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Frameworks:</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Frameworks:</span>
               {metric.frameworks.map((fw) => (
-                <span key={fw} className="rounded bg-white px-2 py-0.5 text-[10px] text-slate-700 ring-1 ring-slate-200">{fw}</span>
+                <span key={fw} className="rounded bg-white dark:bg-slate-700 px-2 py-0.5 text-[10px] text-slate-700 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-slate-600">{fw}</span>
               ))}
             </div>
           </td>

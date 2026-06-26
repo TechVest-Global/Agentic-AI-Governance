@@ -3,13 +3,15 @@
 Provides two building blocks every model-backed agent uses:
 - _probe_target(): send a probe to the audited system, sanitize + fence output
 - _ask_governance(): send a reasoning request to the governance model
+- _ask_governance_with_json_retry(): one automatic retry when response is non-JSON
 
 The two clients are never mixed: target output is always fenced as UNTRUSTED
 evidence before it enters a governance prompt.
 """
 
 import json
-from dataclasses import dataclass, field
+import logging
+from dataclasses import dataclass
 
 from app.services.model_clients.base import (
     GovernanceModelClient,
@@ -22,6 +24,14 @@ from app.services.model_clients.sanitization import (
     SanitizedTargetOutput,
     fence_untrusted_target_output,
     sanitize_target_output,
+)
+
+logger = logging.getLogger(__name__)
+
+_JSON_RETRY_SUFFIX = (
+    "\n\nIMPORTANT: Your previous response was not valid JSON. "
+    "Return ONLY a valid JSON array with no markdown, no explanation, no code fences. "
+    "Start your response with [ and end with ]."
 )
 
 
@@ -83,12 +93,37 @@ class ModelBackedAgent:
             )
         )
 
+    def _ask_governance_with_json_retry(
+        self,
+        *,
+        task: str,
+        prompt: str,
+        context: dict[str, object] | None = None,
+    ) -> list[dict[str, object]] | None:
+        """Call governance model and parse JSON array; retry once if response is non-JSON."""
+        response = self._ask_governance(task=task, prompt=prompt, context=context)
+        parsed = self._parse_findings_json(response.content)
+        if parsed is not None:
+            return parsed
+
+        logger.warning(
+            "%s: governance response was not JSON on first attempt (task=%s), retrying",
+            self.__class__.__name__,
+            task,
+        )
+        retry_response = self._ask_governance(
+            task=task,
+            prompt=prompt + _JSON_RETRY_SUFFIX,
+            context=context,
+        )
+        return self._parse_findings_json(retry_response.content)
+
     @staticmethod
     def _parse_findings_json(content: str) -> list[dict[str, object]] | None:
         """Extract a JSON array of findings from governance model response.
 
-        Returns None when the response is not valid JSON (e.g. mock mode),
-        so callers can fall back to deterministic logic.
+        Returns None when the response is not valid JSON, so callers can
+        fall back to deterministic logic.
         """
         try:
             start = content.find("[")

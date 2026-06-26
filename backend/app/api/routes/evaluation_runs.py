@@ -1,8 +1,11 @@
-from typing import Annotated
+import asyncio
+import json
+from typing import Annotated, AsyncGenerator
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
-from sqlmodel import Session
+from fastapi.responses import StreamingResponse
+from sqlmodel import Session, select
 
 from app.db.session import get_session
 from app.schemas.governance import (
@@ -25,6 +28,9 @@ from app.schemas.governance import (
     MetricExecutionRead,
     MetricPlanRead,
 )
+from app.models.agent import AgentExecution
+from app.models.evaluation import EvaluationRun
+from app.models.finding import Finding
 from app.services import (
     adaptive_orchestrator,
     context_assembly,
@@ -176,12 +182,12 @@ def run_governance_pipeline(
     response_model=MetricExecutionRead,
     status_code=status.HTTP_201_CREATED,
 )
-def run_mock_metrics(
+def run_metrics(
     run_id: UUID,
     payload: MetricExecutionCreate,
     session: SessionDependency,
 ) -> MetricExecutionRead:
-    return metric_execution.run_mock_metrics(session, run_id=run_id, payload=payload)
+    return metric_execution.run_metrics(session, run_id=run_id, payload=payload)
 
 
 @router.get("/{run_id}/llm-calls", response_model=LLMCallLogSummary)
@@ -190,3 +196,91 @@ def get_llm_call_logs(
     session: SessionDependency,
 ) -> LLMCallLogSummary:
     return llm_call_log_service.get_llm_call_log_summary(session, run_id=run_id)
+
+
+@router.get("/{run_id}/progress/stream")
+async def stream_run_progress(
+    run_id: UUID,
+    session: SessionDependency,
+) -> StreamingResponse:
+    """SSE endpoint — emits a progress snapshot every 2 s until the run is terminal."""
+
+    async def event_generator() -> AsyncGenerator[str, None]:
+        terminal = {"completed", "failed", "cancelled"}
+        while True:
+            run = session.get(EvaluationRun, run_id)
+            if run is None:
+                yield _sse({"error": "run not found"})
+                break
+
+            executions = list(
+                session.exec(
+                    select(AgentExecution)
+                    .where(AgentExecution.run_id == run_id)
+                    .order_by(AgentExecution.created_at.asc())
+                ).all()
+            )
+            finding_count = session.exec(
+                select(Finding).where(Finding.run_id == run_id)
+            ).all()
+
+            probe_count = sum(
+                (e.metadata_json or {}).get("probe_count", 0)
+                for e in executions
+            )
+
+            payload = {
+                "run_id": str(run_id),
+                "status": run.status,
+                "current_phase": run.current_phase,
+                "progress": _phase_progress(run.current_phase),
+                "agents": [
+                    {
+                        "name": e.agent_name,
+                        "status": e.status,
+                        "finding_count": e.finding_count or 0,
+                        "started_at": e.started_at.isoformat() if e.started_at else None,
+                        "completed_at": e.completed_at.isoformat() if e.completed_at else None,
+                    }
+                    for e in executions
+                ],
+                "probe_count": probe_count,
+                "finding_count": len(finding_count),
+                "result_summary": run.result_summary or {},
+            }
+            yield _sse(payload)
+
+            if run.status in terminal:
+                break
+
+            await asyncio.sleep(2)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _sse(data: dict) -> str:
+    return f"data: {json.dumps(data)}\n\n"
+
+
+_PHASE_ORDER = [
+    "created",
+    "context_assembly",
+    "adaptive_orchestrator",
+    "metric_execution",
+    "specialist_agents",
+    "deliberation_council",
+    "action_reporting",
+    "completed",
+]
+
+
+def _phase_progress(phase: str | None) -> int:
+    idx = _PHASE_ORDER.index(phase) if phase in _PHASE_ORDER else 0
+    return round(((idx + 1) / len(_PHASE_ORDER)) * 100)

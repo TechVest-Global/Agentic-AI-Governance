@@ -221,15 +221,15 @@ export function AgentIntelligence() {
     <div className="space-y-5">
       <Card className="overflow-hidden">
         <div className="grid gap-0 xl:grid-cols-[1fr_340px]">
-          <div className="border-b border-slate-200 p-5 xl:border-b-0 xl:border-r">
+          <div className="border-b border-slate-200 dark:border-white/10 p-5 xl:border-b-0 xl:border-r">
             <div className="flex items-start gap-4">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-[#111827] text-white">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-[#111827] dark:bg-brand-700 text-white">
                 <Cpu className="h-5 w-5" />
               </div>
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-brand-700">Specialist Agent Swarm</p>
-                <h2 className="mt-1 text-[20px] font-semibold tracking-tight text-slate-950">Parallel governance intelligence for {targetSystemName}</h2>
-                <p className="mt-2 max-w-3xl text-[13px] leading-5 text-slate-600">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-brand-700 dark:text-brand-400">Specialist Agent Swarm</p>
+                <h2 className="mt-1 text-[20px] font-semibold tracking-tight text-slate-950 dark:text-white">Parallel governance intelligence for {targetSystemName}</h2>
+                <p className="mt-2 max-w-3xl text-[13px] leading-5 text-slate-600 dark:text-slate-400">
                   Specialist agents probe the same target from different risk perspectives, write evidence into shared run state, and carry confidence impacts into council scoring.
                 </p>
               </div>
@@ -241,9 +241,9 @@ export function AgentIntelligence() {
               <SummaryMetric label="Avg Confidence" value={`${avgConfidence}%`} icon={Gauge} />
             </div>
           </div>
-          <div className="bg-slate-50 p-5">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Next actions</p>
-            <p className="mt-2 text-[12px] leading-5 text-slate-600">
+          <div className="bg-slate-50 dark:bg-slate-800/60 p-5">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Next actions</p>
+            <p className="mt-2 text-[12px] leading-5 text-slate-600 dark:text-slate-400">
               Use this page for the agent-level operating picture. Open the engine when you need the lead-provided drawers, event trace, and ledger proof.
             </p>
             <div className="mt-4 flex flex-col gap-2">
@@ -258,7 +258,7 @@ export function AgentIntelligence() {
               <button
                 onClick={() => navigateTo("/council")}
                 title="Jump to the Council Deliberation where all agent findings are synthesised"
-                className="inline-flex items-center justify-center gap-2 rounded border border-slate-300 bg-white px-3 py-2 text-[12px] font-medium text-slate-900 hover:bg-slate-50"
+                className="inline-flex items-center justify-center gap-2 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-[12px] font-medium text-slate-900 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-700"
               >
                 <FileText className="h-4 w-4" />
                 Go to Council
@@ -287,11 +287,11 @@ export function AgentIntelligence() {
             <SummaryMetric label="Persisted Executions" value={`${backend.agentExecutions.length}`} icon={Cpu} tone="blue" />
             <SummaryMetric label="Completed" value={`${backendCompleted}`} icon={CheckCircle2} tone="green" />
             <SummaryMetric label="Failed" value={`${backendFailed}`} icon={AlertTriangle} tone={backendFailed ? "red" : "slate"} />
-            <div className="rounded border border-slate-200 bg-slate-50 p-3 md:col-span-3">
+            <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3 md:col-span-3">
               <div className="flex flex-wrap gap-2">
                 {backend.agentExecutions.map((execution) => (
-                  <span key={execution.id} className="rounded border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] text-slate-700">
-                    <span className="font-semibold text-slate-950">{execution.agent_name}</span>
+                  <span key={execution.id} className="rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[12px] text-slate-700 dark:text-slate-300">
+                    <span className="font-semibold text-slate-950 dark:text-white">{execution.agent_name}</span>
                     {" · "}
                     {execution.status}
                     {" · "}
@@ -299,7 +299,7 @@ export function AgentIntelligence() {
                   </span>
                 ))}
               </div>
-              <p className="mt-3 text-[11px] text-slate-500">
+              <p className="mt-3 text-[11px] text-slate-500 dark:text-slate-400">
                 Backend findings recorded by agent executions: {backendFindings}. Detailed cards below remain the prototype drilldown packet until real agent reports are expanded.
               </p>
             </div>
@@ -316,12 +316,12 @@ export function AgentIntelligence() {
       <Card className="p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Agent Network</p>
-            <p className="mt-1 text-[13px] font-semibold text-slate-950">Live handoff from orchestrator to 5 specialist agents</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Agent Network</p>
+            <p className="mt-1 text-[13px] font-semibold text-slate-950 dark:text-white">Live handoff from orchestrator to 5 specialist agents</p>
           </div>
           <button
             onClick={() => navigateTo("/engine")}
-            className="hidden rounded border border-slate-300 bg-white px-3 py-2 text-[12px] font-medium text-slate-900 hover:bg-slate-50 md:block"
+            className="hidden rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-[12px] font-medium text-slate-900 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-700 md:block"
           >
             Inspect in Engine
           </button>
@@ -336,24 +336,24 @@ export function AgentIntelligence() {
                 setTab(agent.id, "Overview");
               }}
               className={clsx(
-                "animate-rise rounded-lg border p-3 text-left transition-all hover:border-brand-300 hover:bg-brand-50/40 hover:shadow-sm",
-                expandedAgent === agent.id ? "border-brand-300 bg-brand-50/50" : "border-slate-200 bg-white"
+                "animate-rise rounded-lg border p-3 text-left transition-all hover:border-brand-300 hover:bg-brand-50/40 dark:hover:bg-brand-900/20 hover:shadow-sm",
+                expandedAgent === agent.id ? "border-brand-300 bg-brand-50/50 dark:bg-brand-900/20" : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
               )}
             >
               <div className="flex items-center justify-between gap-2">
                 <AgentGlyph agent={agent} />
                 <StatusDot status={agent.status} />
               </div>
-              <p className="mt-3 truncate text-[12px] font-semibold text-slate-950">{agent.name}</p>
-              <p className="mt-1 text-[11px] text-slate-500">{agent.probes}</p>
+              <p className="mt-3 truncate text-[12px] font-semibold text-slate-950 dark:text-white">{agent.name}</p>
+              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{agent.probes}</p>
               <div className="mt-3 flex items-center gap-2">
-                <div className="h-1.5 flex-1 rounded-full bg-slate-100">
+                <div className="h-1.5 flex-1 rounded-full bg-slate-100 dark:bg-slate-700">
                   <div
-                    className={clsx("h-1.5 rounded-full", agent.status === "Complete" ? "bg-emerald-500" : agent.status === "Running" ? "bg-brand-500" : "bg-slate-300")}
+                    className={clsx("h-1.5 rounded-full", agent.status === "Complete" ? "bg-emerald-500" : agent.status === "Running" ? "bg-brand-500" : "bg-slate-300 dark:bg-slate-600")}
                     style={{ width: `${agent.confidence || 18}%` }}
                   />
                 </div>
-                <span className="text-[11px] font-semibold tabular-nums text-slate-500">{agent.confidence || 18}%</span>
+                <span className="text-[11px] font-semibold tabular-nums text-slate-500 dark:text-slate-400">{agent.confidence || 18}%</span>
               </div>
             </button>
           ))}
@@ -401,37 +401,37 @@ export function AgentIntelligence() {
             <Card key={agent.id} className={clsx("overflow-hidden transition-shadow", expanded && "shadow-md", agent.severity === "Critical" && "border-l-2 border-l-red-500")}>
               <button
                 onClick={() => setExpandedAgent(expanded ? "" : agent.id)}
-                className="grid w-full grid-cols-[minmax(0,1fr)_120px_120px_120px_32px] items-center gap-4 px-4 py-4 text-left hover:bg-slate-50"
+                className="grid w-full grid-cols-[minmax(0,1fr)_120px_120px_120px_32px] items-center gap-4 px-4 py-4 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60"
               >
                 <div className="flex min-w-0 items-start gap-3">
                   <AgentGlyph agent={agent} />
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-[14px] font-semibold text-slate-950">{agent.name}</p>
+                      <p className="text-[14px] font-semibold text-slate-950 dark:text-white">{agent.name}</p>
                       <SeverityBadge severity={agent.severity} />
                     </div>
-                    <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-slate-600">{agent.purpose}</p>
+                    <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-slate-600 dark:text-slate-400">{agent.purpose}</p>
                   </div>
                 </div>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Status</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Status</p>
                   <StatusBadge status={agent.status} />
                 </div>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Probes</p>
-                  <p className="mt-1 text-[12px] font-semibold text-slate-950">{agent.probes}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Probes</p>
+                  <p className="mt-1 text-[12px] font-semibold text-slate-950 dark:text-white">{agent.probes}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Confidence</p>
-                  <p className="mt-1 text-[12px] font-semibold text-slate-950">{agent.confidence ? `${agent.confidence}%` : "Pending"}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Confidence</p>
+                  <p className="mt-1 text-[12px] font-semibold text-slate-950 dark:text-white">{agent.confidence ? `${agent.confidence}%` : "Pending"}</p>
                 </div>
                 {expanded ? <ChevronDown className="h-4 w-4 text-slate-500" /> : <ChevronRight className="h-4 w-4 text-slate-500" />}
               </button>
 
               {expanded && (
-                <div className="border-t border-slate-200 bg-slate-50/60">
+                <div className="border-t border-slate-200 dark:border-white/10 bg-slate-50/60 dark:bg-slate-800/40">
                   <PhaseStepperBar phases={agent.timeline} />
-                  <div className="flex gap-1 border-b border-slate-200 px-4 pt-3">
+                  <div className="flex gap-1 border-b border-slate-200 dark:border-white/10 px-4 pt-3">
                     {tabs.map((tab) => (
                       <button
                         key={tab}
@@ -439,15 +439,15 @@ export function AgentIntelligence() {
                         className={clsx(
                           "rounded-t border border-b-0 px-3 py-2 text-[12px] font-medium",
                           activeTab === tab
-                            ? "border-slate-300 bg-white text-slate-950"
-                            : "border-transparent text-slate-500 hover:text-slate-900"
+                            ? "border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-white"
+                            : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                         )}
                       >
                         {tab}
                       </button>
                     ))}
                   </div>
-                  <div className="bg-white p-4">
+                  <div className="bg-white dark:bg-slate-900 p-4">
                     <ExpandedTab agent={agent} tab={activeTab} />
                   </div>
                 </div>
@@ -484,7 +484,7 @@ function ExpandedTab({ agent, tab }: { agent: IntelligenceAgent; tab: AgentTab }
           <MiniMetric label="Probe Set" value={agent.probes} />
           <MiniMetric label="Confidence" value={agent.confidence ? `${agent.confidence}%` : "Pending"} />
         </div>
-        <div className="rounded border border-slate-200 bg-slate-50 p-4">
+        <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-4">
           <Timeline items={agent.timeline} />
         </div>
         <ActionRow />
@@ -498,9 +498,9 @@ function ExpandedTab({ agent, tab }: { agent: IntelligenceAgent; tab: AgentTab }
         <div>
           <SectionTitle icon={SearchCheck} title="Probe Methods" />
           <ChipGrid items={agent.methods} tone="blue" />
-          <div className="mt-5 rounded border border-slate-200 bg-slate-50 p-4">
-            <p className="text-[12px] font-semibold text-slate-950">Probe execution model</p>
-            <p className="mt-2 text-[12px] leading-5 text-slate-600">
+          <div className="mt-5 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-4">
+            <p className="text-[12px] font-semibold text-slate-950 dark:text-white">Probe execution model</p>
+            <p className="mt-2 text-[12px] leading-5 text-slate-600 dark:text-slate-400">
               The agent isolates governance variables, executes structured probes against the target model, and records evidence without exposing raw target output to the governance LLM.
             </p>
           </div>
@@ -534,12 +534,12 @@ function ExpandedTab({ agent, tab }: { agent: IntelligenceAgent; tab: AgentTab }
         <SectionTitle icon={FileText} title="Mapped Frameworks" />
         <div className="flex flex-wrap gap-2">
           {agent.frameworks.map((framework) => (
-            <span key={framework} className="rounded border border-slate-200 bg-transparent px-3 py-1.5 text-[12px] font-medium text-slate-600">
+            <span key={framework} className="rounded border border-slate-200 dark:border-slate-600 bg-transparent px-3 py-1.5 text-[12px] font-medium text-slate-600 dark:text-slate-300">
               {framework}
             </span>
           ))}
         </div>
-        <div className="rounded border border-slate-200 bg-slate-50 p-4 text-[12px] leading-5 text-slate-600">
+        <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-4 text-[12px] leading-5 text-slate-600 dark:text-slate-400">
           Clause mappings are written to the run evidence package and carried into the Council Deliberation and Compliance Report views.
         </div>
         {/* Compliance Mapper framework detail */}
@@ -553,11 +553,11 @@ function ExpandedTab({ agent, tab }: { agent: IntelligenceAgent; tab: AgentTab }
       <SectionTitle icon={AlertTriangle} title="Recommended Remediation" />
       <div className="grid gap-2">
         {agent.remediation.map((item, index) => (
-          <div key={item} className="flex items-start gap-3 rounded border border-slate-200 bg-slate-50 p-3">
-            <span className="flex h-5 w-5 items-center justify-center rounded bg-slate-900 text-[10px] font-semibold text-white">
+          <div key={item} className="flex items-start gap-3 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
+            <span className="flex h-5 w-5 items-center justify-center rounded bg-slate-900 dark:bg-slate-700 text-[10px] font-semibold text-white">
               {index + 1}
             </span>
-            <p className="text-[12px] text-slate-700">{item}</p>
+            <p className="text-[12px] text-slate-700 dark:text-slate-300">{item}</p>
           </div>
         ))}
       </div>
@@ -580,12 +580,12 @@ function RuntimeTab({ agentId }: { agentId: string }) {
           {detail.phases.map((phase, idx) => (
             <div key={phase.phase} className={clsx(
               "flex items-start gap-3 rounded border p-3",
-              phase.status === "complete" ? "border-emerald-200 bg-emerald-50/50" :
-              phase.status === "running" ? "border-blue-200 bg-blue-50/50" :
-              "border-slate-200 bg-slate-50/50"
+              phase.status === "complete" ? "border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20" :
+              phase.status === "running" ? "border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20" :
+              "border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30"
             )}>
               <div className="flex items-center gap-2 shrink-0">
-                <span className="flex h-5 w-5 items-center justify-center rounded bg-slate-800 text-[10px] font-bold text-white">
+                <span className="flex h-5 w-5 items-center justify-center rounded bg-slate-800 dark:bg-slate-600 text-[10px] font-bold text-white">
                   {idx + 1}
                 </span>
                 {phase.status === "complete" && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />}
@@ -594,12 +594,12 @@ function RuntimeTab({ agentId }: { agentId: string }) {
               </div>
               <div className="flex-1">
                 <div className="flex items-center gap-2">
-                  <p className="text-[12px] font-semibold text-slate-900">{phase.phase}</p>
+                  <p className="text-[12px] font-semibold text-slate-900 dark:text-white">{phase.phase}</p>
                   {phase.duration && (
-                    <span className="text-[10px] font-mono text-slate-400">{phase.duration}</span>
+                    <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500">{phase.duration}</span>
                   )}
                 </div>
-                <p className="mt-0.5 text-[11px] text-slate-600">{phase.detail}</p>
+                <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">{phase.detail}</p>
               </div>
             </div>
           ))}
@@ -614,23 +614,23 @@ function RuntimeTab({ agentId }: { agentId: string }) {
 
       <div className="grid gap-4 md:grid-cols-2">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 mb-2">Data Used</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400 mb-2">Data Used</p>
           <div className="space-y-1.5">
             {detail.dataUsed.map((item) => (
               <div key={item} className="flex items-start gap-2">
                 <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-blue-400 shrink-0" />
-                <span className="text-[11px] text-slate-700">{item}</span>
+                <span className="text-[11px] text-slate-700 dark:text-slate-300">{item}</span>
               </div>
             ))}
           </div>
         </div>
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 mb-2">Probes Run</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400 mb-2">Probes Run</p>
           <div className="space-y-1.5">
             {detail.probesRun.map((item) => (
               <div key={item} className="flex items-start gap-2">
                 <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
-                <span className="text-[11px] text-slate-700">{item}</span>
+                <span className="text-[11px] text-slate-700 dark:text-slate-300">{item}</span>
               </div>
             ))}
           </div>
@@ -639,23 +639,23 @@ function RuntimeTab({ agentId }: { agentId: string }) {
 
       <div className="grid gap-4 md:grid-cols-2">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 mb-2">Metrics Calculated</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400 mb-2">Metrics Calculated</p>
           <div className="space-y-1.5">
             {detail.metricsCalculated.map((item) => (
               <div key={item} className="flex items-start gap-2">
                 <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />
-                <span className="text-[11px] font-mono text-slate-700">{item}</span>
+                <span className="text-[11px] font-mono text-slate-700 dark:text-slate-300">{item}</span>
               </div>
             ))}
           </div>
         </div>
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 mb-2">Evidence Produced</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400 mb-2">Evidence Produced</p>
           <div className="space-y-1.5">
             {detail.evidenceProduced.map((item) => (
               <div key={item} className="flex items-start gap-2">
                 <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-purple-400 shrink-0" />
-                <span className="text-[11px] text-slate-700">{item}</span>
+                <span className="text-[11px] text-slate-700 dark:text-slate-300">{item}</span>
               </div>
             ))}
           </div>
@@ -664,13 +664,13 @@ function RuntimeTab({ agentId }: { agentId: string }) {
 
       {/* Confidence + Artifact */}
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="rounded border border-slate-200 bg-slate-50 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Confidence Impact</p>
-          <p className="mt-1 text-[14px] font-semibold text-red-700">{detail.confidenceImpact}</p>
+        <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Confidence Impact</p>
+          <p className="mt-1 text-[14px] font-semibold text-red-700 dark:text-red-400">{detail.confidenceImpact}</p>
         </div>
-        <div className="rounded border border-slate-200 bg-slate-50 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Artifact Emitted</p>
-          <p className="mt-1 text-[12px] font-mono text-slate-800">{detail.artifactEmitted}</p>
+        <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Artifact Emitted</p>
+          <p className="mt-1 text-[12px] font-mono text-slate-800 dark:text-slate-200">{detail.artifactEmitted}</p>
         </div>
       </div>
     </div>
@@ -679,9 +679,9 @@ function RuntimeTab({ agentId }: { agentId: string }) {
 
 function RuntimeDetail({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded border border-slate-200 bg-slate-50 p-3">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
-      <p className="mt-1.5 text-[12px] leading-5 text-slate-800">{value}</p>
+    <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{label}</p>
+      <p className="mt-1.5 text-[12px] leading-5 text-slate-800 dark:text-slate-200">{value}</p>
     </div>
   );
 }
@@ -700,42 +700,42 @@ function ComplianceMapperDetail() {
 
   return (
     <div className="mt-4 space-y-3">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Chatbot Compliance Detail</p>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Chatbot Compliance Detail</p>
 
       {sections.map(({ key, data }) => (
-        <div key={key} className="rounded border border-slate-200 overflow-hidden">
+        <div key={key} className="rounded border border-slate-200 dark:border-slate-700 overflow-hidden">
           <button
             onClick={() => setExpandedSection(expandedSection === key ? null : key)}
-            className="flex w-full items-center justify-between px-3 py-2.5 text-left hover:bg-slate-50"
+            className="flex w-full items-center justify-between px-3 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60"
           >
-            <p className="text-[12px] font-semibold text-slate-900">{data.title}</p>
-            {expandedSection === key ? <ChevronDown className="h-3.5 w-3.5 text-slate-400" /> : <ChevronRight className="h-3.5 w-3.5 text-slate-400" />}
+            <p className="text-[12px] font-semibold text-slate-900 dark:text-white">{data.title}</p>
+            {expandedSection === key ? <ChevronDown className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" /> : <ChevronRight className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />}
           </button>
           {expandedSection === key && (
-            <div className="border-t border-slate-100 px-3 py-2.5">
+            <div className="border-t border-slate-100 dark:border-slate-700/50 px-3 py-2.5">
               <table className="w-full text-[11px]">
                 <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="pb-2 text-left font-semibold text-slate-500">Clause</th>
-                    <th className="pb-2 text-left font-semibold text-slate-500">Status</th>
-                    <th className="pb-2 text-left font-semibold text-slate-500">Detail</th>
+                  <tr className="border-b border-slate-100 dark:border-slate-700">
+                    <th className="pb-2 text-left font-semibold text-slate-500 dark:text-slate-400">Clause</th>
+                    <th className="pb-2 text-left font-semibold text-slate-500 dark:text-slate-400">Status</th>
+                    <th className="pb-2 text-left font-semibold text-slate-500 dark:text-slate-400">Detail</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.checks.map((check) => (
-                    <tr key={check.clause} className="border-b border-slate-50">
-                      <td className="py-2 pr-3 font-medium text-slate-800">{check.clause}</td>
+                    <tr key={check.clause} className="border-b border-slate-50 dark:border-slate-800">
+                      <td className="py-2 pr-3 font-medium text-slate-800 dark:text-slate-200">{check.clause}</td>
                       <td className="py-2 pr-3">
                         <span className={clsx(
                           "rounded px-1.5 py-0.5 text-[10px] font-semibold",
-                          check.status === "Pass" ? "bg-emerald-100 text-emerald-700" :
-                          check.status === "Fail" ? "bg-red-100 text-red-700" :
-                          "bg-amber-100 text-amber-700"
+                          check.status === "Pass" ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400" :
+                          check.status === "Fail" ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400" :
+                          "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400"
                         )}>
                           {check.status}
                         </span>
                       </td>
-                      <td className="py-2 text-slate-600">{check.detail}</td>
+                      <td className="py-2 text-slate-600 dark:text-slate-400">{check.detail}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -747,30 +747,30 @@ function ComplianceMapperDetail() {
 
       {/* Evidence correlation and missing items */}
       <div className="grid gap-3 md:grid-cols-2">
-        <div className="rounded border border-slate-200 bg-slate-50 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Evidence-to-Control Correlation</p>
-          <p className="mt-1.5 text-[18px] font-semibold text-slate-900">{d.evidenceToControlCorrelation}</p>
-          <div className="mt-2 h-2 rounded bg-slate-200">
+        <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Evidence-to-Control Correlation</p>
+          <p className="mt-1.5 text-[18px] font-semibold text-slate-900 dark:text-white">{d.evidenceToControlCorrelation}</p>
+          <div className="mt-2 h-2 rounded bg-slate-200 dark:bg-slate-700">
             <div className="h-full rounded bg-amber-500" style={{ width: `${d.evidenceToControlCorrelation * 100}%` }} />
           </div>
         </div>
-        <div className="rounded border border-red-200 bg-red-50 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-red-600">Missing Items</p>
+        <div className="rounded border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-red-600 dark:text-red-400">Missing Items</p>
           <div className="mt-1.5 space-y-1">
             {d.missingItems.map((item) => (
-              <p key={item} className="text-[11px] text-red-800">• {item}</p>
+              <p key={item} className="text-[11px] text-red-800 dark:text-red-300">• {item}</p>
             ))}
           </div>
         </div>
       </div>
 
       {/* Remediation requirements */}
-      <div className="rounded border border-slate-200 p-3">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 mb-2">Remediation Requirements</p>
+      <div className="rounded border border-slate-200 dark:border-slate-700 p-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400 mb-2">Remediation Requirements</p>
         {d.remediationRequirements.map((item, idx) => (
           <div key={item} className="flex items-start gap-2 py-1">
-            <span className="flex h-4 w-4 items-center justify-center rounded bg-slate-800 text-[9px] font-bold text-white shrink-0">{idx + 1}</span>
-            <p className="text-[11px] text-slate-700">{item}</p>
+            <span className="flex h-4 w-4 items-center justify-center rounded bg-slate-800 dark:bg-slate-600 text-[9px] font-bold text-white shrink-0">{idx + 1}</span>
+            <p className="text-[11px] text-slate-700 dark:text-slate-300">{item}</p>
           </div>
         ))}
       </div>
@@ -784,27 +784,27 @@ function DriftAnalystDetail() {
 
   return (
     <div className="mt-4 space-y-4">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Drift Analysis — TechVest RAG Chatbot vs baseline</p>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Drift Analysis — TechVest RAG Chatbot vs baseline</p>
 
       {/* Version comparison */}
       <div className="grid gap-3 md:grid-cols-3">
-        <div className="rounded border border-slate-200 bg-slate-50 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Baseline Version</p>
-          <p className="mt-1 text-[13px] font-mono font-semibold text-slate-900">{d.baselineVersion}</p>
+        <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Baseline Version</p>
+          <p className="mt-1 text-[13px] font-mono font-semibold text-slate-900 dark:text-white">{d.baselineVersion}</p>
         </div>
-        <div className="rounded border border-slate-200 bg-slate-50 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Current Version</p>
-          <p className="mt-1 text-[13px] font-mono font-semibold text-slate-900">{d.currentVersion}</p>
+        <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Current Version</p>
+          <p className="mt-1 text-[13px] font-mono font-semibold text-slate-900 dark:text-white">{d.currentVersion}</p>
         </div>
         <div className={clsx(
           "rounded border p-3",
           d.thresholdComparison.score < d.thresholdComparison.threshold
-            ? "border-red-200 bg-red-50"
-            : "border-emerald-200 bg-emerald-50"
+            ? "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30"
+            : "border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/20"
         )}>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Threshold Status</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Threshold Status</p>
           <p className={clsx("mt-1 text-[13px] font-semibold",
-            d.thresholdComparison.score < d.thresholdComparison.threshold ? "text-red-700" : "text-emerald-700"
+            d.thresholdComparison.score < d.thresholdComparison.threshold ? "text-red-700 dark:text-red-400" : "text-emerald-700 dark:text-emerald-400"
           )}>
             {d.thresholdComparison.score} / {d.thresholdComparison.threshold} — {d.thresholdComparison.status}
           </p>
@@ -812,16 +812,16 @@ function DriftAnalystDetail() {
       </div>
 
       {/* Benchmark replay results */}
-      <div className="rounded border border-slate-200 p-3">
+      <div className="rounded border border-slate-200 dark:border-slate-700 p-3">
         <div className="flex items-center gap-2 mb-3">
-          <GitCompare className="h-4 w-4 text-slate-500" />
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Benchmark Replay Results ({d.benchmarkReplay.completed}/{d.benchmarkReplay.totalPrompts} complete)</p>
+          <GitCompare className="h-4 w-4 text-slate-500 dark:text-slate-400" />
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Benchmark Replay Results ({d.benchmarkReplay.completed}/{d.benchmarkReplay.totalPrompts} complete)</p>
         </div>
         <div className="space-y-1.5">
           {d.benchmarkReplay.distribution.map((item) => (
             <div key={item.prompt} className="flex items-center gap-3">
-              <p className="flex-1 text-[11px] text-slate-700 truncate">{item.prompt}</p>
-              <div className="w-32 h-2 rounded bg-slate-200">
+              <p className="flex-1 text-[11px] text-slate-700 dark:text-slate-300 truncate">{item.prompt}</p>
+              <div className="w-32 h-2 rounded bg-slate-200 dark:bg-slate-700">
                 <div
                   className={clsx("h-full rounded", item.similarity >= 0.80 ? "bg-emerald-500" : item.similarity >= 0.60 ? "bg-amber-500" : "bg-red-500")}
                   style={{ width: `${item.similarity * 100}%` }}
@@ -829,7 +829,7 @@ function DriftAnalystDetail() {
               </div>
               <span className={clsx(
                 "text-[11px] font-mono w-10 text-right",
-                item.similarity >= 0.80 ? "text-emerald-700" : item.similarity >= 0.60 ? "text-amber-700" : "text-red-700"
+                item.similarity >= 0.80 ? "text-emerald-700 dark:text-emerald-400" : item.similarity >= 0.60 ? "text-amber-700 dark:text-amber-400" : "text-red-700 dark:text-red-400"
               )}>
                 {item.similarity.toFixed(2)}
               </span>
@@ -846,38 +846,38 @@ function DriftAnalystDetail() {
       </div>
 
       {/* Explanation drift */}
-      <div className="rounded border border-amber-200 bg-amber-50 p-3">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-700">Explanation Drift (Consistency: {d.explanationDrift.consistencyScore})</p>
+      <div className="rounded border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20 p-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-700 dark:text-amber-400">Explanation Drift (Consistency: {d.explanationDrift.consistencyScore})</p>
         <div className="mt-2 space-y-1">
           {d.explanationDrift.majorChanges.map((change) => (
-            <p key={change} className="text-[11px] text-amber-800">• {change}</p>
+            <p key={change} className="text-[11px] text-amber-800 dark:text-amber-300">• {change}</p>
           ))}
         </div>
       </div>
 
       {/* Production telemetry */}
-      <div className="rounded border border-slate-200 p-3">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 mb-2">Production Telemetry ({d.productionTelemetry.period})</p>
+      <div className="rounded border border-slate-200 dark:border-slate-700 p-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400 mb-2">Production Telemetry ({d.productionTelemetry.period})</p>
         <div className="grid grid-cols-3 gap-3">
           <div>
-            <p className="text-[10px] text-slate-500">Avg Latency</p>
-            <p className="text-[11px] font-mono text-slate-800">{d.productionTelemetry.avgLatency.v40} → {d.productionTelemetry.avgLatency.v42}</p>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400">Avg Latency</p>
+            <p className="text-[11px] font-mono text-slate-800 dark:text-slate-200">{d.productionTelemetry.avgLatency.v40} → {d.productionTelemetry.avgLatency.v42}</p>
           </div>
           <div>
-            <p className="text-[10px] text-slate-500">Error Rate</p>
-            <p className="text-[11px] font-mono text-slate-800">{d.productionTelemetry.errorRate.v40} → {d.productionTelemetry.errorRate.v42}</p>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400">Error Rate</p>
+            <p className="text-[11px] font-mono text-slate-800 dark:text-slate-200">{d.productionTelemetry.errorRate.v40} → {d.productionTelemetry.errorRate.v42}</p>
           </div>
           <div>
-            <p className="text-[10px] text-slate-500">Override Rate</p>
-            <p className="text-[11px] font-mono text-slate-800">{d.productionTelemetry.overrideRate.v40} → {d.productionTelemetry.overrideRate.v42}</p>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400">Override Rate</p>
+            <p className="text-[11px] font-mono text-slate-800 dark:text-slate-200">{d.productionTelemetry.overrideRate.v40} → {d.productionTelemetry.overrideRate.v42}</p>
           </div>
         </div>
       </div>
 
       {/* Finding F-002 */}
-      <div className="rounded border-l-4 border-l-orange-400 border border-orange-200 bg-orange-50 p-3">
-        <p className="text-[11px] font-semibold text-orange-800">Finding F-002: {d.findingF002.title}</p>
-        <p className="mt-1 text-[11px] leading-4.5 text-orange-700">{d.findingF002.detail}</p>
+      <div className="rounded border-l-4 border-l-orange-400 border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/20 p-3">
+        <p className="text-[11px] font-semibold text-orange-800 dark:text-orange-300">Finding F-002: {d.findingF002.title}</p>
+        <p className="mt-1 text-[11px] leading-4.5 text-orange-700 dark:text-orange-400">{d.findingF002.detail}</p>
       </div>
     </div>
   );
@@ -886,13 +886,13 @@ function DriftAnalystDetail() {
 function DriftMetric({ label, v40, v42, delta }: { label: string; v40: string; v42: string; delta: string }) {
   const isNegative = delta.startsWith("-");
   return (
-    <div className="rounded border border-slate-200 bg-slate-50 p-3">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
+    <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{label}</p>
       <div className="mt-1.5 flex items-baseline gap-2">
-        <span className="text-[11px] font-mono text-slate-500">{v40}</span>
-        <span className="text-[10px] text-slate-400">→</span>
-        <span className="text-[11px] font-mono text-slate-900">{v42}</span>
-        <span className={clsx("text-[10px] font-semibold", isNegative ? "text-red-600" : "text-amber-600")}>({delta})</span>
+        <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{v40}</span>
+        <span className="text-[10px] text-slate-400 dark:text-slate-500">→</span>
+        <span className="text-[11px] font-mono text-slate-900 dark:text-white">{v42}</span>
+        <span className={clsx("text-[10px] font-semibold", isNegative ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400")}>({delta})</span>
       </div>
     </div>
   );
@@ -932,37 +932,37 @@ function SummaryMetric({
   tone?: "slate" | "red" | "blue" | "green";
 }) {
   const iconColor = {
-    slate: "text-slate-300",
+    slate: "text-slate-300 dark:text-slate-600",
     red: "text-red-400",
-    blue: "text-slate-300",
+    blue: "text-slate-300 dark:text-slate-600",
     green: "text-emerald-400",
   }[tone];
 
   return (
     <Card className="px-4 py-3 transition-shadow hover:shadow-md">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">{label}</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">{label}</p>
         <Icon className={clsx("h-4 w-4 shrink-0", iconColor)} />
       </div>
-      <p className="mt-1.5 text-3xl font-bold tracking-tight text-slate-900 tabular-nums">{value}</p>
+      <p className="mt-1.5 text-3xl font-bold tracking-tight text-slate-900 dark:text-white tabular-nums">{value}</p>
     </Card>
   );
 }
 
 function MiniMetric({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded border border-slate-200 bg-white p-3">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
-      <p className="mt-1.5 text-[13px] font-semibold text-slate-950">{value}</p>
+    <div className="rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{label}</p>
+      <p className="mt-1.5 text-[13px] font-semibold text-slate-950 dark:text-white">{value}</p>
     </div>
   );
 }
 
 function ChipGrid({ items, tone }: { items: string[]; tone: "slate" | "blue" | "amber" }) {
   const colors = {
-    slate: "border-slate-200 bg-slate-50 text-slate-700",
-    blue: "border-blue-200 bg-blue-50 text-blue-800",
-    amber: "border-amber-200 bg-amber-50 text-amber-800",
+    slate: "border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300",
+    blue:  "border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/50 text-blue-800 dark:text-blue-300",
+    amber: "border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300",
   };
 
   return (
@@ -980,12 +980,12 @@ function ImpactBar({ value }: { value: number }) {
   const magnitude = Math.min(Math.abs(value), 20);
 
   return (
-    <div className="rounded border border-slate-200 bg-slate-50 p-4">
+    <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-4">
       <div className="flex items-center justify-between">
-        <p className="text-[12px] font-semibold text-slate-950">Confidence impact</p>
-        <p className={clsx("text-[12px] font-semibold", value < 0 ? "text-red-700" : "text-emerald-700")}>{value}%</p>
+        <p className="text-[12px] font-semibold text-slate-950 dark:text-white">Confidence impact</p>
+        <p className={clsx("text-[12px] font-semibold", value < 0 ? "text-red-700 dark:text-red-400" : "text-emerald-700 dark:text-emerald-400")}>{value}%</p>
       </div>
-      <div className="mt-3 h-2 rounded bg-slate-200">
+      <div className="mt-3 h-2 rounded bg-slate-200 dark:bg-slate-700">
         <div className={clsx("h-full rounded", value < 0 ? "bg-red-600" : "bg-emerald-600")} style={{ width: `${(magnitude / 20) * 100}%` }} />
       </div>
       <p className="mt-2 text-[11px] text-slate-500">Applied as a deduction during council confidence scoring.</p>
@@ -996,14 +996,14 @@ function ImpactBar({ value }: { value: number }) {
 function Timeline({ items }: { items: IntelligenceAgent["timeline"] }) {
   return (
     <div>
-      <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Status Timeline</p>
+      <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Status Timeline</p>
       <div className="space-y-3">
         {items.map((item) => (
           <div key={item.label} className="flex gap-3">
-            <div className={clsx("mt-1 h-2.5 w-2.5 rounded-full", item.status === "complete" ? "bg-emerald-600" : item.status === "running" ? "bg-blue-700" : "bg-slate-300")} />
+            <div className={clsx("mt-1 h-2.5 w-2.5 rounded-full shrink-0", item.status === "complete" ? "bg-emerald-600" : item.status === "running" ? "bg-blue-700" : "bg-slate-300 dark:bg-slate-600")} />
             <div>
-              <p className="text-[12px] font-semibold text-slate-950">{item.label}</p>
-              <p className="mt-0.5 text-[11px] text-slate-600">{item.detail}</p>
+              <p className="text-[12px] font-semibold text-slate-950 dark:text-white">{item.label}</p>
+              <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">{item.detail}</p>
             </div>
           </div>
         ))}
@@ -1015,8 +1015,8 @@ function Timeline({ items }: { items: IntelligenceAgent["timeline"] }) {
 function SectionTitle({ icon: Icon, title }: { icon: React.ComponentType<{ className?: string }>; title: string }) {
   return (
     <div className="mb-3 flex items-center gap-2">
-      <Icon className="h-4 w-4 text-slate-500" />
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{title}</p>
+      <Icon className="h-4 w-4 text-slate-500 dark:text-slate-400" />
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{title}</p>
     </div>
   );
 }
@@ -1060,9 +1060,9 @@ function PhaseStepperBar({ phases }: { phases: IntelligenceAgent["timeline"] }) 
             </div>
             <p className={clsx(
               "text-center text-[9px] font-semibold leading-tight",
-              phase.status === "complete" ? "text-emerald-700" :
-              phase.status === "running" ? "text-brand-700" :
-              "text-slate-400"
+              phase.status === "complete" ? "text-emerald-700 dark:text-emerald-400" :
+              phase.status === "running" ? "text-brand-700 dark:text-brand-400" :
+              "text-slate-400 dark:text-slate-500"
             )}>
               {phase.label}
             </p>
@@ -1070,9 +1070,9 @@ function PhaseStepperBar({ phases }: { phases: IntelligenceAgent["timeline"] }) 
           {idx < phases.length - 1 && (
             <div className={clsx(
               "mx-1 h-0.5 flex-1",
-              phase.status === "complete" ? "bg-emerald-300" :
-              phase.status === "running" ? "bg-brand-300" :
-              "bg-slate-200"
+              phase.status === "complete" ? "bg-emerald-300 dark:bg-emerald-800" :
+              phase.status === "running" ? "bg-brand-300 dark:bg-brand-800" :
+              "bg-slate-200 dark:bg-slate-700"
             )} />
           )}
         </div>
@@ -1088,7 +1088,7 @@ function ActionRow() {
       <button
         onClick={() => navigateTo("/council")}
         title="Go to the Council Deliberation view where agent findings are synthesised into a verdict"
-        className="inline-flex items-center gap-2 rounded border border-slate-300 bg-white px-3 py-2 text-[12px] font-medium text-slate-900 hover:bg-slate-50"
+        className="inline-flex items-center gap-2 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-[12px] font-medium text-slate-900 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-700"
       >
         <FileText className="h-4 w-4" />
         View Council Deliberation
@@ -1096,7 +1096,7 @@ function ActionRow() {
       <button
         onClick={() => navigateTo("/verdicts")}
         title="Jump to the Verdicts page to see the final governance outcome and risk tier"
-        className="inline-flex items-center gap-2 rounded bg-[#111827] px-3 py-2 text-[12px] font-semibold text-white hover:bg-slate-800"
+        className="inline-flex items-center gap-2 rounded bg-[#111827] dark:bg-brand-700 px-3 py-2 text-[12px] font-semibold text-white hover:bg-slate-800 dark:hover:bg-brand-600"
       >
         <ExternalLink className="h-4 w-4" />
         View Verdict
