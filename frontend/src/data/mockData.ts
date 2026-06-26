@@ -1,4 +1,5 @@
 import {
+  Activity,
   Bot,
   BookOpen,
   ClipboardList,
@@ -14,13 +15,109 @@ import type { AgentStatus, AiSystem, AuditEvent, Finding, GovernanceRun, Navigat
 export const navigation: NavigationItem[] = [
   { id: "dashboard", label: "Dashboard", section: "Govern", path: "/dashboard", icon: LayoutDashboard },
   { id: "systems", label: "AI Systems", section: "Govern", path: "/systems", icon: ShieldCheck },
-  { id: "engine", label: "Governance Engine", section: "Govern", path: "/engine", icon: Cpu },
+  { id: "engine", label: "How It Works", section: "Govern", path: "/engine", icon: Cpu },
+  { id: "runs", label: "Live Run", section: "Govern", path: "/runs", icon: Activity },
   { id: "agents", label: "Agent Intelligence", section: "Govern", path: "/agents", icon: Bot },
   { id: "metric-plan", label: "Metric Plan", section: "Govern", path: "/metric-plan", icon: ClipboardList },
   { id: "council", label: "Council Deliberation", section: "Govern", path: "/council", icon: Scale },
   { id: "verdicts", label: "Verdicts", section: "Govern", path: "/verdicts", icon: GitBranch, badge: "4" },
   { id: "reports", label: "Reports", section: "Assurance", path: "/reports", icon: FileText },
   { id: "ledger", label: "Audit Ledger", section: "Assurance", path: "/ledger", icon: BookOpen },
+];
+
+export type AcpSection = {
+  letter: string;
+  title: string;
+  owner: string;
+  fields: [string, string][];
+};
+
+export type ApplicationContextProfile = {
+  systemId: string;
+  version: string;
+  frameworks: { name: string; desc: string; active: boolean }[];
+  sections: AcpSection[];
+};
+
+export const applicationContextProfiles: ApplicationContextProfile[] = [
+  {
+    systemId: "sys-techvest-chatbot",
+    version: "v1.0",
+    frameworks: [
+      { name: "NIST AI RMF", desc: "Govern, Map, Measure, Manage", active: true },
+      { name: "OWASP LLM Top 10", desc: "LLM security risks", active: true },
+      { name: "ISO 42001", desc: "AI management system", active: true },
+      { name: "EU AI Act", desc: "Art.10, Art.52, Annex IV", active: false },
+      { name: "SR 11-7", desc: "Model risk management", active: false },
+    ],
+    sections: [
+      {
+        letter: "A",
+        title: "Application Identity & Purpose",
+        owner: "→ Orchestrator, Compliance Mapper",
+        fields: [
+          ["Application", "TechVest RAG Chatbot v1"],
+          ["Business domain", "Customer Operations"],
+          ["Primary use case", "AI-assisted customer service Q&A"],
+          ["Decision impact", "Advisory — human agent reviews before acting"],
+          ["End users", "Internal customer service agents"],
+          ["Deployment scale", "Internal pilot — ~40 daily users, Staging"],
+        ],
+      },
+      {
+        letter: "B",
+        title: "Pre-Model Business Rules",
+        owner: "→ Bias Auditor, Misuse Detector, Drift Analyst",
+        fields: [
+          ["Input validation", "Strip PII from user query before model call"],
+          ["PII handling", "Name + account numbers tokenised"],
+          ["Prompt construction", "System prompt + Azure AI Search context chunks"],
+          ["Context injection", "RAG: top-5 retrieved passages from knowledge base"],
+          ["Routing", "Low-confidence answers → human escalation queue"],
+          ["Guardrails", "Content safety filter (Azure AI) pre-model"],
+        ],
+      },
+      {
+        letter: "C",
+        title: "Model Configuration",
+        owner: "→ All probing agents",
+        fields: [
+          ["Provider", "Azure AI Foundry (OpenAI)"],
+          ["Model", "gpt-4.1-mini"],
+          ["Temperature", "0.3 (slight variability for natural responses)"],
+          ["System prompt", "Customer service assistant — TechVest Financial"],
+          ["Max tokens", "512"],
+          ["Endpoint", "http://localhost:8000/api/chat"],
+        ],
+      },
+      {
+        letter: "D",
+        title: "Post-Model Business Rules",
+        owner: "→ Bias Auditor, Misuse Detector, Explainability Agent",
+        fields: [
+          ["Output filters", "Toxicity · PII · brand-safety (Azure Content Safety)"],
+          ["Confidence threshold", "< 0.5 → append disclaimer + escalate"],
+          ["Response transform", "None — raw model output passed to agent"],
+          ["HITL triggers", "Flagged topics → mandatory human review"],
+          ["Caching", "None — every query hits the model"],
+          ["Audit logging", "All inputs + outputs logged to Azure Monitor"],
+        ],
+      },
+      {
+        letter: "E",
+        title: "Integration Context",
+        owner: "→ Risk Scorer",
+        fields: [
+          ["Upstream", "Azure AI Search (knowledge base) · Customer CRM"],
+          ["Downstream", "Agent chat interface (internal portal)"],
+          ["Audit systems", "Azure Monitor + GovernAI ledger"],
+          ["Rollback", "Feature-flag disable — instant, no migration needed"],
+          ["Blast radius", "Low — advisory only, no automated actions"],
+          ["Data residency", "EU region (Azure West Europe)"],
+        ],
+      },
+    ],
+  },
 ];
 
 export const systems: AiSystem[] = [

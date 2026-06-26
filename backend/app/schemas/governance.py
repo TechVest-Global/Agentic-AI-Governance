@@ -317,10 +317,10 @@ class MetricResultRead(MetricResultCreate):
 
 
 class MetricExecutionCreate(APIModel):
-    mock_score: float = Field(default=1.0, ge=0.0, le=1.0)
+    mock_score: float = Field(default=0.5, ge=0.0, le=1.0)
     force_status: MetricResultStatus | None = None
-    source_name: str = Field(default="mock_metric_runner", max_length=200)
-    evaluator_name: str = Field(default="mock", min_length=1, max_length=100)
+    source_name: str = Field(default="threshold_metric_runner", max_length=200)
+    evaluator_name: str = Field(default="threshold", min_length=1, max_length=100)
 
 
 class MetricExecutionRead(APIModel):

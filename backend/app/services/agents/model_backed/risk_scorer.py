@@ -160,7 +160,7 @@ class RiskScorerAgent(ModelBackedAgent):
         if context.ai_system.risk_tier == RiskTier.high:
             oversight_context = f"Risk tier: HIGH\n{oversight_context}"
 
-        governance_response = self._ask_governance(
+        parsed = self._ask_governance_with_json_retry(
             task="oversight_analysis",
             prompt=_GOVERNANCE_PROMPT_TEMPLATE.format(
                 system_name=context.ai_system.name,
@@ -177,8 +177,6 @@ class RiskScorerAgent(ModelBackedAgent):
                 "redaction_warnings": [w for p in probes for w in p.sanitized.warnings],
             },
         )
-
-        parsed = self._parse_findings_json(governance_response.content)
         if parsed is not None:
             return findings + _findings_from_governance(parsed, context)
 

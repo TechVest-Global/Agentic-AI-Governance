@@ -5,7 +5,7 @@ const routeMatchers: Array<[RegExp, PageId]> = [
   [/^\/(?:dashboard)?$/, "dashboard"],
   [/^\/systems(?:\/.*)?$/, "systems"],
   [/^\/engine(?:\/.*)?$/, "engine"],
-  [/^\/runs(?:\/.*)?$/, "engine"],
+  [/^\/runs(?:\/.*)?$/, "runs"],
   [/^\/agents(?:\/.*)?$/, "agents"],
   [/^\/metric-plan(?:\/.*)?$/, "metric-plan"],
   [/^\/council(?:\/.*)?$/, "council"],

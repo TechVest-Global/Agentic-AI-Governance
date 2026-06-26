@@ -12,7 +12,7 @@ from app.services.run_validation import get_run_or_raise
 from app.services.specialist_agents.metric_plans import build_metric_plan
 
 
-def run_mock_metrics(
+def run_metrics(
     session: Session,
     *,
     run_id: UUID,

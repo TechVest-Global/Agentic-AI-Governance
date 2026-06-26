@@ -29,6 +29,7 @@ import {
   type BackendAISystemCapabilityCreate,
   type BackendAISystemCreate,
 } from "@/api/governanceApi";
+import { applicationContextProfiles } from "@/data/mockData";
 
 const frameworkDescriptions: Record<string, string> = {
   "EU AI Act": "European Union regulation for high-risk AI systems. Mandates conformity assessments, technical documentation, and deployer obligations.",
@@ -320,23 +321,23 @@ export function AISystems() {
         />
       )}
       {/* Page intro + actions */}
-      <div className="flex items-start justify-between border-b border-slate-200 pb-5">
+      <div className="flex items-start justify-between border-b border-slate-200 dark:border-slate-700 pb-5">
         <div className="max-w-2xl space-y-1">
-          <p className="text-[13px] leading-5 text-slate-600">
+          <p className="text-[13px] leading-5 text-slate-600 dark:text-slate-300">
             Every AI system registered here is bound to a model owner, risk tier, and applicable regulatory frameworks. Governance runs evaluate each system continuously — click any row to explore its current posture.
           </p>
-          <p className="text-[11px] text-slate-400">Click a row to expand full system details · Click a framework tag for its description · Hover column headers for field definitions</p>
+          <p className="text-[11px] text-slate-400 dark:text-slate-500">Click a row to expand full system details · Click a framework tag for its description · Hover column headers for field definitions</p>
         </div>
         <div className="flex shrink-0 gap-2">
           <button
             title="Filter registry by risk tier, domain, or status"
-            className="flex items-center gap-2 rounded border border-slate-300 bg-white px-3 py-2 text-[12px] font-medium text-slate-900 transition-colors hover:border-slate-400 hover:bg-slate-50"
+            className="flex items-center gap-2 rounded border border-slate-300 bg-white px-3 py-2 text-[12px] font-medium text-slate-900 transition-colors hover:border-slate-400 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-700"
           >
             <Filter className="h-4 w-4" /> Filter
           </button>
           <button
             title="Export registry data as CSV or JSON"
-            className="flex items-center gap-2 rounded border border-slate-300 bg-white px-3 py-2 text-[12px] font-medium text-slate-900 transition-colors hover:border-slate-400 hover:bg-slate-50"
+            className="flex items-center gap-2 rounded border border-slate-300 bg-white px-3 py-2 text-[12px] font-medium text-slate-900 transition-colors hover:border-slate-400 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-700"
           >
             <Download className="h-4 w-4" /> Export
           </button>
@@ -351,9 +352,9 @@ export function AISystems() {
       </div>
 
       {loadError && (
-        <div className="rounded border border-amber-300 bg-amber-50 px-4 py-3 text-[12px] leading-5 text-amber-900">
+        <div className="rounded border border-amber-300 bg-amber-50 px-4 py-3 text-[12px] leading-5 text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
           Backend registry is unavailable. Start the FastAPI backend, then refresh this page to view and register real AI applications.
-          <span className="mt-1 block font-mono text-[11px] text-amber-800">{loadError}</span>
+          <span className="mt-1 block font-mono text-[11px] text-amber-800 dark:text-amber-400">{loadError}</span>
         </div>
       )}
 
@@ -377,8 +378,8 @@ export function AISystems() {
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1320px] border-collapse text-left">
-            <thead className="bg-slate-50">
-              <tr className="border-b border-slate-200">
+            <thead className="bg-slate-50 dark:bg-slate-800">
+              <tr className="border-b border-slate-200 dark:border-slate-700">
                 <th className="w-6 px-3 py-2.5" />
                 {Object.keys(columnDescriptions).map((heading) => (
                   <th
@@ -387,12 +388,12 @@ export function AISystems() {
                     onMouseEnter={() => setHoveredColumn(heading)}
                     onMouseLeave={() => setHoveredColumn(null)}
                   >
-                    <span className="flex cursor-default items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-600 hover:text-slate-950">
+                    <span className="flex cursor-default items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white">
                       {heading}
-                      <Info className="h-3 w-3 text-slate-400" />
+                      <Info className="h-3 w-3 text-slate-400 dark:text-slate-500" />
                     </span>
                     {hoveredColumn === heading && (
-                      <div className="absolute left-0 top-full z-20 mt-1 w-56 rounded border border-slate-200 bg-white p-2.5 text-[11px] leading-4 text-slate-700 shadow-lg">
+                      <div className="absolute left-0 top-full z-20 mt-1 w-56 rounded border border-slate-200 bg-white p-2.5 text-[11px] leading-4 text-slate-700 shadow-lg dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
                         {columnDescriptions[heading]}
                       </div>
                     )}
@@ -409,26 +410,26 @@ export function AISystems() {
                     <tr
                       onClick={() => setExpandedSystem(expanded ? null : system.id)}
                       className={clsx(
-                        "group cursor-pointer border-b border-slate-100 transition-colors",
-                        expanded ? "bg-brand-50/60" : "hover:bg-slate-50"
+                        "group cursor-pointer border-b border-slate-100 transition-colors dark:border-slate-700/50",
+                        expanded ? "bg-brand-50/60 dark:bg-brand-900/20" : "hover:bg-slate-50 dark:hover:bg-slate-800/60"
                       )}
                     >
-                      <td className="px-3 py-3 text-slate-400">
+                      <td className="px-3 py-3 text-slate-400 dark:text-slate-500">
                         {expanded
                           ? <ChevronDown className="h-4 w-4 text-brand-600" />
-                          : <ChevronRight className="h-4 w-4 group-hover:text-slate-700" />}
+                          : <ChevronRight className="h-4 w-4 group-hover:text-slate-700 dark:group-hover:text-slate-300" />}
                       </td>
                       <td className="px-3 py-3">
-                        <p className="font-mono text-[13px] font-semibold text-slate-950">{system.name}</p>
-                        <p className="mt-0.5 flex items-center gap-1.5 text-[10px] text-slate-500">
+                        <p className="font-mono text-[13px] font-semibold text-slate-950 dark:text-white">{system.name}</p>
+                        <p className="mt-0.5 flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400">
                           <span>{system.version}</span>
                           <span>·</span>
                           <Users className="h-3 w-3" />
                           <span>{system.users} daily users</span>
                         </p>
                       </td>
-                      <td className="px-3 py-3 text-[12px] text-slate-700">{system.applicationType}</td>
-                      <td className="px-3 py-3 text-[12px] font-medium text-slate-950">{system.domain}</td>
+                      <td className="px-3 py-3 text-[12px] text-slate-700 dark:text-slate-300">{system.applicationType}</td>
+                      <td className="px-3 py-3 text-[12px] font-medium text-slate-950 dark:text-white">{system.domain}</td>
                       <td className="px-3 py-3">
                         <Badge tone="neutral">
                           {system.environment === "Production" ? "Active" : system.environment}
@@ -437,9 +438,9 @@ export function AISystems() {
                       <td className="px-3 py-3">
                         <Badge tone={toneForRisk(system.riskTier)}>{system.riskTier}</Badge>
                       </td>
-                      <td className="px-3 py-3 text-[12px] text-slate-700">{system.owner}</td>
+                      <td className="px-3 py-3 text-[12px] text-slate-700 dark:text-slate-300">{system.owner}</td>
                       <td className="px-3 py-3">
-                        <p className="font-mono text-[11px] text-slate-700">{system.lastRun}</p>
+                        <p className="font-mono text-[11px] text-slate-700 dark:text-slate-300">{system.lastRun}</p>
                       </td>
                       <td className="px-3 py-3">
                         <Badge tone={toneForStatus(system.verdict)}>{system.verdict}</Badge>
@@ -451,7 +452,7 @@ export function AISystems() {
                             system.confidence >= 80 ? "text-emerald-700" :
                             system.confidence >= 60 ? "text-amber-700" : "text-red-700"
                           )}>{system.confidence}%</span>
-                          <div className="h-1.5 w-20 rounded bg-slate-200">
+                          <div className="h-1.5 w-20 rounded bg-slate-200 dark:bg-slate-700">
                             <div
                               className={clsx("h-full rounded transition-all",
                                 system.confidence >= 80 ? "bg-emerald-600" :
@@ -463,8 +464,8 @@ export function AISystems() {
                         </div>
                       </td>
                       <td className="px-3 py-3">
-                        <p className="font-mono text-[11px] text-slate-700">{system.nextReview}</p>
-                        <p className="mt-0.5 text-[10px] text-slate-400">
+                        <p className="font-mono text-[11px] text-slate-700 dark:text-slate-300">{system.nextReview}</p>
+                        <p className="mt-0.5 text-[10px] text-slate-400 dark:text-slate-500">
                           <Clock className="mr-0.5 inline h-2.5 w-2.5" />
                           Scheduled
                         </p>
@@ -476,7 +477,7 @@ export function AISystems() {
 
                     {/* Inline expanded detail */}
                     {expanded && (
-                      <tr key={`${system.id}-expanded`} className="border-b border-blue-100 bg-blue-50/60">
+                      <tr key={`${system.id}-expanded`} className="border-b border-blue-100 bg-blue-50/60 dark:border-blue-900/40 dark:bg-blue-950/20">
                         <td colSpan={12} className="px-4 py-4">
                           <SystemDetail system={system} onNavigate={navigateTo} onClose={() => setExpandedSystem(null)} />
                         </td>
@@ -488,8 +489,8 @@ export function AISystems() {
               {!isLoading && registrySystems.length === 0 && (
                 <tr>
                   <td colSpan={12} className="px-4 py-12 text-center">
-                    <p className="text-[14px] font-semibold text-slate-950">No AI systems registered yet</p>
-                    <p className="mt-1 text-[12px] text-slate-500">
+                    <p className="text-[14px] font-semibold text-slate-950 dark:text-white">No AI systems registered yet</p>
+                    <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400">
                       Register the TechVest chatbot or another target AI application to start governance testing.
                     </p>
                   </td>
@@ -497,7 +498,7 @@ export function AISystems() {
               )}
               {isLoading && (
                 <tr>
-                  <td colSpan={12} className="px-4 py-12 text-center text-[12px] text-slate-500">
+                  <td colSpan={12} className="px-4 py-12 text-center text-[12px] text-slate-500 dark:text-slate-400">
                     Loading registered AI systems from backend...
                   </td>
                 </tr>
@@ -508,9 +509,9 @@ export function AISystems() {
       </Card>
 
       {/* Footer info bar */}
-      <div className="grid gap-5 rounded-md border border-slate-200 bg-white p-4 lg:grid-cols-3">
+      <div className="grid gap-5 rounded-md border border-slate-200 bg-white p-4 lg:grid-cols-3 dark:border-slate-700 dark:bg-slate-900">
         <div>
-          <p className="mb-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">
+          <p className="mb-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600 dark:text-slate-400">
             Frameworks Tracked Across Registry
           </p>
           <div className="relative flex flex-wrap gap-2">
@@ -519,28 +520,28 @@ export function AISystems() {
                 key={fw}
                 onMouseEnter={() => setHoveredFramework(fw)}
                 onMouseLeave={() => setHoveredFramework(null)}
-                className="cursor-default rounded border border-slate-300 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-900 transition-colors hover:border-blue-400 hover:bg-blue-50 hover:text-blue-800"
+                className="cursor-default rounded border border-slate-300 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-900 transition-colors hover:border-blue-400 hover:bg-blue-50 hover:text-blue-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-blue-500 dark:hover:bg-blue-900/40 dark:hover:text-blue-300"
               >
                 {fw}
               </span>
             ))}
             {hoveredFramework && (
-              <div className="absolute bottom-full left-0 z-20 mb-2 max-w-xs rounded border border-slate-200 bg-white p-2.5 text-[11px] leading-4 text-slate-700 shadow-lg">
-                <p className="mb-1 font-semibold text-slate-950">{hoveredFramework}</p>
+              <div className="absolute bottom-full left-0 z-20 mb-2 max-w-xs rounded border border-slate-200 bg-white p-2.5 text-[11px] leading-4 text-slate-700 shadow-lg dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                <p className="mb-1 font-semibold text-slate-950 dark:text-white">{hoveredFramework}</p>
                 {frameworkDescriptions[hoveredFramework]}
               </div>
             )}
           </div>
         </div>
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Onboarding Policy</p>
-          <p className="text-[12px] leading-5 text-slate-600">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600 dark:text-slate-400">Onboarding Policy</p>
+          <p className="text-[12px] leading-5 text-slate-600 dark:text-slate-300">
             Every system requires an intended-use declaration, prohibited-use list, and dual-control sign-off before reaching Production tier. Shadow deployments run in parallel for 30 days before promotion.
           </p>
         </div>
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">Governance Disclaimer</p>
-          <p className="text-[12px] leading-5 text-slate-600">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600 dark:text-slate-400">Governance Disclaimer</p>
+          <p className="text-[12px] leading-5 text-slate-600 dark:text-slate-300">
             Registry entries reflect the current automated governance posture. Final compliance determinations and production decisions require authorized human review per the organization's model risk policy.
           </p>
         </div>
@@ -558,18 +559,18 @@ function SystemDetail({
   onNavigate: (path: string) => void;
   onClose: () => void;
 }) {
-  const [activeTab, setActiveTab] = useState<"Overview" | "Risk" | "Frameworks" | "Actions">("Overview");
+  const [activeTab, setActiveTab] = useState<"Overview" | "Context Profile" | "Risk" | "Frameworks" | "Actions">("Overview");
   const verdict = verdictDescriptions[system.verdict];
-  const tabs = ["Overview", "Risk", "Frameworks", "Actions"] as const;
+  const tabs = ["Overview", "Context Profile", "Risk", "Frameworks", "Actions"] as const;
 
   return (
-    <div className="rounded-md border border-blue-200 bg-white shadow-sm">
+    <div className="rounded-md border border-blue-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
       {/* Detail header */}
-      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-700">
         <div className="flex items-center gap-3">
           <div>
-            <p className="font-mono text-[14px] font-bold text-slate-950">{system.name}</p>
-            <p className="text-[11px] text-slate-500">
+            <p className="font-mono text-[14px] font-bold text-slate-950 dark:text-white">{system.name}</p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
               {system.version} · {system.applicationType} · {system.domain}
             </p>
           </div>
@@ -584,14 +585,14 @@ function SystemDetail({
             <ExternalLink className="h-3.5 w-3.5" />
             View Live Run
           </button>
-          <button onClick={onClose} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+          <button onClick={onClose} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300">
             <X className="h-4 w-4" />
           </button>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-slate-200 px-4 pt-2">
+      <div className="flex gap-1 border-b border-slate-200 px-4 pt-2 dark:border-slate-700">
         {tabs.map((tab) => (
           <button
             key={tab}
@@ -599,8 +600,8 @@ function SystemDetail({
             className={clsx(
               "rounded-t border border-b-0 px-3 py-1.5 text-[12px] font-medium transition-colors",
               activeTab === tab
-                ? "border-slate-300 bg-white text-slate-950"
-                : "border-transparent text-slate-500 hover:text-slate-900"
+                ? "border-slate-300 bg-white text-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+                : "border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
             )}
           >
             {tab}
@@ -626,9 +627,9 @@ function SystemDetail({
               <InfoRow label="Next Review" value={system.nextReview} mono />
               <InfoRow label="Confidence" value={`${system.confidence}%`} />
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Verdict Meaning</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-500">Verdict Meaning</p>
                 <p className={clsx("mt-1 text-[12px] font-medium", verdict.color)}>{verdict.label}</p>
-                <p className="mt-0.5 text-[11px] leading-4 text-slate-600">{verdict.description}</p>
+                <p className="mt-0.5 text-[11px] leading-4 text-slate-600 dark:text-slate-300">{verdict.description}</p>
               </div>
             </div>
             <div className="space-y-3">
@@ -644,23 +645,27 @@ function SystemDetail({
           </div>
         )}
 
+        {activeTab === "Context Profile" && (
+          <AcpPanel systemId={system.id} />
+        )}
+
         {activeTab === "Risk" && (
           <div className="grid gap-5 lg:grid-cols-2">
             <div>
               <SectionLabel>Risk Tier Explanation</SectionLabel>
-              <div className="mt-2 rounded border border-slate-200 bg-slate-50 p-3">
+              <div className="mt-2 rounded border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800">
                 {system.riskTier === "High" && (
-                  <p className="text-[12px] leading-5 text-slate-700">
+                  <p className="text-[12px] leading-5 text-slate-700 dark:text-slate-300">
                     <span className="font-semibold text-red-700">High Risk:</span> This system falls under EU AI Act Annex III. It must complete a conformity assessment, maintain an Annex IV technical file, and implement post-market monitoring. Deployers carry obligations under Art.26.
                   </p>
                 )}
                 {system.riskTier === "Medium" && (
-                  <p className="text-[12px] leading-5 text-slate-700">
+                  <p className="text-[12px] leading-5 text-slate-700 dark:text-slate-300">
                     <span className="font-semibold text-amber-700">Medium Risk:</span> Not categorized as high-risk under Annex III but still subject to transparency obligations (Art.52) and internal model risk governance (SR 11-7). Requires periodic re-evaluation.
                   </p>
                 )}
                 {system.riskTier === "Low" && (
-                  <p className="text-[12px] leading-5 text-slate-700">
+                  <p className="text-[12px] leading-5 text-slate-700 dark:text-slate-300">
                     <span className="font-semibold text-emerald-700">Low Risk:</span> Minimal regulatory exposure. Subject to voluntary codes of conduct and internal best practices. Standard logging and human oversight checkpoints apply.
                   </p>
                 )}
@@ -676,14 +681,14 @@ function SystemDetail({
                   { label: "Misuse Resistance", val: system.confidence + 10 },
                 ].map((item) => (
                   <div key={item.label} className="grid grid-cols-[130px_1fr_36px] items-center gap-2">
-                    <p className="text-[11px] text-slate-700">{item.label}</p>
-                    <div className="h-1.5 rounded bg-slate-200">
+                    <p className="text-[11px] text-slate-700 dark:text-slate-300">{item.label}</p>
+                    <div className="h-1.5 rounded bg-slate-200 dark:bg-slate-700">
                       <div
                         className={clsx("h-full rounded", item.val >= 80 ? "bg-emerald-500" : item.val >= 60 ? "bg-amber-400" : "bg-red-500")}
                         style={{ width: `${Math.min(100, Math.max(0, item.val))}%` }}
                       />
                     </div>
-                    <span className="text-right text-[11px] font-medium text-slate-950">{Math.min(100, Math.max(0, item.val))}%</span>
+                    <span className="text-right text-[11px] font-medium text-slate-950 dark:text-white">{Math.min(100, Math.max(0, item.val))}%</span>
                   </div>
                 ))}
               </div>
@@ -698,9 +703,9 @@ function SystemDetail({
               {(system.frameworks.length ? system.frameworks : ["No frameworks selected"]).map((fw) => {
                 const displayName = frameworkDescriptions[fw] ? fw : labelize(fw);
                 return (
-                  <div key={fw} className="rounded border border-slate-200 bg-slate-50 p-3 transition-colors hover:border-blue-300 hover:bg-blue-50">
-                    <p className="text-[12px] font-semibold text-slate-950">{displayName}</p>
-                    <p className="mt-1 text-[11px] leading-4 text-slate-600">
+                  <div key={fw} className="rounded border border-slate-200 bg-slate-50 p-3 transition-colors hover:border-blue-300 hover:bg-blue-50 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-700 dark:hover:bg-blue-950/30">
+                    <p className="text-[12px] font-semibold text-slate-950 dark:text-white">{displayName}</p>
+                    <p className="mt-1 text-[11px] leading-4 text-slate-600 dark:text-slate-300">
                       {frameworkDescriptions[fw] ?? "Stored with this registered AI system for future governance runs."}
                     </p>
                   </div>
@@ -738,15 +743,112 @@ function SystemDetail({
               <button
                 key={action.label}
                 onClick={() => onNavigate(action.path)}
-                className="group flex flex-col items-start gap-1.5 rounded border border-slate-200 bg-white p-3 text-left transition-all hover:border-blue-300 hover:bg-blue-50 hover:shadow-sm"
+                className="group flex flex-col items-start gap-1.5 rounded border border-slate-200 bg-white p-3 text-left transition-all hover:border-blue-300 hover:bg-blue-50 hover:shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-700 dark:hover:bg-blue-950/30"
               >
                 <action.icon className="h-4 w-4 text-blue-700" />
-                <p className="text-[13px] font-semibold text-slate-950 group-hover:text-blue-800">{action.label}</p>
-                <p className="text-[11px] leading-4 text-slate-500">{action.desc}</p>
+                <p className="text-[13px] font-semibold text-slate-950 group-hover:text-blue-800 dark:text-white dark:group-hover:text-blue-300">{action.label}</p>
+                <p className="text-[11px] leading-4 text-slate-500 dark:text-slate-400">{action.desc}</p>
               </button>
             ))}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function AcpPanel({ systemId }: { systemId: string }) {
+  const [activeSection, setActiveSection] = useState<string>("A");
+  const acp = applicationContextProfiles.find((p) => p.systemId === systemId);
+
+  if (!acp) {
+    return (
+      <div className="rounded border border-dashed border-slate-300 dark:border-slate-600 p-6 text-center">
+        <p className="text-[13px] font-semibold text-slate-600 dark:text-slate-300">No context profile registered</p>
+        <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400">Fill in sections A–E before running a governance audit. The profile tells agents exactly how this system behaves in production.</p>
+      </div>
+    );
+  }
+
+  const sec = acp.sections.find((s) => s.letter === activeSection) ?? acp.sections[0];
+
+  return (
+    <div className="space-y-4">
+      {/* Why mandatory callout */}
+      <div className="rounded border border-brand-200 dark:border-brand-800/50 bg-brand-50 dark:bg-brand-950/20 px-4 py-2.5">
+        <p className="text-[11px] leading-5 text-brand-800 dark:text-brand-300">
+          <span className="font-semibold">Why this profile is mandatory.</span> Without it, agents test a model in a lab — not in production. The Bias Auditor needs Section B; the Risk Scorer needs Section E; the Council needs all five sections to produce verdicts that reflect production reality.
+        </p>
+      </div>
+
+      {/* Section tabs + content */}
+      <div className="rounded border border-slate-200 dark:border-slate-700 overflow-hidden">
+        <div className="flex">
+          {/* Tab strip */}
+          <div className="flex flex-col border-r border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 shrink-0 py-1">
+            {acp.sections.map((s) => (
+              <button
+                key={s.letter}
+                onClick={() => setActiveSection(s.letter)}
+                className={clsx(
+                  "flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors",
+                  activeSection === s.letter
+                    ? "bg-white dark:bg-slate-900 border-r-2 border-brand-500 -mr-px"
+                    : "hover:bg-white/60 dark:hover:bg-slate-800"
+                )}
+              >
+                <span className={clsx(
+                  "flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold",
+                  activeSection === s.letter
+                    ? "bg-brand-600 text-white"
+                    : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400"
+                )}>{s.letter}</span>
+                <span className={clsx(
+                  "text-[11px] font-medium whitespace-nowrap",
+                  activeSection === s.letter ? "text-slate-900 dark:text-white" : "text-slate-500 dark:text-slate-400"
+                )}>{s.title}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Section content */}
+          <div className="flex-1 p-4 bg-white dark:bg-slate-900">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[13px] font-semibold text-slate-900 dark:text-white">{sec.title}</p>
+                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{sec.owner}</p>
+              </div>
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-brand-600 text-[11px] font-bold text-white">{sec.letter}</span>
+            </div>
+            <div className="grid gap-1.5 sm:grid-cols-2">
+              {sec.fields.map(([key, val]) => (
+                <div key={key} className="flex items-start justify-between gap-3 rounded border border-slate-100 dark:border-slate-700/60 bg-slate-50 dark:bg-slate-800/50 px-3 py-2">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">{key}</p>
+                  <p className="text-right text-[11px] font-medium text-slate-900 dark:text-white">{val}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Frameworks footer */}
+        <div className="border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">Governance Frameworks</p>
+          <div className="flex flex-wrap gap-2">
+            {acp.frameworks.map((fw) => (
+              <span
+                key={fw.name}
+                title={fw.desc}
+                className={clsx(
+                  "rounded border px-2.5 py-1 text-[11px] font-medium",
+                  fw.active
+                    ? "border-brand-300 dark:border-brand-700 bg-brand-50 dark:bg-brand-950/30 text-brand-700 dark:text-brand-400"
+                    : "border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-400 dark:text-slate-500 line-through"
+                )}
+              >{fw.name}</span>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -759,8 +861,8 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 function InfoRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex items-start justify-between gap-3">
-      <p className="text-[11px] text-slate-500">{label}</p>
-      <p className={clsx("text-right text-[12px] font-medium text-slate-950", mono && "font-mono")}>{value}</p>
+      <p className="text-[11px] text-slate-500 dark:text-slate-400">{label}</p>
+      <p className={clsx("text-right text-[12px] font-medium text-slate-950 dark:text-white", mono && "font-mono")}>{value}</p>
     </div>
   );
 }
@@ -798,12 +900,12 @@ function RegisterSystemModal({
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[3px]" onClick={onClose} />
 
       {/* Centered modal card */}
-      <div className="relative z-10 flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black/10">
+      <div className="relative z-10 flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black/10 dark:bg-slate-900 dark:ring-white/10">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
           <div>
-            <p className="text-[15px] font-semibold text-slate-950">Register AI System</p>
-            <p className="text-[11px] text-slate-500">Onboard a new system to the governance registry</p>
+            <p className="text-[15px] font-semibold text-slate-950 dark:text-white">Register AI System</p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">Onboard a new system to the governance registry</p>
           </div>
           <div className="flex items-center gap-2">
             {step === "form" && (
@@ -817,7 +919,7 @@ function RegisterSystemModal({
             )}
           <button
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+            className="flex h-8 w-8 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
           >
             <X className="h-4 w-4" />
           </button>
@@ -830,12 +932,12 @@ function RegisterSystemModal({
               <Server className="h-7 w-7" />
             </div>
             <div>
-              <p className="text-[16px] font-semibold text-slate-950">{form.name} registered</p>
-              <p className="mt-1 text-[12px] leading-5 text-slate-600">
+              <p className="text-[16px] font-semibold text-slate-950 dark:text-white">{form.name} registered</p>
+              <p className="mt-1 text-[12px] leading-5 text-slate-600 dark:text-slate-300">
                 <span className="font-mono font-medium">{form.name} v{form.version}</span> has been added to the governance registry. A baseline governance run will be scheduled automatically.
               </p>
             </div>
-            <div className="w-full rounded border border-slate-200 bg-slate-50 p-3 text-left">
+            <div className="w-full rounded border border-slate-200 bg-slate-50 p-3 text-left dark:border-slate-700 dark:bg-slate-800">
               <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                 {[
                   ["Owner", form.owner],
@@ -846,8 +948,8 @@ function RegisterSystemModal({
                   ["Frameworks", form.frameworks.length ? form.frameworks.join(", ") : "None selected"],
                 ].map(([label, value]) => (
                   <div key={label}>
-                    <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">{label}</p>
-                    <p className="text-[12px] font-medium text-slate-950">{value}</p>
+                    <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{label}</p>
+                    <p className="text-[12px] font-medium text-slate-950 dark:text-white">{value}</p>
                   </div>
                 ))}
               </div>
@@ -865,14 +967,14 @@ function RegisterSystemModal({
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
               {/* System Identity */}
               <section>
-                <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">System Identity</p>
+                <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">System Identity</p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="System Name *" hint="e.g. TechVest RAG Chatbot">
                     <input
                       value={form.name}
                       onChange={(e) => onChange("name", e.target.value)}
                       placeholder="TechVest RAG Chatbot"
-                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500"
+                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
                     />
                   </Field>
                   <Field label="Version *" hint="Semantic version tag">
@@ -880,7 +982,7 @@ function RegisterSystemModal({
                       value={form.version}
                       onChange={(e) => onChange("version", e.target.value)}
                       placeholder="v1"
-                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500"
+                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
                     />
                   </Field>
                   <Field label="Owner / Team *" hint="Accountable team for governance sign-off">
@@ -888,7 +990,7 @@ function RegisterSystemModal({
                       value={form.owner}
                       onChange={(e) => onChange("owner", e.target.value)}
                       placeholder="TechVest Global"
-                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500"
+                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
                     />
                   </Field>
                   <Field label="Daily Active Users" hint="Approximate number of end-users affected">
@@ -896,7 +998,7 @@ function RegisterSystemModal({
                       value={form.users}
                       onChange={(e) => onChange("users", e.target.value)}
                       placeholder="Internal pilot"
-                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500"
+                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
                     />
                   </Field>
                 </div>
@@ -904,28 +1006,28 @@ function RegisterSystemModal({
 
               {/* Classification */}
               <section>
-                <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Classification</p>
+                <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Classification</p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="Application Type *" hint="Technical architecture of the model">
-                    <select value={form.applicationType} onChange={(e) => onChange("applicationType", e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500">
+                    <select value={form.applicationType} onChange={(e) => onChange("applicationType", e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400">
                       <option value="">Select…</option>
                       {appTypes.map((t) => <option key={t}>{t}</option>)}
                     </select>
                   </Field>
                   <Field label="Domain *" hint="Business area the system operates in">
-                    <select value={form.domain} onChange={(e) => onChange("domain", e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500">
+                    <select value={form.domain} onChange={(e) => onChange("domain", e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400">
                       <option value="">Select…</option>
                       {domains.map((d) => <option key={d}>{d}</option>)}
                     </select>
                   </Field>
                   <Field label="Risk Tier *" hint="Regulatory classification under EU AI Act Annex III">
-                    <select value={form.riskTier} onChange={(e) => onChange("riskTier", e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500">
+                    <select value={form.riskTier} onChange={(e) => onChange("riskTier", e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400">
                       <option value="">Select…</option>
                       {riskTiers.map((r) => <option key={r}>{r}</option>)}
                     </select>
                   </Field>
                   <Field label="Environment *" hint="Where the system is currently deployed">
-                    <select value={form.environment} onChange={(e) => onChange("environment", e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500">
+                    <select value={form.environment} onChange={(e) => onChange("environment", e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400">
                       <option value="">Select…</option>
                       {envOptions.map((e) => <option key={e}>{e}</option>)}
                     </select>
@@ -935,14 +1037,14 @@ function RegisterSystemModal({
 
               {/* Model and target endpoint */}
               <section>
-                <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Model and Target Endpoint</p>
+                <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Model and Target Endpoint</p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="Model Provider" hint="Provider used by the target application">
                     <input
                       value={form.modelProvider}
                       onChange={(e) => onChange("modelProvider", e.target.value)}
                       placeholder="azure_foundry"
-                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500"
+                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
                     />
                   </Field>
                   <Field label="Model Name" hint="Deployment/model name if known">
@@ -950,7 +1052,7 @@ function RegisterSystemModal({
                       value={form.modelName}
                       onChange={(e) => onChange("modelName", e.target.value)}
                       placeholder="gpt-4.1-mini"
-                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500"
+                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
                     />
                   </Field>
                   <Field label="Target Endpoint *" hint="The endpoint our governance backend will call for testing">
@@ -958,7 +1060,7 @@ function RegisterSystemModal({
                       value={form.endpoint}
                       onChange={(e) => onChange("endpoint", e.target.value)}
                       placeholder="http://localhost:8000/api/chat"
-                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500"
+                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
                     />
                   </Field>
                   <Field label="First Capability" hint="The initial endpoint/capability to store">
@@ -966,7 +1068,7 @@ function RegisterSystemModal({
                       value={form.capabilityName}
                       onChange={(e) => onChange("capabilityName", e.target.value)}
                       placeholder="Chat response generation"
-                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500"
+                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
                     />
                   </Field>
                 </div>
@@ -974,8 +1076,8 @@ function RegisterSystemModal({
 
               {/* Frameworks */}
               <section>
-                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Applicable Frameworks</p>
-                <p className="mb-3 text-[11px] text-slate-400">Select all regulatory and risk frameworks that apply to this system.</p>
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Applicable Frameworks</p>
+                <p className="mb-3 text-[11px] text-slate-400 dark:text-slate-500">Select all regulatory and risk frameworks that apply to this system.</p>
                 <div className="flex flex-wrap gap-2">
                   {frameworkOptions.map((fw) => {
                     const active = form.frameworks.includes(fw);
@@ -988,8 +1090,8 @@ function RegisterSystemModal({
                         className={clsx(
                           "rounded border px-2.5 py-1.5 text-[12px] font-medium transition-colors",
                           active
-                            ? "border-brand-500 bg-brand-50 text-brand-800"
-                            : "border-slate-200 bg-white text-slate-700 hover:border-slate-400 hover:text-slate-950"
+                            ? "border-brand-500 bg-brand-50 text-brand-800 dark:border-brand-600 dark:bg-brand-900/40 dark:text-brand-300"
+                            : "border-slate-200 bg-white text-slate-700 hover:border-slate-400 hover:text-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-400 dark:hover:text-white"
                         )}
                       >
                         {fw}
@@ -1007,24 +1109,24 @@ function RegisterSystemModal({
                     onChange={(e) => onChange("notes", e.target.value)}
                     rows={3}
                     placeholder="This model evaluates chatbot response quality using bureau data and application features…"
-                    className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 resize-none"
+                    className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 resize-none dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
                   />
                 </Field>
               </section>
             </div>
 
             {/* Footer */}
-            <div className="border-t border-slate-200 px-5 py-4">
+            <div className="border-t border-slate-200 px-5 py-4 dark:border-slate-700">
               {!canSubmit && (
-                <p className="mb-2 text-[11px] text-slate-400">* Fill in all required fields and a target endpoint to continue</p>
+                <p className="mb-2 text-[11px] text-slate-400 dark:text-slate-500">* Fill in all required fields and a target endpoint to continue</p>
               )}
               {error && (
-                <p className="mb-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-[11px] leading-4 text-red-700">{error}</p>
+                <p className="mb-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-[11px] leading-4 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">{error}</p>
               )}
               <div className="flex gap-2">
                 <button
                   onClick={onClose}
-                  className="flex-1 rounded border border-slate-300 py-2.5 text-[13px] font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                  className="flex-1 rounded border border-slate-300 py-2.5 text-[13px] font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
                 >
                   Cancel
                 </button>
@@ -1050,8 +1152,8 @@ function RegisterSystemModal({
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1">
-      <label className="block text-[11px] font-semibold text-slate-700">{label}</label>
-      {hint && <p className="text-[10px] text-slate-400">{hint}</p>}
+      <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300">{label}</label>
+      {hint && <p className="text-[10px] text-slate-400 dark:text-slate-500">{hint}</p>}
       {children}
     </div>
   );

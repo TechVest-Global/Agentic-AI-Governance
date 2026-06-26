@@ -574,7 +574,7 @@ const prescribedActions = [
     urgencyTone: "red" as const,
     navigateTo: "/systems",
     icon: AlertTriangle,
-    iconColor: "text-red-600",
+    iconColor: "text-red-600 dark:text-red-400",
   },
   {
     id: "bias",
@@ -585,7 +585,7 @@ const prescribedActions = [
     urgencyTone: "amber" as const,
     navigateTo: "/agents",
     icon: CheckCircle2,
-    iconColor: "text-amber-600",
+    iconColor: "text-amber-600 dark:text-amber-400",
   },
   {
     id: "docs",
@@ -596,7 +596,7 @@ const prescribedActions = [
     urgencyTone: "amber" as const,
     navigateTo: "/reports",
     icon: CheckCircle2,
-    iconColor: "text-blue-600",
+    iconColor: "text-blue-600 dark:text-blue-400",
   },
 ];
 
@@ -618,17 +618,17 @@ export function Verdicts() {
       {selectedAudit && <AgentAuditReportModal report={selectedAudit} onClose={() => setSelectedAudit(null)} />}
 
       {/* Intro */}
-      <div className="flex items-start justify-between border-b border-slate-200 pb-5">
+      <div className="flex items-start justify-between border-b border-slate-200 dark:border-slate-700 pb-5">
         <div className="max-w-2xl space-y-1">
-          <p className="text-[13px] leading-5 text-slate-600">
-            The final verdict for <span className="font-semibold text-slate-950">{targetSystemName}</span>. This page shows the confidence score, risk dimension breakdown, and prescribed actions. Human approval is required before the supervised tier restrictions can be lifted.
+          <p className="text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+            The final verdict for <span className="font-semibold text-slate-950 dark:text-white">{targetSystemName}</span>. This page shows the confidence score, risk dimension breakdown, and prescribed actions. Human approval is required before the supervised tier restrictions can be lifted.
           </p>
-          <p className="text-[11px] text-slate-400">Hover risk bars for finding detail · Click actions to expand · Approve or Override below</p>
+          <p className="text-[11px] text-slate-400 dark:text-slate-500">Hover risk bars for finding detail · Click actions to expand · Approve or Override below</p>
         </div>
         <div className="flex shrink-0 gap-2">
           <button
             onClick={() => navigateTo("/council")}
-            className="flex items-center gap-1.5 rounded border border-slate-300 bg-white px-3 py-2 text-[12px] font-medium text-slate-900 transition-colors hover:bg-slate-50"
+            className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-[12px] font-medium text-slate-900 dark:text-white transition-colors hover:bg-slate-50 dark:hover:bg-slate-700"
           >
             ← Council deliberation
           </button>
@@ -637,13 +637,13 @@ export function Verdicts() {
 
       {/* Action required banner */}
       {!confirmed && (
-        <div className="rounded-md border border-amber-300 bg-amber-50">
+        <div className="rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/50">
           <div className="flex items-start justify-between p-4">
             <div className="flex items-start gap-3">
-              <PauseCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+              <PauseCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700 dark:text-amber-400" />
               <div>
-                <p className="text-[13px] font-semibold text-amber-950">Action pending — supervised tier assignment</p>
-                <p className="mt-1 text-[12px] text-amber-800">
+                <p className="text-[13px] font-semibold text-amber-950 dark:text-amber-200">Action pending — supervised tier assignment</p>
+                <p className="mt-1 text-[12px] text-amber-800 dark:text-amber-300">
                   The model is restricted to supervised use. Override window is open. Fine-tune and shadow deploy actions require human approval to proceed. Approving accepts the verdict and opens the remediation queue. Overriding returns the system to unrestricted production pending a manual review note.
                 </p>
               </div>
@@ -651,13 +651,13 @@ export function Verdicts() {
             <div className="flex shrink-0 gap-2">
               <button
                 onClick={() => setConfirmed("approve")}
-                className="rounded border border-emerald-300 bg-white px-3 py-2 text-[12px] font-semibold text-emerald-800 transition-colors hover:bg-emerald-50"
+                className="rounded border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-800 px-3 py-2 text-[12px] font-semibold text-emerald-800 dark:text-emerald-300 transition-colors hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
               >
                 Accept Verdict
               </button>
               <button
                 onClick={() => setConfirmed("override")}
-                className="rounded border border-red-300 bg-white px-3 py-2 text-[12px] font-semibold text-red-800 transition-colors hover:bg-red-50"
+                className="rounded border border-red-300 dark:border-red-700 bg-white dark:bg-slate-800 px-3 py-2 text-[12px] font-semibold text-red-800 dark:text-red-300 transition-colors hover:bg-red-50 dark:hover:bg-red-950/50"
               >
                 Override
               </button>
@@ -668,7 +668,9 @@ export function Verdicts() {
 
       {confirmed && (
         <div className={clsx("rounded-md border p-4 text-[13px] font-medium",
-          confirmed === "approve" ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"
+          confirmed === "approve"
+            ? "border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300"
+            : "border-red-200 dark:border-red-700 bg-red-50 dark:bg-red-950/50 text-red-800 dark:text-red-300"
         )}>
           <ShieldCheck className="mr-2 inline h-4 w-4" />
           {confirmed === "approve"
@@ -687,7 +689,7 @@ export function Verdicts() {
             action={<Badge tone="amber">{verdictLabel}</Badge>}
           />
           <div className="p-4">
-            <div className="relative h-[200px]">
+            <div className="relative h-50">
               <ResponsiveContainer width="100%" height="100%">
                 <RadialBarChart
                   innerRadius="72%"
@@ -701,19 +703,19 @@ export function Verdicts() {
                 </RadialBarChart>
               </ResponsiveContainer>
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-4xl font-bold tabular-nums text-slate-900">
+                <span className="text-4xl font-bold tabular-nums text-slate-900 dark:text-white">
                   <AnimatedNumber value={confidenceScore} duration={1200} />%
                 </span>
-                <span className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Confidence</span>
+                <span className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">Confidence</span>
               </div>
             </div>
-            <div className="mt-3 space-y-1.5 rounded border border-slate-200 bg-slate-50 p-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Score composition</p>
-              <p className="text-[11px] text-slate-600">Started at <span className="font-semibold">100%</span></p>
-              <p className="text-[11px] text-slate-600">Bias finding <span className="font-semibold text-red-700">−13 pts</span> (probe count weak)</p>
-              <p className="text-[11px] text-slate-600">Drift finding <span className="font-semibold text-red-700">−8 pts</span></p>
-              <p className="text-[11px] text-slate-600">Compliance gaps <span className="font-semibold text-red-700">−4 pts</span></p>
-              <p className="text-[11px] font-semibold text-slate-950">Final: 75% → Supervised Tier</p>
+            <div className="mt-3 space-y-1.5 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Score composition</p>
+              <p className="text-[11px] text-slate-600 dark:text-slate-300">Started at <span className="font-semibold">100%</span></p>
+              <p className="text-[11px] text-slate-600 dark:text-slate-300">Bias finding <span className="font-semibold text-red-700 dark:text-red-400">−13 pts</span> (probe count weak)</p>
+              <p className="text-[11px] text-slate-600 dark:text-slate-300">Drift finding <span className="font-semibold text-red-700 dark:text-red-400">−8 pts</span></p>
+              <p className="text-[11px] text-slate-600 dark:text-slate-300">Compliance gaps <span className="font-semibold text-red-700 dark:text-red-400">−4 pts</span></p>
+              <p className="text-[11px] font-semibold text-slate-950 dark:text-white">Final: 75% → Supervised Tier</p>
             </div>
           </div>
         </Card>
@@ -722,7 +724,7 @@ export function Verdicts() {
           <CardHeader
             title="Risk Dimensions"
             eyebrow="Hover each bar for finding detail. Click any dimension to open the agent report"
-            action={<Info className="h-4 w-4 text-slate-400" />}
+            action={<Info className="h-4 w-4 text-slate-400 dark:text-slate-500" />}
           />
           <div className="space-y-3 p-4">
             {riskSeries.map((risk) => (
@@ -731,15 +733,15 @@ export function Verdicts() {
                 type="button"
                 onClick={() => setSelectedAudit(agentAuditReports[risk.name])}
                 className={clsx(
-                  "grid w-full grid-cols-[110px_1fr_44px] items-center gap-3 rounded p-1.5 text-left transition-colors hover:bg-slate-50",
+                  "grid w-full grid-cols-[110px_1fr_44px] items-center gap-3 rounded p-1.5 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800",
                   "cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
                 )}
                 onMouseEnter={() => setHoveredRisk(risk.name)}
                 onMouseLeave={() => setHoveredRisk(null)}
               >
-                <p className="text-[12px] font-medium text-slate-700">{risk.name}</p>
+                <p className="text-[12px] font-medium text-slate-700 dark:text-slate-300">{risk.name}</p>
                 <div className="relative">
-                  <div className="h-2.5 rounded bg-slate-200">
+                  <div className="h-2.5 rounded bg-slate-200 dark:bg-slate-700">
                     <div
                       className={clsx("h-full rounded transition-all",
                         risk.score >= 70 ? "bg-red-500" : risk.score >= 40 ? "bg-amber-400" : "bg-emerald-500"
@@ -748,15 +750,15 @@ export function Verdicts() {
                     />
                   </div>
                   {hoveredRisk === risk.name && riskDescriptions[risk.name] && (
-                    <div className="absolute bottom-full left-0 z-10 mb-2 w-72 rounded border border-slate-200 bg-white p-2.5 text-[11px] leading-4 text-slate-700 shadow-lg">
+                    <div className="absolute bottom-full left-0 z-10 mb-2 w-72 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 text-[11px] leading-4 text-slate-700 dark:text-slate-300 shadow-lg">
                       {riskDescriptions[risk.name]}
                     </div>
                   )}
                 </div>
-                <p className="text-right text-[12px] font-semibold text-slate-950">{risk.score}</p>
+                <p className="text-right text-[12px] font-semibold text-slate-950 dark:text-white">{risk.score}</p>
               </button>
             ))}
-            <p className="mt-1 text-[11px] text-slate-400">Scores out of 100. Red = high risk contribution. Click a dimension for the full agent audit packet.</p>
+            <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">Scores out of 100. Red = high risk contribution. Click a dimension for the full agent audit packet.</p>
           </div>
         </Card>
       </div>
@@ -767,36 +769,38 @@ export function Verdicts() {
           title="Prescribed Remediation Actions"
           eyebrow="Click each action to expand · Navigate to the relevant page to act"
         />
-        <div className="divide-y divide-slate-100">
+        <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
           {prescribedActions.map((action) => {
             const isExpanded = expandedAction === action.id;
             return (
               <div key={action.id}>
                 <button
                   onClick={() => setExpandedAction(isExpanded ? null : action.id)}
-                  className="flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors hover:bg-slate-50"
+                  className="flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800"
                 >
                   <action.icon className={clsx("mt-0.5 h-4 w-4 shrink-0", action.iconColor)} />
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <p className="text-[13px] font-semibold text-slate-950">{action.title}</p>
+                      <p className="text-[13px] font-semibold text-slate-950 dark:text-white">{action.title}</p>
                       <span className={clsx("rounded px-1.5 py-0.5 text-[10px] font-semibold",
-                        action.urgencyTone === "red" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
+                        action.urgencyTone === "red"
+                          ? "bg-red-100 dark:bg-red-950/50 text-red-700 dark:text-red-400"
+                          : "bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400"
                       )}>{action.urgency}</span>
                     </div>
-                    <p className="mt-0.5 text-[11px] text-slate-500">{action.target}</p>
+                    <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">{action.target}</p>
                   </div>
                   {isExpanded
-                    ? <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
-                    : <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />}
+                    ? <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 dark:text-slate-500" />
+                    : <ChevronRight className="h-4 w-4 shrink-0 text-slate-400 dark:text-slate-500" />}
                 </button>
 
                 {isExpanded && (
-                  <div className="border-t border-slate-100 bg-slate-50 px-4 py-3">
-                    <p className="text-[12px] leading-5 text-slate-700">{action.detail}</p>
+                  <div className="border-t border-slate-100 dark:border-slate-700/50 bg-slate-50 dark:bg-slate-800 px-4 py-3">
+                    <p className="text-[12px] leading-5 text-slate-700 dark:text-slate-300">{action.detail}</p>
                     <button
                       onClick={() => navigateTo(action.navigateTo)}
-                      className="mt-3 flex items-center gap-1.5 rounded border border-blue-300 bg-white px-3 py-1.5 text-[11px] font-medium text-blue-800 transition-colors hover:bg-blue-50"
+                      className="mt-3 flex items-center gap-1.5 rounded border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-blue-800 dark:text-blue-300 transition-colors hover:bg-blue-50 dark:hover:bg-blue-950/50"
                     >
                       <ExternalLink className="h-3 w-3" />
                       Navigate to {action.navigateTo === "/systems" ? "AI Systems" : action.navigateTo === "/agents" ? "Agent Intelligence" : "Reports"}
@@ -814,56 +818,56 @@ export function Verdicts() {
 
 function AgentAuditReportModal({ report, onClose }: { report: AgentAuditReport; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/40 px-4 py-6 backdrop-blur-[2px]">
-      <div className="w-full max-w-6xl rounded-md border border-slate-200 bg-white shadow-2xl">
-        <div className="sticky top-0 z-10 flex items-start justify-between border-b border-slate-200 bg-white px-5 py-4">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/60 dark:bg-slate-950/80 px-4 py-6 backdrop-blur-[2px]">
+      <div className="w-full max-w-6xl rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl">
+        <div className="sticky top-0 z-10 flex items-start justify-between border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-5 py-4">
           <div>
             <div className="flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-blue-700" />
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-700">{report.agentName} - Full Audit Report</p>
+              <ShieldCheck className="h-4 w-4 text-blue-700 dark:text-blue-400" />
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-700 dark:text-blue-400">{report.agentName} - Full Audit Report</p>
             </div>
-            <h2 className="mt-1 text-[20px] font-semibold text-slate-950">{report.model}</h2>
-            <p className="text-[12px] text-slate-500">{report.subtitle} - Run {report.runId}</p>
+            <h2 className="mt-1 text-[20px] font-semibold text-slate-950 dark:text-white">{report.model}</h2>
+            <p className="text-[12px] text-slate-500 dark:text-slate-400">{report.subtitle} - Run {report.runId}</p>
           </div>
           <div className="flex items-center gap-2">
             <Badge tone={report.severity.startsWith("Low") ? "green" : report.severity.startsWith("Medium") ? "amber" : "red"}>{report.severity}</Badge>
             <button
               onClick={onClose}
               title="Close bias audit report"
-              className="flex h-9 w-9 items-center justify-center rounded border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+              className="flex h-9 w-9 items-center justify-center rounded border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
         </div>
 
-        <div className="grid gap-4 border-b border-slate-200 px-5 py-4 md:grid-cols-[repeat(4,1fr)_160px]">
+        <div className="grid gap-4 border-b border-slate-200 dark:border-slate-700 px-5 py-4 md:grid-cols-[repeat(4,1fr)_160px]">
           <AuditMetric label={report.primaryScoreLabel} value={report.primaryScore} tone={Number(report.primaryScore) >= 0.7 ? "red" : Number(report.primaryScore) >= 0.4 ? "amber" : "green"} />
           <AuditMetric label="Metrics Failed" value={report.metricsFailed} />
           <AuditMetric label="Cross-Run Consistency" value={report.consistency} tone="green" />
           <AuditMetric label="Probe Set" value={report.probePairs} />
-          <div className="flex items-center justify-center rounded border border-emerald-200 bg-emerald-50 px-3 text-emerald-800">
+          <div className="flex items-center justify-center rounded border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/50 px-3 text-emerald-800 dark:text-emerald-300">
             <Hash className="mr-2 h-4 w-4" />
             <span className="text-[11px] font-semibold uppercase tracking-[0.14em]">Hash Verified</span>
           </div>
         </div>
 
-        <div className="space-y-5 bg-slate-50 px-5 py-5">
-          <section className="rounded-md border border-blue-200 bg-blue-50 p-4">
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-700">Plain English Summary</p>
-            <p className="text-[13px] leading-6 text-slate-800">{report.plainEnglish}</p>
+        <div className="space-y-5 bg-slate-50 dark:bg-slate-800 px-5 py-5">
+          <section className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 p-4">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-700 dark:text-blue-400">Plain English Summary</p>
+            <p className="text-[13px] leading-6 text-slate-800 dark:text-slate-200">{report.plainEnglish}</p>
           </section>
 
           {report.demographicGaps && (
-            <section className="rounded-md border border-slate-200 bg-white">
-              <div className="border-b border-slate-200 px-4 py-3">
-                <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-600">Demographic Coverage and Gap Analysis</p>
-                <p className="mt-1 text-[11px] text-slate-500">Separates production representation gaps from synthetic counterfactual probe coverage.</p>
+            <section className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+              <div className="border-b border-slate-200 dark:border-slate-700 px-4 py-3">
+                <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-600 dark:text-slate-300">Demographic Coverage and Gap Analysis</p>
+                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Separates production representation gaps from synthetic counterfactual probe coverage.</p>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[980px] border-collapse text-left">
-                  <thead className="bg-slate-50">
-                    <tr className="border-b border-slate-200 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                <table className="w-full min-w-245 border-collapse text-left">
+                  <thead className="bg-slate-50 dark:bg-slate-800">
+                    <tr className="border-b border-slate-200 dark:border-slate-700 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
                       <th className="px-3 py-2">Cohort</th>
                       <th className="px-3 py-2">Prod. n</th>
                       <th className="px-3 py-2">Prod. %</th>
@@ -876,17 +880,17 @@ function AgentAuditReportModal({ report, onClose }: { report: AgentAuditReport; 
                   </thead>
                   <tbody>
                     {report.demographicGaps.map((row) => (
-                      <tr key={row.cohort} className="border-b border-slate-100 align-top">
+                      <tr key={row.cohort} className="border-b border-slate-100 dark:border-slate-700/50 align-top">
                         <td className="px-3 py-3">
-                          <p className="text-[12px] font-semibold text-slate-950">{row.cohort}</p>
-                          <p className="mt-1 text-[10px] leading-4 text-slate-500">{row.note}</p>
+                          <p className="text-[12px] font-semibold text-slate-950 dark:text-white">{row.cohort}</p>
+                          <p className="mt-1 text-[10px] leading-4 text-slate-500 dark:text-slate-400">{row.note}</p>
                         </td>
-                        <td className="px-3 py-3 font-mono text-[11px] text-slate-700">{row.productionN}</td>
-                        <td className="px-3 py-3 font-mono text-[11px] text-slate-700">{row.productionShare}</td>
-                        <td className="px-3 py-3 font-mono text-[11px] text-slate-700">{row.expectedShare}</td>
-                        <td className="px-3 py-3 text-[11px] text-slate-700">{row.probePairs}</td>
-                        <td className="px-3 py-3 text-[11px] font-semibold text-slate-900">{row.gap}</td>
-                        <td className="px-3 py-3 text-[11px] text-slate-700">{row.evidenceType}</td>
+                        <td className="px-3 py-3 font-mono text-[11px] text-slate-700 dark:text-slate-300">{row.productionN}</td>
+                        <td className="px-3 py-3 font-mono text-[11px] text-slate-700 dark:text-slate-300">{row.productionShare}</td>
+                        <td className="px-3 py-3 font-mono text-[11px] text-slate-700 dark:text-slate-300">{row.expectedShare}</td>
+                        <td className="px-3 py-3 text-[11px] text-slate-700 dark:text-slate-300">{row.probePairs}</td>
+                        <td className="px-3 py-3 text-[11px] font-semibold text-slate-900 dark:text-white">{row.gap}</td>
+                        <td className="px-3 py-3 text-[11px] text-slate-700 dark:text-slate-300">{row.evidenceType}</td>
                         <td className="px-3 py-3">
                           <Badge tone={row.status === "Gap" ? "red" : row.status === "Watch" ? "amber" : "green"}>{row.status}</Badge>
                         </td>
@@ -896,7 +900,7 @@ function AgentAuditReportModal({ report, onClose }: { report: AgentAuditReport; 
                 </table>
               </div>
               {report.demographicGapNotes && (
-                <div className="border-t border-slate-200 bg-slate-50 p-4">
+                <div className="border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-4">
                   <ListBlock items={report.demographicGapNotes} />
                 </div>
               )}
@@ -906,39 +910,39 @@ function AgentAuditReportModal({ report, onClose }: { report: AgentAuditReport; 
           <div className="grid gap-4 xl:grid-cols-[1fr_0.9fr]">
             <div className="space-y-4">
               {report.phases.map((phase) => (
-                <section key={phase.title} className="rounded-md border border-slate-200 bg-white">
-                  <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-                    <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-600">{phase.title}</p>
-                    <span className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800">
+                <section key={phase.title} className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+                  <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 px-4 py-3">
+                    <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-600 dark:text-slate-300">{phase.title}</p>
+                    <span className="rounded border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/50 px-2 py-1 text-[11px] font-semibold text-amber-800 dark:text-amber-300">
                       Confidence {phase.confidenceImpact}
                     </span>
                   </div>
                   <div className="space-y-4 p-4">
                     <div>
-                      <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Inputs Read</p>
+                      <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Inputs Read</p>
                       <div className="flex flex-wrap gap-2">
                         {phase.inputs.map((input) => (
-                          <span key={input} className="rounded border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[12px] text-slate-700">
+                          <span key={input} className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-1.5 text-[12px] text-slate-700 dark:text-slate-300">
                             {input}
                           </span>
                         ))}
                       </div>
                     </div>
                     <div>
-                      <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Reasoning Trace</p>
+                      <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Reasoning Trace</p>
                       <ul className="space-y-2">
                         {phase.reasoning.map((item) => (
-                          <li key={item} className="flex gap-2 text-[12px] leading-5 text-slate-700">
-                            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-600" />
+                          <li key={item} className="flex gap-2 text-[12px] leading-5 text-slate-700 dark:text-slate-300">
+                            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-600 dark:bg-blue-400" />
                             <span>{item}</span>
                           </li>
                         ))}
                       </ul>
                     </div>
-                    <div className="rounded border border-amber-200 bg-amber-50 p-3">
+                    <div className="rounded border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/50 p-3">
                       <div className="space-y-1">
                         {phase.warnings.map((warning) => (
-                          <p key={warning} className="flex gap-2 text-[12px] leading-5 text-amber-900">
+                          <p key={warning} className="flex gap-2 text-[12px] leading-5 text-amber-900 dark:text-amber-300">
                             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                             {warning}
                           </p>
@@ -951,14 +955,14 @@ function AgentAuditReportModal({ report, onClose }: { report: AgentAuditReport; 
             </div>
 
             <div className="space-y-4">
-              <section className="rounded-md border border-slate-200 bg-white">
-                <div className="border-b border-slate-200 px-4 py-3">
-                  <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-600">Phase 4 - Metric Results</p>
+              <section className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+                <div className="border-b border-slate-200 dark:border-slate-700 px-4 py-3">
+                  <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-600 dark:text-slate-300">Phase 4 - Metric Results</p>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[640px] border-collapse text-left">
-                    <thead className="bg-slate-50">
-                      <tr className="border-b border-slate-200 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                  <table className="w-full min-w-160 border-collapse text-left">
+                    <thead className="bg-slate-50 dark:bg-slate-800">
+                      <tr className="border-b border-slate-200 dark:border-slate-700 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
                         <th className="px-3 py-2">Metric</th>
                         <th className="px-3 py-2">Value</th>
                         <th className="px-3 py-2">95% CI</th>
@@ -968,14 +972,14 @@ function AgentAuditReportModal({ report, onClose }: { report: AgentAuditReport; 
                     </thead>
                     <tbody>
                       {report.metrics.map((metric) => (
-                        <tr key={metric.name} className="border-b border-slate-100 align-top">
+                        <tr key={metric.name} className="border-b border-slate-100 dark:border-slate-700/50 align-top">
                           <td className="px-3 py-3">
-                            <p className="text-[12px] font-semibold text-slate-950">{metric.name}</p>
-                            <p className="mt-1 text-[10px] leading-4 text-slate-500">{metric.threshold} - {metric.anchor}</p>
+                            <p className="text-[12px] font-semibold text-slate-950 dark:text-white">{metric.name}</p>
+                            <p className="mt-1 text-[10px] leading-4 text-slate-500 dark:text-slate-400">{metric.threshold} - {metric.anchor}</p>
                           </td>
-                          <td className={clsx("px-3 py-3 text-[12px] font-semibold", metric.status === "Fail" ? "text-red-700" : "text-emerald-700")}>{metric.value}</td>
-                          <td className="px-3 py-3 font-mono text-[11px] text-slate-600">{metric.ci}</td>
-                          <td className="px-3 py-3 font-mono text-[11px] text-slate-600">{metric.pValue}</td>
+                          <td className={clsx("px-3 py-3 text-[12px] font-semibold", metric.status === "Fail" ? "text-red-700 dark:text-red-400" : "text-emerald-700 dark:text-emerald-400")}>{metric.value}</td>
+                          <td className="px-3 py-3 font-mono text-[11px] text-slate-600 dark:text-slate-400">{metric.ci}</td>
+                          <td className="px-3 py-3 font-mono text-[11px] text-slate-600 dark:text-slate-400">{metric.pValue}</td>
                           <td className="px-3 py-3"><Badge tone={metric.status === "Fail" ? "red" : metric.status === "Partial" ? "amber" : "green"}>{metric.status}</Badge></td>
                         </tr>
                       ))}
@@ -984,26 +988,26 @@ function AgentAuditReportModal({ report, onClose }: { report: AgentAuditReport; 
                 </div>
               </section>
 
-              <section className="rounded-md border border-slate-200 bg-white p-4">
-                <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">{report.primaryScoreLabel} Calculation</p>
+              <section className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
+                <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">{report.primaryScoreLabel} Calculation</p>
                 <div className="space-y-2">
                   {report.scoreSteps.map((step) => (
-                    <p key={step} className="rounded border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-[11px] text-slate-700">{step}</p>
+                    <p key={step} className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 font-mono text-[11px] text-slate-700 dark:text-slate-300">{step}</p>
                   ))}
                 </div>
               </section>
 
-              <section className="rounded-md border border-slate-200 bg-white p-4">
-                <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Framework Mappings</p>
+              <section className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
+                <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Framework Mappings</p>
                 <div className="space-y-2">
                   {report.mappings.map((mapping) => (
-                    <div key={`${mapping.framework}-${mapping.clause}`} className="rounded border border-slate-200 bg-slate-50 p-3">
+                    <div key={`${mapping.framework}-${mapping.clause}`} className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-[12px] font-semibold text-slate-950">{mapping.framework}</p>
+                        <p className="text-[12px] font-semibold text-slate-950 dark:text-white">{mapping.framework}</p>
                         <Badge tone={mapping.status === "Fail" || mapping.status === "Not aligned" ? "red" : "amber"}>{mapping.status}</Badge>
                       </div>
-                      <p className="mt-1 text-[11px] font-medium text-slate-700">{mapping.clause}</p>
-                      <p className="mt-1 text-[11px] leading-4 text-slate-600">{mapping.evidence}</p>
+                      <p className="mt-1 text-[11px] font-medium text-slate-700 dark:text-slate-300">{mapping.clause}</p>
+                      <p className="mt-1 text-[11px] leading-4 text-slate-600 dark:text-slate-400">{mapping.evidence}</p>
                     </div>
                   ))}
                 </div>
@@ -1012,23 +1016,23 @@ function AgentAuditReportModal({ report, onClose }: { report: AgentAuditReport; 
           </div>
 
           <section className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-md border border-slate-200 bg-white p-4">
-              <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Excluded Metrics</p>
+            <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
+              <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Excluded Metrics</p>
               <ListBlock items={report.excludedMetrics} />
             </div>
-            <div className="rounded-md border border-slate-200 bg-white p-4">
-              <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Limitations</p>
+            <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
+              <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Limitations</p>
               <ListBlock items={report.limitations} />
             </div>
           </section>
 
-          <section className="rounded-md border border-slate-200 bg-white p-4">
+          <section className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
             <div className="mb-2 flex items-center gap-2">
-              <FileText className="h-4 w-4 text-slate-500" />
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Handoff Statement</p>
+              <FileText className="h-4 w-4 text-slate-500 dark:text-slate-400" />
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Handoff Statement</p>
             </div>
-            <p className="text-[12px] leading-5 text-slate-700">{report.handoff}</p>
-            <p className="mt-3 font-mono text-[11px] text-slate-500">{report.hash}</p>
+            <p className="text-[12px] leading-5 text-slate-700 dark:text-slate-300">{report.handoff}</p>
+            <p className="mt-3 font-mono text-[11px] text-slate-500 dark:text-slate-400">{report.hash}</p>
           </section>
         </div>
       </div>
@@ -1039,8 +1043,13 @@ function AgentAuditReportModal({ report, onClose }: { report: AgentAuditReport; 
 function AuditMetric({ label, value, tone = "slate" }: { label: string; value: string; tone?: "slate" | "red" | "amber" | "green" }) {
   return (
     <div>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
-      <p className={clsx("mt-1 text-[28px] font-bold", tone === "red" ? "text-red-700" : tone === "amber" ? "text-amber-700" : tone === "green" ? "text-emerald-700" : "text-slate-950")}>{value}</p>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{label}</p>
+      <p className={clsx("mt-1 text-[28px] font-bold",
+        tone === "red" ? "text-red-700 dark:text-red-400"
+        : tone === "amber" ? "text-amber-700 dark:text-amber-400"
+        : tone === "green" ? "text-emerald-700 dark:text-emerald-400"
+        : "text-slate-950 dark:text-white"
+      )}>{value}</p>
     </div>
   );
 }
@@ -1049,8 +1058,8 @@ function ListBlock({ items }: { items: string[] }) {
   return (
     <ul className="space-y-2">
       {items.map((item) => (
-        <li key={item} className="flex gap-2 text-[12px] leading-5 text-slate-700">
-          <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-500" />
+        <li key={item} className="flex gap-2 text-[12px] leading-5 text-slate-700 dark:text-slate-300">
+          <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-500 dark:bg-slate-400" />
           <span>{item}</span>
         </li>
       ))}

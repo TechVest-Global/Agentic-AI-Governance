@@ -111,7 +111,7 @@ class QualityEvaluatorAgent(ModelBackedAgent):
         )
         probe_evidence = "\n\n".join(p.fenced for p in probes)
 
-        governance_response = self._ask_governance(
+        parsed = self._ask_governance_with_json_retry(
             task="quality_evaluation",
             prompt=_GOVERNANCE_PROMPT_TEMPLATE.format(
                 system_name=context.ai_system.name,
@@ -126,8 +126,6 @@ class QualityEvaluatorAgent(ModelBackedAgent):
                 "redaction_warnings": [w for p in probes for w in p.sanitized.warnings],
             },
         )
-
-        parsed = self._parse_findings_json(governance_response.content)
         if parsed is not None:
             return _findings_from_governance(parsed, context)
 

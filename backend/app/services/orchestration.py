@@ -61,7 +61,7 @@ def run_governance_pipeline(
         ),
     )
 
-    metric_result = metric_execution.run_mock_metrics(
+    metric_result = metric_execution.run_metrics(
         session,
         run_id=run_id,
         payload=MetricExecutionCreate(
