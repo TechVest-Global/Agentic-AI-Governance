@@ -196,9 +196,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
 
             {/* start run button */}
-            {activePage !== "engine" && (
+            {activePage !== "new-run" && (
               <button
-                onClick={() => navigateTo("/engine")}
+                onClick={() => navigateTo("/new-run")}
                 className="flex items-center gap-2 rounded-lg bg-brand-600 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
               >
                 <Play className="h-3.5 w-3.5" />
@@ -294,16 +294,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 }
 
 const pageDescriptions: Record<PageId, string> = {
-  dashboard:      "Real-time governance overview — KPIs, risk trends, compliance posture, and agent performance at a glance.",
-  systems:        "All registered AI systems bound to owners, risk tiers, and frameworks. Click any row to inspect the current governance posture.",
-  engine:         "End-to-end walkthrough of the governance engine — five layers from context assembly through specialist findings, council deliberation, confidence-bounded action, and sealed ledger evidence.",
-  runs:           "Live pipeline execution for active governance runs. Shows agent status, findings, and the full 5-stage evaluation flow.",
-  agents:         "Specialist agents currently probing, testing, and mapping evidence. Expand each agent to see checks, methods, findings, and remediation.",
-  "metric-plan":  "Orchestrator-selected metric plan for the current run — tools, owner agents, framework clauses, probe budgets, and thresholds.",
-  council:        "Multi-step deliberation that synthesises agent findings into a verdict. Each step is expandable with full reasoning and confidence impacts.",
-  verdicts:       "Final governance outcome for the current run — tier assignment, confidence score, risk dimensions, and prescribed remediation actions.",
-  reports:        "Clause-level compliance reports across EU AI Act, SR 11-7, and NIST AI RMF. Click rows to read clause definitions and evidence.",
-  ledger:         "Hash-chained, append-only audit trail of every governance action. Filter by type or search — click events to view full hash detail.",
+  dashboard:     "Real-time governance overview — KPIs, risk trends, compliance posture, and agent performance at a glance.",
+  systems:       "All registered AI systems bound to owners, risk tiers, and frameworks. Click any row to inspect the current governance posture.",
+  context:       "Guided application context profile — capture how an AI system handles inputs, models, outputs, and integrations before governance runs.",
+  "new-run":     "Configure and launch a new governance evaluation run — pick the system, frameworks, metric profile, and evaluation mode.",
+  engine:        "End-to-end walkthrough of the governance engine — five layers from context assembly through specialist findings, council deliberation, confidence-bounded action, and sealed ledger evidence.",
+  runs:          "Live pipeline execution for active governance runs. Shows agent status, findings, and the full 5-stage evaluation flow.",
+  agents:        "Specialist agents currently probing, testing, and mapping evidence. Expand each agent to see checks, methods, findings, and remediation.",
+  "metric-plan": "Orchestrator-selected metric plan for the current run — tools, owner agents, framework clauses, probe budgets, and thresholds.",
+  council:       "Multi-step deliberation that synthesises agent findings into a verdict. Each step is expandable with full reasoning and confidence impacts.",
+  verdicts:      "Final governance outcome for the current run — tier assignment, confidence score, risk dimensions, and prescribed remediation actions.",
+  reports:       "Clause-level compliance reports across EU AI Act, SR 11-7, and NIST AI RMF. Click rows to read clause definitions and evidence.",
+  ledger:        "Hash-chained, append-only audit trail of every governance action. Filter by type or search — click events to view full hash detail.",
 };
 
 function sectionFor(page: PageId) {

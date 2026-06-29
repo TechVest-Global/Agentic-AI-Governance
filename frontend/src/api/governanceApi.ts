@@ -1,5 +1,6 @@
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "http://127.0.0.1:8000/api/v1";
+  (import.meta as unknown as { env: Record<string, string> }).env.VITE_API_BASE_URL?.replace(/\/$/, "") ??
+  "http://127.0.0.1:8000/api/v1";
 
 
 export type BackendAISystem = {
@@ -246,4 +247,129 @@ export async function createAISystemCapability(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+// ── Context Profile ────────────────────────────────────────────────────────────
+
+export type BackendContextProfileSections = {
+  identity_purpose: Record<string, unknown>;
+  pre_model_controls: Record<string, unknown>;
+  model_configuration: Record<string, unknown>;
+  post_model_controls: Record<string, unknown>;
+  integration_context: Record<string, unknown>;
+};
+
+export type BackendContextProfile = BackendContextProfileSections & {
+  id: string;
+  ai_system_id: string;
+  created_at: string;
+  updated_at?: string | null;
+};
+
+export async function getContextProfile(systemId: string): Promise<BackendContextProfile> {
+  return request<BackendContextProfile>(`/ai-systems/${systemId}/context-profile`);
+}
+
+export async function upsertContextProfile(
+  systemId: string,
+  payload: BackendContextProfileSections,
+): Promise<BackendContextProfile> {
+  return request<BackendContextProfile>(`/ai-systems/${systemId}/context-profile`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+// ── Evaluation Runs (create + list) ────────────────────────────────────────────
+
+export type BackendEvaluationRunCreate = {
+  ai_system_id: string;
+  selected_frameworks: string[];
+  selected_metrics?: string[];
+};
+
+export async function createEvaluationRun(payload: BackendEvaluationRunCreate): Promise<EvaluationRun> {
+  return request<EvaluationRun>("/evaluation-runs", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listEvaluationRuns(systemId?: string): Promise<EvaluationRun[]> {
+  const q = systemId ? `?ai_system_id=${systemId}` : "";
+  return request<EvaluationRun[]>(`/evaluation-runs${q}`);
+}
+
+// ── Metric Plan ────────────────────────────────────────────────────────────────
+
+export type BackendMetricPlanControl = {
+  framework_id: string;
+  framework_name: string;
+  framework_version: string;
+  control_ref: string;
+  control_title?: string | null;
+  control_category?: string | null;
+  jurisdiction?: string | null;
+  evidence_requirements: string[];
+  agent_names: string[];
+};
+
+export type BackendMetricPlanItem = {
+  metric_config_id: string;
+  metric_id: string;
+  name: string;
+  description?: string | null;
+  dimension: string;
+  primary_agent?: string | null;
+  tool_name?: string | null;
+  framework_ids: string[];
+  modality?: string | null;
+  threshold_rules: Record<string, unknown>;
+  scoring_config: Record<string, unknown>;
+  version: string;
+  controls: BackendMetricPlanControl[];
+};
+
+export type BackendMetricPlan = {
+  run_id: string;
+  ai_system_id: string;
+  selected_frameworks: string[];
+  selected_metrics: string[];
+  metric_count: number;
+  control_count: number;
+  metrics: BackendMetricPlanItem[];
+};
+
+export async function getMetricPlan(runId: string): Promise<BackendMetricPlan> {
+  return request<BackendMetricPlan>(`/evaluation-runs/${runId}/metric-plan`);
+}
+
+// ── Metric Configs ─────────────────────────────────────────────────────────────
+
+export type BackendMetricConfig = {
+  id: string;
+  metric_id: string;
+  name: string;
+  description?: string | null;
+  dimension: string;
+  primary_agent?: string | null;
+  tool_name?: string | null;
+  framework_ids: string[];
+  modality?: string | null;
+  threshold_rules: Record<string, unknown>;
+  scoring_config: Record<string, unknown>;
+  version: string;
+  enabled: boolean;
+  created_at: string;
+};
+
+export async function listMetricConfigs(params?: { framework_id?: string; dimension?: string }): Promise<BackendMetricConfig[]> {
+  const q = params ? `?${new URLSearchParams(params as Record<string, string>).toString()}` : "";
+  return request<BackendMetricConfig[]>(`/metrics${q}`);
+}
+
+// ── Verdict (direct) ──────────────────────────────────────────────────────────
+
+export async function getVerdict(runId: string): Promise<Verdict> {
+  return request<Verdict>(`/evaluation-runs/${runId}/verdict`);
 }

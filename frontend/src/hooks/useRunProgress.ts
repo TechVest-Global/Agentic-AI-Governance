@@ -19,7 +19,9 @@ export type RunProgress = {
   result_summary: Record<string, unknown>;
 };
 
-const API_BASE = "http://localhost:8000/api/v1";
+const API_BASE =
+  (import.meta as unknown as { env: Record<string, string> }).env.VITE_API_BASE_URL?.replace(/\/$/, "") ??
+  "http://127.0.0.1:8000/api/v1";
 
 const PHASE_LABELS: Record<string, string> = {
   created: "Created",

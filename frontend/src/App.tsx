@@ -15,10 +15,14 @@ import { Verdicts } from "@/pages/Verdicts";
 import { MetricPlan } from "@/pages/MetricPlan";
 import { SignIn } from "@/pages/SignIn";
 import { SignUp } from "@/pages/SignUp";
+import { ApplicationContextProfile } from "@/pages/ApplicationContextProfile";
+import { NewRun } from "@/pages/NewRun";
 
 const pages = {
   dashboard: Dashboard,
   systems: AISystems,
+  context: ApplicationContextProfile,
+  "new-run": NewRun,
   engine: GovernanceEngine,
   runs: LiveRuns,
   agents: AgentIntelligence,
