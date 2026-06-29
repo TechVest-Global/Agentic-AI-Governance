@@ -57,10 +57,6 @@ Thumbs.db
 .vscode/
 *.code-workspace
 
-# Test fixtures that contain intentionally broken templates (invalid YAML, wrong hashes).
-# These are dev-only — not needed in production builds.
-backend/app/configs/templates/fixtures/
-
 # Alembic auto-generated migration scripts are source-controlled, but the
 # compiled __pycache__ inside migrations/ is not (already covered by __pycache__/).
 

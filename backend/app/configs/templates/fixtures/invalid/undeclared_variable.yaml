@@ -1,0 +1,8 @@
+template_id: bias_auditor.probe_design
+section: role
+version: '1'
+content_hash: 4cf370815e1c9b875656b99feb197e21f95a087da462efbb3a5ff5f9227cac52
+text: Audit {model_name} for fairness using {undeclared_var} as the lens.
+variables:
+- model_name
+description: 'Invalid fixture (I1): text references an undeclared variable.'

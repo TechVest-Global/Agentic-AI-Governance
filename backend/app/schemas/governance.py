@@ -659,6 +659,7 @@ class GovernancePipelineRunRead(APIModel):
     metric_execution: MetricExecutionRead
     agent_run: AgentRunRead
     council: CouncilDeliberationRead
+    report: GovernanceReportRead
 
 
 # ---------------------------------------------------------------------------
@@ -700,4 +701,3 @@ class LLMCallLogSummary(APIModel):
     mock_call_count: int
     error_count: int
     calls: list[LLMCallLogRead] = Field(default_factory=list)
-    report: GovernanceReportRead

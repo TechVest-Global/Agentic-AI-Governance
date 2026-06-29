@@ -23,8 +23,8 @@ from app.services import (
 )
 from app.services.action_reporting import reports
 from app.services.deliberation_council import deliberation as council
-from app.services.specialist_agents import agent_execution, metric_execution
 from app.services.run_validation import get_run_or_raise
+from app.services.specialist_agents import agent_execution, metric_execution
 
 
 def run_governance_pipeline(
@@ -121,6 +121,9 @@ def run_governance_pipeline(
             notes=payload.notes,
         ),
     )
+    # State only: the council layer writes its own council_deliberation.completed
+    # ledger entry (so the standalone /council/deliberate path is audited too).
+    # Re-logging it here would duplicate that ledger event.
     _record_pipeline_step(
         session,
         run_id=run_id,
@@ -129,6 +132,7 @@ def run_governance_pipeline(
         event_type="council_deliberation.completed",
         actor_type=LedgerActorType.system,
         actor_id="council_service",
+        record_ledger=False,
         payload={
             "requested_by": payload.requested_by,
             "label": council_result.verdict.label,
@@ -153,7 +157,6 @@ def run_governance_pipeline(
             "state_chain_valid": report.state_chain.valid,
         },
     )
-    report = reports.build_governance_report(session, run_id=run_id)
 
     return GovernancePipelineRunRead(
         run_id=run_id,
@@ -176,6 +179,7 @@ def _record_pipeline_step(
     actor_type: LedgerActorType,
     actor_id: str | None,
     payload: dict[str, object],
+    record_ledger: bool = True,
 ) -> None:
     governance_state.append_state_entry(
         session,
@@ -187,6 +191,8 @@ def _record_pipeline_step(
             payload=payload,
         ),
     )
+    if not record_ledger:
+        return
     audit_ledger.append_ledger_entry(
         session,
         run_id=run_id,

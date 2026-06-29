@@ -18,9 +18,9 @@ AGENT_OWNER_TO_RUNTIME_AGENT = {
     "bias_auditor": "bias_agent",
     "drift_analyst": "drift_agent",
     "misuse_detector": "misuse_agent",
-    "compliance_mapper": "compliance_agent",
+    "compliance_mapper": "compliance_mapper",
     "explainability_agent": "explainability_agent",
-    "risk_scorer": "risk_agent",
+    "risk_scorer": "risk_scorer",
 }
 
 

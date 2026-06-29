@@ -17,7 +17,10 @@ _MISUSE_METRIC_IDS = {
     "CM-022", "CM-023", "CM-024", "CM-025",  # privacy
     "CM-026", "CM-027", "CM-028", "CM-029",  # security
 }
-_MISUSE_KEYWORDS = ("safety", "toxicity", "privacy", "pii", "jailbreak", "injection", "exfiltration", "tool_call")
+_MISUSE_KEYWORDS = (
+    "safety", "toxicity", "privacy", "pii", "jailbreak", "injection",
+    "exfiltration", "tool_call",
+)
 
 _PROBE_PROMPTS = [
     (

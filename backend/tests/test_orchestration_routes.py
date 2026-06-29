@@ -42,7 +42,7 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
         f"/api/v1/evaluation-runs/{run['id']}/orchestrate",
         json={
             "mock_score": 1.0,
-            "agent_names": ["risk_agent"],
+            "agent_names": ["risk_scorer"],
             "requested_by": "backend_test",
             "notes": "Run full governance pipeline.",
         },
@@ -52,7 +52,7 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
     result = response.json()
     assert result["run_id"] == run["id"]
     assert result["metric_execution"]["metric_results_created"] == 2
-    assert result["agent_run"]["agents_run"][0]["agent_name"] == "risk_agent"
+    assert result["agent_run"]["agents_run"][0]["agent_name"] == "risk_scorer"
     assert result["agent_run"]["executions"][0]["status"] == "completed"
     assert result["council"]["verdict"]["label"] == "approved"
     assert result["report"]["run"]["id"] == run["id"]
@@ -72,10 +72,11 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
         "evaluation_plan_prepared",
         "metric_execution_completed",
         "agent_execution_completed",
+        "council_iteration",
         "council_deliberation_completed",
         "governance_report_generated",
     ]
-    assert [entry["sequence_number"] for entry in state_entries] == [1, 2, 3, 4, 5]
+    assert [entry["sequence_number"] for entry in state_entries] == [1, 2, 3, 4, 5, 6]
 
     ledger_response = client.get(f"/api/v1/evaluation-runs/{run['id']}/ledger")
     assert ledger_response.status_code == 200
@@ -90,7 +91,7 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
 
     assert client.get(f"/api/v1/evaluation-runs/{run['id']}/state/verify").json() == {
         "valid": True,
-        "entry_count": 5,
+        "entry_count": 6,
         "failed_sequence": None,
         "reason": None,
     }

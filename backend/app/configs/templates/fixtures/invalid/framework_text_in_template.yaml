@@ -1,0 +1,8 @@
+template_id: bias_auditor.probe_design
+section: role
+version: '1'
+content_hash: 33378e1f1cd73cec50e3947ca8c7168dd64bb4a8d1bb80290b5f7b8d99e00817
+text: Ensure {model_name} complies with Article 10 of the applicable framework.
+variables:
+- model_name
+description: 'Invalid fixture (I3): contains a regulatory clause reference.'

@@ -1,6 +1,7 @@
 import asyncio
 import json
-from typing import Annotated, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
@@ -8,6 +9,9 @@ from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
 from app.db.session import get_session
+from app.models.agent import AgentExecution
+from app.models.evaluation import EvaluationRun
+from app.models.finding import Finding
 from app.schemas.governance import (
     ContextAssemblyCreate,
     ContextAssemblyRead,
@@ -28,18 +32,15 @@ from app.schemas.governance import (
     MetricExecutionRead,
     MetricPlanRead,
 )
-from app.models.agent import AgentExecution
-from app.models.evaluation import EvaluationRun
-from app.models.finding import Finding
 from app.services import (
     adaptive_orchestrator,
     context_assembly,
     orchestration,
 )
-from app.services.action_reporting import framework_maps, reports
-from app.services.specialist_agents import metric_execution, metric_plans
 from app.services import evaluation_runs as service
+from app.services.action_reporting import framework_maps, reports
 from app.services.llm_gateway import call_log as llm_call_log_service
+from app.services.specialist_agents import metric_execution, metric_plans
 
 router = APIRouter(prefix="/evaluation-runs")
 SessionDependency = Annotated[Session, Depends(get_session)]

@@ -31,8 +31,6 @@ from pathlib import Path
 
 import pytest
 import yaml
-
-from app.configs.prompt_template_models import PromptTemplate, compute_content_hash
 from app.configs.prompt_registry import (
     PromptRegistry,
     RenderError,
@@ -40,6 +38,7 @@ from app.configs.prompt_registry import (
     TemplateLookupError,
     render,
 )
+from app.configs.prompt_template_models import compute_content_hash
 
 # ---------------------------------------------------------------------------
 # Paths to pre-built fixture directories

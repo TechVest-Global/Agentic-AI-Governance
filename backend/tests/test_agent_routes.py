@@ -148,7 +148,7 @@ def test_selected_agents_create_findings_from_metric_results(client: TestClient)
     assert report["agent_executions"][0]["agent_name"] == "bias_agent"
 
 
-def test_all_agents_can_create_risk_and_misuse_findings(client: TestClient) -> None:
+def test_all_agents_can_create_oversight_and_misuse_findings(client: TestClient) -> None:
     system = create_system(client, name="High Risk Agent System", risk_tier="high")
     create_capability(
         client,
@@ -167,11 +167,11 @@ def test_all_agents_can_create_risk_and_misuse_findings(client: TestClient) -> N
     assert response.status_code == 201
     result = response.json()
     finding_types = {finding["finding_type"] for finding in result["findings"]}
-    assert {"risk", "misuse"}.issubset(finding_types)
+    assert {"oversight", "misuse"}.issubset(finding_types)
     assert result["findings_created"] >= 2
     assert len(result["executions"]) == 7
     assert {execution["agent_name"] for execution in result["executions"]} >= {
-        "risk_agent",
+        "risk_scorer",
         "misuse_agent",
     }
 
