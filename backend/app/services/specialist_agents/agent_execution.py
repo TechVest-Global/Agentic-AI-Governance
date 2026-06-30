@@ -6,6 +6,7 @@ from app.models.agent import AgentExecution
 from app.models.ai_system import AISystem, AISystemCapability, ApplicationContextProfile
 from app.models.base import utc_now
 from app.models.enums import AgentExecutionStatus, RunPhase, RunStatus
+from app.models.evaluation import EvaluationRun
 from app.models.evidence import EvidenceRecord, MetricResult
 from app.models.finding import Finding
 from app.models.llm_call_log import LLMCallLog
@@ -32,6 +33,9 @@ def run_agents(
         evidence=_list_evidence(session, run_id=run_id),
         metric_results=_list_metric_results(session, run_id=run_id),
         existing_findings=_list_findings(session, run_id=run_id),
+        prior_metric_scores=_get_prior_metric_scores(
+            session, ai_system_id=run.ai_system_id, current_run_id=run_id
+        ),
     )
 
     created_findings: list[Finding] = []
@@ -153,3 +157,28 @@ def _list_metric_results(session: Session, *, run_id: UUID) -> list[MetricResult
 
 def _list_findings(session: Session, *, run_id: UUID) -> list[Finding]:
     return list(session.exec(select(Finding).where(Finding.run_id == run_id)).all())
+
+
+def _get_prior_metric_scores(
+    session: Session,
+    *,
+    ai_system_id: UUID,
+    current_run_id: UUID,
+) -> dict[str, float | None]:
+    """Return metric_id -> normalized_score from the most recent completed run for this system."""
+    prior_run = session.exec(
+        select(EvaluationRun)
+        .where(EvaluationRun.ai_system_id == ai_system_id)
+        .where(EvaluationRun.id != current_run_id)
+        .where(EvaluationRun.status.in_(["completed", "report_ready"]))
+        .order_by(EvaluationRun.completed_at.desc())
+    ).first()
+
+    if prior_run is None:
+        return {}
+
+    prior_metrics = session.exec(
+        select(MetricResult).where(MetricResult.run_id == prior_run.id)
+    ).all()
+
+    return {m.metric_id: m.normalized_score for m in prior_metrics}

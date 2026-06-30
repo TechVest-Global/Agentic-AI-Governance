@@ -171,6 +171,16 @@ def _parse_verdict(content: str, iteration: int) -> VerdictOutput | None:
         return None
 
 
+def _extract_risk_bundle_score(findings: list[Finding]) -> float | None:
+    """Return composite_score from a risk_summary finding if one exists."""
+    for f in findings:
+        if f.finding_type == "risk_summary" and f.payload:
+            composite = f.payload.get("composite_score")
+            if isinstance(composite, int | float):
+                return float(composite)
+    return None
+
+
 def _deterministic_fallback(
     findings: list[Finding],
     metric_results: list[MetricResult],
@@ -178,16 +188,13 @@ def _deterministic_fallback(
 ) -> VerdictOutput:
     """Used when the governance LLM is unavailable (e.g. mock mode).
 
-    Replicates the original penalty-based scoring so the pipeline
-    continues to produce a useful verdict even without LLM access.
+    When a risk_summary finding from the Risk Scorer contract is present, its
+    composite_score is used as the primary calibration signal.  The composite
+    score is a risk score (0=no risk, 1=max risk) so confidence is derived as
+    ``1 - composite``, bounded to [0, 1].
+
+    Falls back to the original penalty-based approach when no risk bundle is found.
     """
-    _SEV_PENALTY = {
-        Severity.info: 0.01,
-        Severity.low: 0.03,
-        Severity.medium: 0.07,
-        Severity.high: 0.15,
-        Severity.critical: 0.25,
-    }
     failed = sum(
         1 for m in metric_results
         if m.status in {"failed", "error"} or m.passed is False
@@ -197,14 +204,31 @@ def _deterministic_fallback(
         if m.status in {"pending", "skipped"}
     )
     open_findings = [f for f in findings if f.status == "open"]
+    has_high = any(f.severity in {Severity.high, Severity.critical} for f in open_findings)
+    has_critical_finding = any(f.severity == Severity.critical for f in open_findings)
 
-    score = 0.95 - failed * 0.15 - pending * 0.05
-    for f in open_findings:
-        score -= _SEV_PENALTY.get(f.severity, 0.07)
-    score = _clamp(score)
+    # Prefer calibrated composite from the risk contract when available
+    composite = _extract_risk_bundle_score(findings)
+    if composite is not None:
+        # composite is a risk score; invert to get confidence
+        score = _clamp(1.0 - min(composite, 1.0))
+        # High-risk composite (>= 0.75) or critical findings force a block
+        if composite >= 0.75 or has_critical_finding:
+            score = min(score, 0.45)
+    else:
+        _SEV_PENALTY = {
+            Severity.info: 0.01,
+            Severity.low: 0.03,
+            Severity.medium: 0.07,
+            Severity.high: 0.15,
+            Severity.critical: 0.25,
+        }
+        score = 0.95 - failed * 0.15 - pending * 0.05
+        for f in open_findings:
+            score -= _SEV_PENALTY.get(f.severity, 0.07)
+        score = _clamp(score)
 
     sufficient = score >= _SUFFICIENCY_THRESHOLD and failed == 0
-    has_high = any(f.severity in {Severity.high, Severity.critical} for f in open_findings)
     if failed > 0 or has_high:
         label = "blocked"
     elif pending > 0 or open_findings:
@@ -212,13 +236,14 @@ def _deterministic_fallback(
     else:
         label = "approved"
 
+    source = "risk_contract" if composite is not None else "severity_penalty"
     return VerdictOutput(
         confidence_score=score,
         sufficient=sufficient,
         label=label,
         action_tier=_safe_action_tier(label),
         reasoning=(
-            "Deterministic fallback verdict: governance model unavailable. "
+            f"Deterministic fallback verdict ({source}): governance model unavailable. "
             f"Metrics: {len(metric_results)} total, {failed} failed, {pending} pending. "
             f"Findings: {len(open_findings)} open."
         ),
