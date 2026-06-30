@@ -207,4 +207,112 @@ DEFAULT_FRAMEWORK_MAPPINGS: tuple[FrameworkMappingCreate, ...] = (
         evidence_requirements=["metric_result", "governance_state_entry"],
         metadata_json={"default_seed": True},
     ),
+    FrameworkMappingCreate(
+        framework_id="eu_ai_act",
+        framework_name="EU AI Act",
+        framework_version="2024",
+        control_ref="ART-9",
+        control_title="Risk management system",
+        control_category="risk_management",
+        jurisdiction="EU",
+        requirement_text=(
+            "High-risk AI systems should maintain a documented risk management "
+            "process with identified hazards, mitigations, and residual risk."
+        ),
+        metric_ids=["CM-040", "CM-041", "CM-042", "CM-043", "CM-044"],
+        agent_names=["risk_agent", "compliance_agent"],
+        risk_tiers=["high"],
+        evidence_requirements=["context_profile", "metric_result", "verdict"],
+        metadata_json={"default_seed": True},
+    ),
+    FrameworkMappingCreate(
+        framework_id="eu_ai_act",
+        framework_name="EU AI Act",
+        framework_version="2024",
+        control_ref="ART-10",
+        control_title="Data governance and representativeness",
+        control_category="data_governance",
+        jurisdiction="EU",
+        requirement_text=(
+            "Training, validation, testing, and operational evidence should be "
+            "relevant, representative, and checked for bias where applicable."
+        ),
+        metric_ids=["CM-017", "CM-018", "CM-019", "CM-020", "CM-021"],
+        agent_names=["bias_agent", "compliance_agent"],
+        risk_tiers=["medium", "high"],
+        evidence_requirements=["metric_result", "finding", "coverage_gap"],
+        metadata_json={"default_seed": True},
+    ),
+    FrameworkMappingCreate(
+        framework_id="eu_ai_act",
+        framework_name="EU AI Act",
+        framework_version="2024",
+        control_ref="ART-13",
+        control_title="Transparency and user information",
+        control_category="transparency",
+        jurisdiction="EU",
+        requirement_text=(
+            "AI system outputs and operating limits should be understandable to "
+            "users and downstream reviewers."
+        ),
+        metric_ids=["CM-035", "CM-036", "CM-037", "CM-038", "CM-039"],
+        agent_names=["explainability_agent", "compliance_agent"],
+        risk_tiers=["medium", "high"],
+        evidence_requirements=["metric_result", "evidence_record"],
+        metadata_json={"default_seed": True},
+    ),
+    FrameworkMappingCreate(
+        framework_id="eu_ai_act",
+        framework_name="EU AI Act",
+        framework_version="2024",
+        control_ref="ART-14",
+        control_title="Human oversight",
+        control_category="oversight",
+        jurisdiction="EU",
+        requirement_text=(
+            "Human oversight should be available for high-impact use cases and "
+            "action routing should be auditable."
+        ),
+        metric_ids=["CM-040", "CM-041", "CM-042", "CM-043", "CM-044"],
+        agent_names=["risk_agent", "compliance_agent"],
+        risk_tiers=["high"],
+        evidence_requirements=["capability_inventory", "metric_result", "audit_ledger_entry"],
+        metadata_json={"default_seed": True},
+    ),
+    FrameworkMappingCreate(
+        framework_id="owasp_llm_top_10",
+        framework_name="OWASP Top 10 for LLM Applications",
+        framework_version="2025",
+        control_ref="LLM01",
+        control_title="Prompt injection",
+        control_category="security",
+        jurisdiction="global",
+        requirement_text=(
+            "The application should resist direct and indirect prompt injection, "
+            "instruction override, and unsafe tool-use attempts."
+        ),
+        metric_ids=["CM-026", "CM-027", "CM-028", "CM-029"],
+        agent_names=["misuse_agent"],
+        risk_tiers=["medium", "high"],
+        evidence_requirements=["metric_result", "evidence_record", "finding"],
+        metadata_json={"default_seed": True},
+    ),
+    FrameworkMappingCreate(
+        framework_id="owasp_llm_top_10",
+        framework_name="OWASP Top 10 for LLM Applications",
+        framework_version="2025",
+        control_ref="LLM02",
+        control_title="Sensitive information disclosure",
+        control_category="privacy",
+        jurisdiction="global",
+        requirement_text=(
+            "The application should prevent exposure of secrets, PII, system "
+            "prompts, and protected retrieval context."
+        ),
+        metric_ids=["CM-022", "CM-023", "CM-024", "CM-025"],
+        agent_names=["compliance_agent", "misuse_agent"],
+        risk_tiers=["medium", "high"],
+        evidence_requirements=["metric_result", "evidence_record", "finding"],
+        metadata_json={"default_seed": True},
+    ),
 )

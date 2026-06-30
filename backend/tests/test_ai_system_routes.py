@@ -48,6 +48,46 @@ def test_ai_system_input_is_trimmed_and_validated(client: TestClient) -> None:
     assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
+def test_update_ai_system_changes_registry_fields(client: TestClient) -> None:
+    created = client.post("/api/v1/ai-systems", json=system_payload()).json()
+
+    response = client.patch(
+        f"/api/v1/ai-systems/{created['id']}",
+        json={
+            "name": "Updated Assistant",
+            "owner": "Audit Office",
+            "risk_tier": "high",
+            "selected_frameworks": ["eu_ai_act", "nist_ai_rmf"],
+            "metadata_json": {"domain": "Legal", "daily_active_users": "250"},
+        },
+    )
+
+    assert response.status_code == 200
+    updated = response.json()
+    assert updated["id"] == created["id"]
+    assert updated["name"] == "Updated Assistant"
+    assert updated["owner"] == "Audit Office"
+    assert updated["risk_tier"] == "high"
+    assert updated["selected_frameworks"] == ["eu_ai_act", "nist_ai_rmf"]
+    assert updated["metadata_json"]["domain"] == "Legal"
+    assert updated["updated_at"] is not None
+
+
+def test_delete_ai_system_archives_and_hides_from_registry(client: TestClient) -> None:
+    created = client.post("/api/v1/ai-systems", json=system_payload()).json()
+
+    delete_response = client.delete(f"/api/v1/ai-systems/{created['id']}")
+
+    assert delete_response.status_code == 204
+    list_response = client.get("/api/v1/ai-systems")
+    assert list_response.status_code == 200
+    assert list_response.json() == []
+
+    get_response = client.get(f"/api/v1/ai-systems/{created['id']}")
+    assert get_response.status_code == 200
+    assert get_response.json()["status"] == "archived"
+
+
 def test_missing_ai_system_uses_domain_error_shape(client: TestClient) -> None:
     system_id = uuid4()
 

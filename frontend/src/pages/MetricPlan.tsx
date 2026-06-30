@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle2, ClipboardList, FlaskConical, Layers, Target } from "lucide-react";
 import clsx from "clsx";
 import { Card, CardHeader } from "@/components/ui/Card";
@@ -6,7 +6,9 @@ import { MetricCard } from "@/components/ui/MetricCard";
 import { Badge } from "@/components/ui/Badge";
 import { ProgressBar } from "@/components/ui/RunStatus";
 import { useAppStore } from "@/store/useAppStore";
-import { metricPlan, dimensionTone, type MetricDimension, type MetricStatus, type PlannedMetric } from "@/data/metricPlan";
+import { metricPlan, dimensionTone, type MetricDimension, type MetricPlan as MetricPlanShape, type MetricStatus, type PlannedMetric } from "@/data/metricPlan";
+import { getRunMetricPlan, listAISystems, type EvaluationRun } from "@/api/governanceApi";
+import { useActiveRun } from "@/hooks/useActiveRun";
 
 const statusTone: Record<MetricStatus, "green" | "amber" | "red" | "slate" | "blue"> = {
   Pass: "green",
@@ -16,12 +18,80 @@ const statusTone: Record<MetricStatus, "green" | "amber" | "red" | "slate" | "bl
   Skipped: "slate",
 };
 
+const VALID_DIMENSIONS: MetricDimension[] = ["Bias", "Drift", "Misuse", "Compliance", "Explainability"];
+
+function normalizeDimension(raw: string): MetricDimension {
+  const titled = raw.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  return (VALID_DIMENSIONS as string[]).includes(titled) ? (titled as MetricDimension) : "Compliance";
+}
+
+/** Build the page's plan shape from the live backend metric-plan for the active run. */
+async function loadLivePlan(run: EvaluationRun): Promise<MetricPlanShape | null> {
+  const [plan, systems] = await Promise.all([
+    getRunMetricPlan(run.id),
+    listAISystems().catch(() => []),
+  ]);
+  const system = systems.find((s) => s.id === plan.ai_system_id);
+
+  return {
+    runId: run.id,
+    systemName: system?.name ?? "Selected system",
+    systemVersion: system?.model_version ?? "",
+    riskTier: ((system?.risk_tier ?? "medium").replace(/\b\w/, (c) => c.toUpperCase())) as "High" | "Medium" | "Low",
+    runMode: "live",
+    selectedFrameworks: plan.selected_frameworks,
+    createdAt: run.created_at,
+    metrics: plan.metrics.map((m) => ({
+      id: m.metric_id,
+      name: m.name,
+      dimension: normalizeDimension(m.dimension),
+      description: `Owned by ${m.primary_agent ?? "specialist agent"} · framework refs: ${m.framework_ids.join(", ") || "—"}.`,
+      tool: m.tool_name ?? "—",
+      toolMode: "live",
+      ownerAgent: m.primary_agent ?? "—",
+      frameworks: m.framework_ids,
+      probeBudget: m.probe_budget ?? 0,
+      threshold: m.threshold != null ? String(m.threshold) : "—",
+      status: m.enabled ? "Planned" : "Skipped",
+    })),
+  };
+}
+
 export function MetricPlan() {
   const { navigateTo } = useAppStore();
+  const { run } = useActiveRun();
   const [dimensionFilter, setDimensionFilter] = useState<MetricDimension | "All">("All");
   const [approved, setApproved] = useState(false);
+  const [plan, setPlan] = useState<MetricPlanShape>(metricPlan);
+  const [source, setSource] = useState<"live" | "sample">("sample");
 
-  const plan = metricPlan;
+  useEffect(() => {
+    let cancelled = false;
+    if (!run) {
+      // No active run — fall back to the bundled sample plan.
+      setPlan(metricPlan);
+      setSource("sample");
+      return;
+    }
+    loadLivePlan(run)
+      .then((live) => {
+        if (cancelled) return;
+        if (live && live.metrics.length > 0) {
+          setPlan(live);
+          setSource("live");
+        } else {
+          setPlan(metricPlan);
+          setSource("sample");
+        }
+      })
+      .catch(() => {
+        /* keep sample plan on any failure */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [run]);
+
   const metrics = dimensionFilter === "All" ? plan.metrics : plan.metrics.filter((m) => m.dimension === dimensionFilter);
 
   const totalProbes = plan.metrics.reduce((sum, m) => sum + m.probeBudget, 0);
@@ -47,6 +117,9 @@ export function MetricPlan() {
                 and {plan.selectedFrameworks.length} selected frameworks. Review the plan before the run executes.
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Badge tone={source === "live" ? "green" : "amber"}>
+                  {source === "live" ? "Live data" : "Sample data"}
+                </Badge>
                 <Badge tone="slate">Run mode: {plan.runMode}</Badge>
                 {plan.selectedFrameworks.map((fw) => (
                   <Badge key={fw} tone="blue">{fw}</Badge>
@@ -82,7 +155,7 @@ export function MetricPlan() {
         <div className="space-y-3 p-4">
           {dimensions.map((dim) => {
             const dimProbes = plan.metrics.filter((m) => m.dimension === dim).reduce((s, m) => s + m.probeBudget, 0);
-            const pct = Math.round((dimProbes / totalProbes) * 100);
+            const pct = totalProbes > 0 ? Math.round((dimProbes / totalProbes) * 100) : 0;
             return (
               <div key={dim} className="flex items-center gap-3">
                 <div className="w-28 shrink-0">

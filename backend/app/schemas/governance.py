@@ -39,6 +39,21 @@ class AISystemCreate(APIModel):
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 
+class AISystemUpdate(APIModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+    owner: str | None = Field(default=None, min_length=1, max_length=200)
+    system_type: str | None = Field(default=None, min_length=1, max_length=100)
+    risk_tier: RiskTier | None = None
+    deployment_environment: str | None = Field(default=None, max_length=100)
+    selected_frameworks: list[str] | None = None
+    model_provider: str | None = Field(default=None, max_length=100)
+    model_name: str | None = Field(default=None, max_length=200)
+    model_version: str | None = Field(default=None, max_length=100)
+    target_endpoint_ref: str | None = Field(default=None, max_length=500)
+    metadata_json: dict[str, Any] | None = None
+
+
 class AISystemRead(AISystemCreate):
     id: UUID
     status: AISystemStatus

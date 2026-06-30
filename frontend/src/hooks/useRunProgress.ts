@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { API_BASE_URL } from "@/api/governanceApi";
 
 export type AgentProgress = {
   name: string;
@@ -18,8 +19,6 @@ export type RunProgress = {
   finding_count: number;
   result_summary: Record<string, unknown>;
 };
-
-const API_BASE = "http://localhost:8000/api/v1";
 
 const PHASE_LABELS: Record<string, string> = {
   created: "Created",
@@ -50,7 +49,7 @@ export function useRunProgress(runId: string | null) {
   useEffect(() => {
     if (!runId) return;
 
-    const url = `${API_BASE}/evaluation-runs/${runId}/progress/stream`;
+    const url = `${API_BASE_URL}/evaluation-runs/${runId}/progress/stream`;
     const es = new EventSource(url);
     esRef.current = es;
     setConnected(true);

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -25,6 +25,8 @@ import { Badge, toneForStatus } from "@/components/ui/Badge";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { useAppStore } from "@/store/useAppStore";
+import { useAuthStore } from "@/store/useAuthStore";
+import { personaForRole } from "@/lib/persona";
 import { ExecutionLayerTrace } from "@/components/execution/ExecutionLayerTrace";
 import { RuntimeEventStream } from "@/components/execution/RuntimeEventStream";
 import { ArtifactDrawer } from "@/components/execution/ArtifactDrawer";
@@ -32,6 +34,7 @@ import { RuntimeArchitecture } from "@/components/execution/RuntimeArchitecture"
 import { exportJSON, exportCSV, exportPDF, exportLedger, exportEvidenceBundle } from "@/utils/exports";
 import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
 import { useRunProgress, phaseIndex, type AgentProgress } from "@/hooks/useRunProgress";
+import type { AuditLedgerEntry, GovernanceReport } from "@/api/governanceApi";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -98,6 +101,76 @@ function agentDisplayName(name: string): string {
   return labels[name] ?? name;
 }
 
+type UiAuditEvent = {
+  id: string;
+  timestamp: string;
+  actor: string;
+  type: string;
+  description: string;
+  hash: string;
+  parentHash: string;
+};
+
+type UiFinding = {
+  id: string;
+  agent: string;
+  title: string;
+  severity: "Critical" | "High" | "Medium" | "Low";
+  framework: string;
+  evidence: string;
+  confidence: number;
+};
+
+function titleCase(value: string): string {
+  return value.replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function findingSeverity(value: string): UiFinding["severity"] {
+  const normalized = value.toLowerCase();
+  if (normalized === "critical") return "Critical";
+  if (normalized === "high") return "High";
+  if (normalized === "low" || normalized === "info") return "Low";
+  return "Medium";
+}
+
+function mapLedgerEvent(entry: AuditLedgerEntry): UiAuditEvent {
+  const created = new Date(entry.created_at);
+  const timestamp = Number.isNaN(created.getTime())
+    ? entry.created_at
+    : created.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const payload = entry.payload ?? {};
+  const summary =
+    typeof payload.summary === "string"
+      ? payload.summary
+      : typeof payload.message === "string"
+        ? payload.message
+        : typeof payload.notes === "string"
+          ? payload.notes
+          : `${titleCase(entry.event_type)} recorded by ${entry.actor_id ?? entry.actor_type}.`;
+
+  return {
+    id: entry.id,
+    timestamp,
+    actor: entry.actor_id ?? titleCase(entry.actor_type),
+    type: entry.event_type,
+    description: summary,
+    hash: entry.entry_hash,
+    parentHash: entry.previous_hash ?? "genesis",
+  };
+}
+
+function mapBackendFinding(finding: GovernanceReport["findings"][number]): UiFinding {
+  return {
+    id: finding.id,
+    agent: finding.agent_name ? titleCase(finding.agent_name) : titleCase(finding.finding_type),
+    title: finding.title,
+    severity: findingSeverity(finding.severity),
+    framework: finding.framework_refs.length ? finding.framework_refs.join(", ") : finding.dimension,
+    evidence: finding.summary,
+    confidence: Math.round(finding.confidence * 100),
+  };
+}
+
 function layerStatus(layerId: string, currentPhase: string, runStatus: string): "done" | "active" | "pending" | "failed" {
   const currentIdx = phaseIndex(currentPhase);
   const layerIdx = phaseIndex(layerId);
@@ -120,6 +193,10 @@ function LayerIcon({ status }: { status: "done" | "active" | "pending" | "failed
 
 export function LiveRuns() {
   const navigateTo = useAppStore((state) => state.navigateTo);
+  const role = useAuthStore((state) => state.user?.role);
+  // Auditors watch at altitude: agent status, findings, and progress — but not
+  // the runtime traces, probe internals, or links into engine-only pages.
+  const isDev = personaForRole(role) === "developer";
   const backend = useGovernanceBackend();
   const [expandedAgent, setExpandedAgent]     = useState<string | null>(null);
   const [expandedEvent, setExpandedEvent]     = useState<string | null>(null);
@@ -158,6 +235,13 @@ export function LiveRuns() {
     setTimeout(() => setCopiedHash(null), 1500);
   }
 
+  const activityEvents: UiAuditEvent[] = backend.ledgerEntries.length
+    ? backend.ledgerEntries.map(mapLedgerEvent)
+    : auditEvents;
+  const displayedFindings: UiFinding[] = backend.findings.length
+    ? backend.findings.map(mapBackendFinding)
+    : mockFindings;
+
   return (
     <div className="space-y-5">
       {/* Connection indicator */}
@@ -174,10 +258,12 @@ export function LiveRuns() {
       )}
 
       {/* Top metrics */}
-      <div className="grid gap-3 md:grid-cols-4">
-        <div title="Total probes / metric results in this run">
-          <MetricCard label="Probes Sent" value={run.probes} icon={Send} tone="blue" />
-        </div>
+      <div className={clsx("grid gap-3", isDev ? "md:grid-cols-4" : "md:grid-cols-3")}>
+        {isDev && (
+          <div title="Total probes / metric results in this run">
+            <MetricCard label="Probes Sent" value={run.probes} icon={Send} tone="blue" />
+          </div>
+        )}
         <div title="Agents active vs total">
           <MetricCard
             label="Agents Active"
@@ -201,9 +287,10 @@ export function LiveRuns() {
       </div>
 
       {/* System selector + Application Context Profile */}
-      <AuditTargetSelector navigateTo={navigateTo} />
+      <AuditTargetSelector navigateTo={navigateTo} report={backend.report} />
 
-      {/* Export buttons */}
+      {/* Export buttons + Execution Layer Trace — developer altitude only */}
+      {isDev && (<>
       <div className="flex items-center justify-between">
         <p className="text-[12px] font-semibold text-slate-500 dark:text-slate-400">Execution Layer Trace</p>
         <div className="flex items-center gap-1.5">
@@ -236,6 +323,7 @@ export function LiveRuns() {
           </div>
         </div>
       </div>
+      </>)}
 
       {/* Agents + Activity log */}
       <div className="grid gap-5 xl:grid-cols-[1fr_1.1fr]">
@@ -252,9 +340,11 @@ export function LiveRuns() {
                   : "Mock data — no run yet"
             }
             action={
-              <button onClick={() => navigateTo("/agents")} className="text-[11px] font-medium text-blue-700 underline-offset-2 hover:underline">
-                Full intelligence view →
-              </button>
+              isDev ? (
+                <button onClick={() => navigateTo("/agents")} className="text-[11px] font-medium text-blue-700 underline-offset-2 hover:underline">
+                  Full intelligence view →
+                </button>
+              ) : undefined
             }
           />
           <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
@@ -316,11 +406,13 @@ export function LiveRuns() {
                             : agent.started_at ? "Running…" : "—"
                         }
                       />
-                      <div className="col-span-3 flex gap-2">
-                        <button onClick={() => navigateTo("/agents")} className="flex items-center gap-1.5 rounded border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[11px] font-medium text-blue-800 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30">
-                          <Zap className="h-3 w-3" /> Full agent detail
-                        </button>
-                      </div>
+                      {isDev && (
+                        <div className="col-span-3 flex gap-2">
+                          <button onClick={() => navigateTo("/agents")} className="flex items-center gap-1.5 rounded border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[11px] font-medium text-blue-800 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30">
+                            <Zap className="h-3 w-3" /> Full agent detail
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -361,9 +453,9 @@ export function LiveRuns() {
             </div>
           )}
 
-          {/* Audit events (mock or real) */}
+          {/* Audit events (backend or demo fallback) */}
           <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
-            {auditEvents.map((event) => {
+            {activityEvents.map((event) => {
               const isExpanded = expandedEvent === event.id;
               return (
                 <div key={event.id}>
@@ -409,13 +501,19 @@ export function LiveRuns() {
           title="Findings Logged This Run"
           eyebrow={`${run.findings} total — click to expand evidence`}
           action={
-            <button onClick={() => navigateTo("/council")} className="text-[11px] font-medium text-blue-700 underline-offset-2 hover:underline">
-              Council deliberation →
-            </button>
+            isDev ? (
+              <button onClick={() => navigateTo("/council")} className="text-[11px] font-medium text-blue-700 underline-offset-2 hover:underline">
+                Council deliberation →
+              </button>
+            ) : (
+              <button onClick={() => navigateTo("/evidence")} className="text-[11px] font-medium text-blue-700 underline-offset-2 hover:underline">
+                View evidence →
+              </button>
+            )
           }
         />
         <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
-          {mockFindings.map((finding) => {
+          {displayedFindings.map((finding) => {
             const isExpanded = expandedFinding === finding.id;
             return (
               <div key={finding.id}>
@@ -448,12 +546,20 @@ export function LiveRuns() {
                     <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Evidence</p>
                     <p className="text-[12px] leading-5 text-slate-700 dark:text-slate-300">{finding.evidence}</p>
                     <div className="mt-3 flex gap-2">
-                      <button onClick={() => navigateTo("/agents")} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[11px] font-medium text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
-                        <Clock className="h-3 w-3" /> Agent timeline
-                      </button>
-                      <button onClick={() => navigateTo("/council")} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[11px] font-medium text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
-                        Council deliberation →
-                      </button>
+                      {isDev ? (
+                        <>
+                          <button onClick={() => navigateTo("/agents")} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[11px] font-medium text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+                            <Clock className="h-3 w-3" /> Agent timeline
+                          </button>
+                          <button onClick={() => navigateTo("/council")} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[11px] font-medium text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+                            Council deliberation →
+                          </button>
+                        </>
+                      ) : (
+                        <button onClick={() => navigateTo("/evidence")} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[11px] font-medium text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+                          View evidence →
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -469,13 +575,36 @@ export function LiveRuns() {
           <CardHeader title="Run Summary" eyebrow="From backend result_summary" action={<Badge tone="green">Complete</Badge>} />
           <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-4">
             {Object.entries(progress.result_summary).map(([k, v]) => (
-              <Stat key={k} label={k.replace(/_/g, " ")} value={String(v)} />
+              <Stat key={k} label={k.replace(/_/g, " ")} value={formatSummaryValue(v)} />
             ))}
           </div>
         </Card>
       )}
     </div>
   );
+}
+
+// Render result_summary values gracefully — the backend includes arrays of
+// objects (e.g. agents_run) that would otherwise stringify to "[object Object]".
+function formatSummaryValue(v: unknown): string {
+  if (v == null) return "—";
+  if (Array.isArray(v)) {
+    if (v.length === 0) return "0";
+    if (typeof v[0] === "object" && v[0] !== null) {
+      const named = v
+        .map((item) => {
+          const o = item as Record<string, unknown>;
+          const name = o.agent_name ?? o.name ?? o.id;
+          return typeof name === "string" ? name.replace(/_/g, " ") : null;
+        })
+        .filter(Boolean);
+      return named.length ? named.join(", ") : `${v.length} items`;
+    }
+    return v.map(String).join(", ");
+  }
+  if (typeof v === "object") return `${Object.keys(v as object).length} fields`;
+  if (typeof v === "boolean") return v ? "Yes" : "No";
+  return String(v);
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -491,13 +620,101 @@ function Stat({ label, value }: { label: string; value: string }) {
 // Audit Target Selector + Application Context Profile panel
 // ---------------------------------------------------------------------------
 
-function AuditTargetSelector({ navigateTo }: { navigateTo: (path: string) => void }) {
-  const [selectedId, setSelectedId] = useState<string>(mockSystems[0]?.id ?? "");
+function formatContextValue(value: unknown): string {
+  if (value == null) return "Not provided";
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "None";
+    return value.map(formatContextValue).join(", ");
+  }
+  if (typeof value === "object") return JSON.stringify(value);
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  return String(value);
+}
+
+function contextRows(section: Record<string, unknown>): [string, string][] {
+  const rows = Object.entries(section).map(([key, value]) => [titleCase(key), formatContextValue(value)] as [string, string]);
+  return rows.length ? rows : [["Status", "No fields provided"]];
+}
+
+function buildBackendContextProfile(report: GovernanceReport | null): ApplicationContextProfile | undefined {
+  if (!report?.context_profile) return undefined;
+  const profile = report.context_profile;
+  return {
+    systemId: report.ai_system.id,
+    version: report.ai_system.model_version ?? "v1",
+    frameworks: report.ai_system.selected_frameworks.map((framework) => ({
+      name: titleCase(framework),
+      desc: "Selected on the registered AI system.",
+      active: true,
+    })),
+    sections: [
+      {
+        letter: "A",
+        title: "Application Identity & Purpose",
+        owner: "Orchestrator, Compliance Mapper",
+        fields: contextRows(profile.identity_purpose),
+      },
+      {
+        letter: "B",
+        title: "Pre-Model Business Rules",
+        owner: "Bias Auditor, Misuse Detector, Drift Analyst",
+        fields: contextRows(profile.pre_model_controls),
+      },
+      {
+        letter: "C",
+        title: "Model Configuration",
+        owner: "All probing agents",
+        fields: contextRows(profile.model_configuration),
+      },
+      {
+        letter: "D",
+        title: "Post-Model Business Rules",
+        owner: "Bias Auditor, Misuse Detector, Explainability Agent",
+        fields: contextRows(profile.post_model_controls),
+      },
+      {
+        letter: "E",
+        title: "Integration Context",
+        owner: "Risk Scorer",
+        fields: contextRows(profile.integration_context),
+      },
+    ],
+  };
+}
+
+function AuditTargetSelector({ navigateTo, report }: { navigateTo: (path: string) => void; report: GovernanceReport | null }) {
+  const backendSystem = report?.ai_system ?? null;
+  const backendProfile = buildBackendContextProfile(report);
+  const [selectedId, setSelectedId] = useState<string>(backendSystem?.id ?? mockSystems[0]?.id ?? "");
   const [expanded, setExpanded]     = useState(false);
   const [activeSection, setActiveSection] = useState<string>("A");
 
-  const system = mockSystems.find((s) => s.id === selectedId) ?? mockSystems[0];
-  const acp: ApplicationContextProfile | undefined = applicationContextProfiles.find((p) => p.systemId === selectedId);
+  useEffect(() => {
+    if (backendSystem?.id) {
+      setSelectedId(backendSystem.id);
+      setActiveSection("A");
+    }
+  }, [backendSystem?.id]);
+
+  const systemOptions = backendSystem
+    ? [{ id: backendSystem.id, name: backendSystem.name, version: backendSystem.model_version ?? "v1" }]
+    : mockSystems.map((s) => ({ id: s.id, name: s.name, version: s.version }));
+
+  const fallbackSystem = mockSystems.find((s) => s.id === selectedId) ?? mockSystems[0];
+  const system = backendSystem && selectedId === backendSystem.id
+    ? {
+        id: backendSystem.id,
+        name: backendSystem.name,
+        version: backendSystem.model_version ?? "v1",
+        riskTier: titleCase(backendSystem.risk_tier),
+        environment: titleCase(backendSystem.deployment_environment),
+        applicationType: titleCase(backendSystem.system_type),
+      }
+    : fallbackSystem;
+  const acp: ApplicationContextProfile | undefined =
+    backendProfile && selectedId === backendProfile.systemId
+      ? backendProfile
+      : applicationContextProfiles.find((p) => p.systemId === selectedId);
 
   return (
     <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
@@ -516,7 +733,7 @@ function AuditTargetSelector({ navigateTo }: { navigateTo: (path: string) => voi
             onChange={(e) => { setSelectedId(e.target.value); setActiveSection("A"); }}
             className="w-full max-w-xs rounded border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 px-2 py-1 text-[13px] font-semibold text-slate-900 dark:text-white focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-300 dark:focus:ring-brand-700 transition-colors"
           >
-            {mockSystems.map((s) => (
+            {systemOptions.map((s) => (
               <option key={s.id} value={s.id}>{s.name} — {s.version}</option>
             ))}
           </select>

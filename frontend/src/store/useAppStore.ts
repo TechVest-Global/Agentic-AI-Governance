@@ -4,14 +4,27 @@ import type { PageId } from "@/types";
 const routeMatchers: Array<[RegExp, PageId]> = [
   [/^\/(?:dashboard)?$/, "dashboard"],
   [/^\/systems(?:\/.*)?$/, "systems"],
+  [/^\/eval-runs(?:\/.*)?$/, "eval-runs"],
   [/^\/engine(?:\/.*)?$/, "engine"],
   [/^\/runs(?:\/.*)?$/, "runs"],
   [/^\/agents(?:\/.*)?$/, "agents"],
   [/^\/metric-plan(?:\/.*)?$/, "metric-plan"],
   [/^\/council(?:\/.*)?$/, "council"],
+  [/^\/findings(?:\/.*)?$/, "findings"],
+  [/^\/metric-results(?:\/.*)?$/, "metric-results"],
   [/^\/verdicts(?:\/.*)?$/, "verdicts"],
   [/^\/reports(?:\/.*)?$/, "reports"],
+  [/^\/evidence(?:\/.*)?$/, "evidence"],
   [/^\/ledger(?:\/.*)?$/, "ledger"],
+  [/^\/system-setup(?:\/.*)?$/, "system-setup"],
+  [/^\/context-profiles(?:\/.*)?$/, "context-profiles"],
+  [/^\/capabilities(?:\/.*)?$/, "capabilities"],
+  [/^\/metrics-config(?:\/.*)?$/, "metrics-config"],
+  [/^\/framework-mapping(?:\/.*)?$/, "framework-mapping"],
+  [/^\/llm-boundary(?:\/.*)?$/, "llm-boundary"],
+  [/^\/security-tools(?:\/.*)?$/, "security-tools"],
+  [/^\/governance-state(?:\/.*)?$/, "governance-state"],
+  [/^\/api-debug(?:\/.*)?$/, "api-debug"],
 ];
 
 export function pageFromPath(pathname: string): PageId {

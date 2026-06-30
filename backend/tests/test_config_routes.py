@@ -55,11 +55,13 @@ def test_default_governance_configs_can_be_bootstrapped_idempotently(
     first_result = first_response.json()
     assert first_result["metrics_created"] == 44
     assert first_result["metrics_skipped"] == 0
-    assert first_result["framework_mappings_created"] == 5
+    assert first_result["framework_mappings_created"] == 11
     assert first_result["framework_mappings_skipped"] == 0
     assert "CM-001" in first_result["metric_ids_created"]
     assert "CM-026" in first_result["metric_ids_created"]
     assert "nist_ai_rmf/1.0/MANAGE-1" in first_result["control_refs_created"]
+    assert "eu_ai_act/2024/ART-13" in first_result["control_refs_created"]
+    assert "owasp_llm_top_10/2025/LLM01" in first_result["control_refs_created"]
 
     second_response = client.post("/api/v1/governance-config/bootstrap")
 
@@ -68,7 +70,7 @@ def test_default_governance_configs_can_be_bootstrapped_idempotently(
     assert second_result["metrics_created"] == 0
     assert second_result["metrics_skipped"] == 44
     assert second_result["framework_mappings_created"] == 0
-    assert second_result["framework_mappings_skipped"] == 5
+    assert second_result["framework_mappings_skipped"] == 11
 
     metric_response = client.get(
         "/api/v1/metrics",
@@ -90,6 +92,26 @@ def test_default_governance_configs_can_be_bootstrapped_idempotently(
         "MAP-1",
         "MEASURE-1",
     ]
+
+    owasp_metric_response = client.get(
+        "/api/v1/metrics",
+        params={"framework_id": "owasp_llm_top_10", "primary_agent": "misuse_agent"},
+    )
+    assert owasp_metric_response.status_code == 200
+    owasp_metric_ids = {m["metric_id"] for m in owasp_metric_response.json()}
+    assert {"CM-022", "CM-026", "CM-027", "CM-028", "CM-029"}.issubset(owasp_metric_ids)
+
+    eu_mapping_response = client.get(
+        "/api/v1/framework-mappings",
+        params={"framework_id": "eu_ai_act"},
+    )
+    assert eu_mapping_response.status_code == 200
+    assert {m["control_ref"] for m in eu_mapping_response.json()} == {
+        "ART-9",
+        "ART-10",
+        "ART-13",
+        "ART-14",
+    }
 
 
 def test_metric_config_can_be_created_listed_filtered_and_retrieved(

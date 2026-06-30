@@ -1,28 +1,58 @@
 import {
   Activity,
+  AlertTriangle,
   Bot,
   BookOpen,
+  Boxes,
+  Bug,
   ClipboardList,
   Cpu,
+  Database,
+  FileSearch,
   FileText,
+  Gauge,
   GitBranch,
+  Layers,
   LayoutDashboard,
+  ListChecks,
+  Network,
   Scale,
+  Settings,
   ShieldCheck,
+  SlidersHorizontal,
+  Split,
+  Terminal,
 } from "lucide-react";
 import type { AgentStatus, AiSystem, AuditEvent, Finding, GovernanceRun, NavigationItem } from "@/types";
 
 export const navigation: NavigationItem[] = [
-  { id: "dashboard", label: "Dashboard", section: "Govern", path: "/dashboard", icon: LayoutDashboard },
-  { id: "systems", label: "AI Systems", section: "Govern", path: "/systems", icon: ShieldCheck },
-  { id: "engine", label: "How It Works", section: "Govern", path: "/engine", icon: Cpu },
-  { id: "runs", label: "Live Run", section: "Govern", path: "/runs", icon: Activity },
-  { id: "agents", label: "Agent Intelligence", section: "Govern", path: "/agents", icon: Bot },
-  { id: "metric-plan", label: "Metric Plan", section: "Govern", path: "/metric-plan", icon: ClipboardList },
-  { id: "council", label: "Council Deliberation", section: "Govern", path: "/council", icon: Scale },
-  { id: "verdicts", label: "Verdicts", section: "Govern", path: "/verdicts", icon: GitBranch, badge: "4" },
-  { id: "reports", label: "Reports", section: "Assurance", path: "/reports", icon: FileText },
-  { id: "ledger", label: "Audit Ledger", section: "Assurance", path: "/ledger", icon: BookOpen },
+  // ── Govern ────────────────────────────────────────────────────────────
+  { id: "dashboard", label: "Dashboard", section: "Govern", path: "/dashboard", icon: LayoutDashboard, personas: ["auditor", "developer"] },
+  { id: "systems", label: "AI Systems", section: "Govern", path: "/systems", icon: ShieldCheck, personas: ["auditor", "developer"] },
+  { id: "eval-runs", label: "Run History", section: "Govern", path: "/eval-runs", icon: ListChecks, personas: ["auditor", "developer"] },
+  { id: "engine", label: "How It Works", section: "Govern", path: "/engine", icon: Cpu, personas: ["developer"] },
+  { id: "runs", label: "Live Run", section: "Govern", path: "/runs", icon: Activity, personas: ["auditor", "developer"] },
+  { id: "agents", label: "Agent Intelligence", section: "Govern", path: "/agents", icon: Bot, personas: ["developer"] },
+  { id: "metric-plan", label: "Metric Plan", section: "Govern", path: "/metric-plan", icon: ClipboardList, personas: ["developer"] },
+  { id: "council", label: "Council Deliberation", section: "Govern", path: "/council", icon: Scale, personas: ["developer"] },
+  // ── Assurance ─────────────────────────────────────────────────────────
+  { id: "findings", label: "Findings", section: "Assurance", path: "/findings", icon: AlertTriangle, personas: ["auditor", "developer"] },
+  { id: "metric-results", label: "Metric Results", section: "Assurance", path: "/metric-results", icon: Gauge, personas: ["auditor", "developer"] },
+  { id: "verdicts", label: "Verdicts", section: "Assurance", path: "/verdicts", icon: GitBranch, personas: ["auditor", "developer"] },
+  { id: "reports", label: "Compliance Reports", section: "Assurance", path: "/reports", icon: FileText, personas: ["auditor", "developer"] },
+  { id: "evidence", label: "Evidence", section: "Assurance", path: "/evidence", icon: FileSearch, personas: ["auditor", "developer"] },
+  { id: "ledger", label: "Audit Ledger", section: "Assurance", path: "/ledger", icon: BookOpen, personas: ["auditor", "developer"] },
+  // ── Configure (developer only) ────────────────────────────────────────
+  { id: "system-setup", label: "AI System Setup", section: "Configure", path: "/system-setup", icon: Settings, personas: ["developer"] },
+  { id: "context-profiles", label: "Context Profiles", section: "Configure", path: "/context-profiles", icon: Layers, personas: ["developer"] },
+  { id: "capabilities", label: "Capabilities", section: "Configure", path: "/capabilities", icon: Boxes, personas: ["developer"] },
+  { id: "metrics-config", label: "Metrics Configuration", section: "Configure", path: "/metrics-config", icon: SlidersHorizontal, personas: ["developer"] },
+  { id: "framework-mapping", label: "Framework Mapping", section: "Configure", path: "/framework-mapping", icon: Network, personas: ["developer"] },
+  { id: "llm-boundary", label: "LLM Client Boundary", section: "Configure", path: "/llm-boundary", icon: Split, personas: ["developer"] },
+  { id: "security-tools", label: "Security Tools", section: "Configure", path: "/security-tools", icon: Bug, personas: ["developer"] },
+  // ── Operate (developer only) ──────────────────────────────────────────
+  { id: "governance-state", label: "Governance State", section: "Operate", path: "/governance-state", icon: Database, personas: ["developer"] },
+  { id: "api-debug", label: "API Debug", section: "Operate", path: "/api-debug", icon: Terminal, personas: ["developer"] },
 ];
 
 export type AcpSection = {

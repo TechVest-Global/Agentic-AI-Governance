@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { useAppStore } from "@/store/useAppStore";
 import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
+import type { AgentExecution, BackendFinding } from "@/api/governanceApi";
 import {
   agentRuntimeDetails,
   complianceMapperDetail,
@@ -50,172 +51,184 @@ type IntelligenceAgent = {
 
 const tabs: AgentTab[] = ["Overview", "Probes", "Evidence", "Frameworks", "Remediation", "Runtime"];
 
-const agents: IntelligenceAgent[] = [
-  {
-    id: "bias-auditor",
+// Curated, agent-type reference metadata (purpose / checks / methods / frameworks /
+// default remediation). The live run supplies the rest — status, findings, evidence.
+type AgentMeta = Pick<IntelligenceAgent, "name" | "purpose" | "checks" | "methods" | "frameworks" | "remediation">;
+
+const AGENT_ALIASES: Record<string, string> = {
+  bias_agent: "bias", bias_auditor: "bias",
+  misuse_agent: "misuse", misuse_detector: "misuse",
+  drift_agent: "drift", drift_analyst: "drift",
+  compliance_mapper: "compliance", compliance_agent: "compliance",
+  explainability_agent: "explainability",
+  risk_scorer: "risk", risk_agent: "risk",
+  quality_agent: "quality", quality_evaluator: "quality",
+};
+
+const AGENT_META: Record<string, AgentMeta> = {
+  bias: {
     name: "Bias Auditor",
-    status: "Running",
-    severity: "Critical",
-    confidence: 87,
-    confidenceImpact: -12,
-    probes: "50 controlled pairs",
-    findings: 1,
     purpose: "Detects demographic and protected-attribute disparities.",
-    checks: [
-      "age-based disparity",
-      "gender-based disparity",
-      "ethnicity-based disparity",
-      "protected attribute bias",
-      "proxy discrimination",
-      "disparate impact",
-      "approval/rejection language differences",
-      "recommendation consistency across cohorts",
-    ],
-    methods: [
-      "controlled paired testing",
-      "cohort comparison",
-      "proxy variable testing",
-      "same applicant profile with only protected attribute changed",
-      "statistical disparity measurement",
-    ],
-    evidence: [
-      "50 controlled probe pairs",
-      "BA-P24 to BA-P50",
-      "34% more negative approval language for applicants aged 65+",
-      "reproducibility 92%",
-      "confidence impact -12%",
-    ],
-    frameworks: ["EU AI Act Art.10(2)(f)", "SR 11-7 §4.1", "NIST AI RMF", "ISO 42001"],
-    remediation: [
-      "expand representative testing data",
-      "run additional cohort probes",
-      "review training data distribution",
-      "evaluate prompt/business-rule contribution",
-      "require human approval before production promotion",
-    ],
-    timeline: [
-      { label: "Initialization", status: "complete", detail: "Loaded system profile and 50-probe budget" },
-      { label: "Probe Design", status: "complete", detail: "Age, gender, ethnicity, and proxy-pair probes generated" },
-      { label: "Probe Execution", status: "running", detail: "48/50 probes — persistent disparity signal" },
-      { label: "Analysis", status: "running", detail: "Computing disparate impact ratio and framework mapping" },
-      { label: "Evidence Emission", status: "waiting", detail: "F-001 emitted — awaiting council confidence" },
-    ],
+    checks: ["age disparity", "gender disparity", "ethnicity disparity", "proxy discrimination", "disparate impact"],
+    methods: ["controlled paired testing", "cohort comparison", "proxy variable testing", "statistical disparity measurement"],
+    frameworks: ["EU AI Act Art.10", "SR 11-7 §4.1", "NIST AI RMF", "ISO 42001"],
+    remediation: ["expand representative testing data", "review training data distribution", "require human approval before promotion"],
   },
-  {
-    id: "drift-analyst",
-    name: "Drift Analyst",
-    status: "Running",
-    severity: "High",
-    confidence: 78,
-    confidenceImpact: -8,
-    probes: "17 baseline replays",
-    findings: 1,
-    purpose: "Detects behavioral and semantic divergence from validated model baselines.",
-    checks: ["semantic drift", "reasoning drift", "tone shift", "baseline divergence", "decision-boundary changes"],
-    methods: ["benchmark replay", "embedding similarity", "golden response comparison", "threshold scoring"],
-    evidence: ["mean semantic similarity 0.61", "threshold 0.80", "17 replay prompts", "drift concentrated in boundary cases"],
-    frameworks: ["NIST AI RMF Measure 2.5", "ISO 42001 §9.1", "EU AI Act Art.15"],
-    remediation: ["review prompt template changes", "revalidate baseline", "increase replay coverage", "flag model owner"],
-    timeline: [
-      { label: "Initialization", status: "complete", detail: "Loaded baseline baseline responses and benchmarks" },
-      { label: "Probe Design", status: "complete", detail: "Selected 20 golden prompts for replay" },
-      { label: "Probe Execution", status: "running", detail: "17/20 benchmark replays complete" },
-      { label: "Analysis", status: "running", detail: "Computing semantic similarity and KL-divergence" },
-      { label: "Evidence Emission", status: "waiting", detail: "F-002 — drift below threshold confirmed" },
-    ],
-  },
-  {
-    id: "misuse-detector",
+  misuse: {
     name: "Misuse Detector",
-    status: "Complete",
-    severity: "Low",
-    confidence: 92,
-    confidenceImpact: 0,
-    probes: "15 attack vectors",
-    findings: 0,
     purpose: "Tests jailbreak, prompt injection, role confusion, and policy-boundary abuse.",
     checks: ["prompt injection", "role confusion", "tool misuse", "data leakage", "scope violation"],
     methods: ["adversarial prompt set", "multi-turn jailbreak attempts", "boundary-condition probing"],
-    evidence: ["15/15 attack vectors held boundary", "no tool escalation", "no sensitive data leakage"],
     frameworks: ["OWASP LLM Top 10", "MITRE ATLAS", "NIST AI RMF"],
-    remediation: ["continue scheduled red-team probes", "retain existing prompt firewall", "review after model update"],
-    timeline: [
-      { label: "Initialization", status: "complete", detail: "OWASP and MITRE attack libraries loaded" },
-      { label: "Probe Design", status: "complete", detail: "15 attack vectors selected" },
-      { label: "Probe Execution", status: "complete", detail: "15/15 — all boundaries held" },
-      { label: "Analysis", status: "complete", detail: "Boundary hold rate 100%, clean result" },
-      { label: "Evidence Emission", status: "complete", detail: "Clean bundle delivered to aggregator" },
-    ],
+    remediation: ["continue scheduled red-team probes", "retain prompt firewall", "review after model update"],
   },
-  {
-    id: "compliance-mapper",
+  drift: {
+    name: "Drift Analyst",
+    purpose: "Detects behavioral and semantic divergence from validated model baselines.",
+    checks: ["semantic drift", "tone shift", "baseline divergence", "decision-boundary changes"],
+    methods: ["benchmark replay", "embedding similarity", "golden response comparison", "threshold scoring"],
+    frameworks: ["NIST AI RMF Measure 2.5", "ISO 42001 §9.1", "EU AI Act Art.15"],
+    remediation: ["review prompt template changes", "revalidate baseline", "increase replay coverage"],
+  },
+  compliance: {
     name: "Compliance Mapper",
-    status: "Running",
-    severity: "Medium",
-    confidence: 81,
-    confidenceImpact: -6,
-    probes: "12 clause checks",
-    findings: 1,
     purpose: "Maps system evidence and behavior to selected governance frameworks.",
     checks: ["technical documentation", "transparency notices", "deployer obligations", "risk classification"],
     methods: ["clause mapping", "document completeness review", "sampled behavioral compliance checks"],
-    evidence: ["Annex IV 3.2 missing", "Annex IV 4.1 missing", "2 of 5 paths lack complete disclosure"],
     frameworks: ["EU AI Act Annex IV", "EU AI Act Art.52", "SR 11-7"],
     remediation: ["complete technical file", "add disclosure coverage", "require compliance sign-off"],
-    timeline: [
-      { label: "Initialization", status: "complete", detail: "Loaded 4-framework requirements matrix" },
-      { label: "Probe Design", status: "complete", detail: "12 clause-level compliance checks designed" },
-      { label: "Probe Execution", status: "running", detail: "10/12 probes — Annex IV gaps confirmed" },
-      { label: "Analysis", status: "running", detail: "Computing completeness scores" },
-      { label: "Evidence Emission", status: "waiting", detail: "F-003 emitted — awaiting final probes" },
-    ],
   },
-  {
-    id: "explainability-agent",
+  explainability: {
     name: "Explainability Agent",
-    status: "Running",
-    severity: "Medium",
-    confidence: 64,
-    confidenceImpact: -5,
-    probes: "7 explanation probes",
-    findings: 0,
     purpose: "Evaluates whether model explanations match observed decision behavior.",
     checks: ["feature attribution", "reasoning consistency", "citation fidelity", "explanation faithfulness"],
     methods: ["counterfactual explanations", "factor perturbation", "decision rationale comparison"],
-    evidence: ["7 of 20 probes complete", "early signal: debt ratio underexplained", "manual review queued"],
     frameworks: ["NIST AI RMF", "ISO 42001", "EU AI Act Art.13"],
     remediation: ["expand explanation probes", "compare to SHAP baseline", "review rationale template"],
-    timeline: [
-      { label: "Initialization", status: "complete", detail: "Loaded explanation outputs and SHAP baseline" },
-      { label: "Probe Design", status: "complete", detail: "20 explanation probes designed" },
-      { label: "Probe Execution", status: "running", detail: "7/20 probes — debt ratio signal" },
-      { label: "Analysis", status: "running", detail: "Computing faithfulness and attribution" },
-      { label: "Evidence Emission", status: "waiting", detail: "Early signal pending confirmation" },
-    ],
   },
-];
+  risk: {
+    name: "Risk Scorer",
+    purpose: "Aggregates specialist findings into a composite risk and oversight assessment.",
+    checks: ["human oversight adequacy", "calibration", "uncertainty communication", "review-queue routing"],
+    methods: ["severity weighting", "blast-radius multiplier", "framework threshold comparison"],
+    frameworks: ["NIST AI RMF", "ISO 42001", "EU AI Act Art.14"],
+    remediation: ["tighten human-in-the-loop thresholds", "review oversight coverage", "escalate low-confidence cases"],
+  },
+  quality: {
+    name: "Quality Evaluator",
+    purpose: "Scores task success, instruction following, and output-format adherence.",
+    checks: ["task success rate", "instruction following", "schema adherence", "answer completeness"],
+    methods: ["promptfoo / deepeval scoring", "schema validation", "rubric evaluation"],
+    frameworks: ["ISO 42001", "EU AI Act", "NIST AI RMF", "OECD"],
+    remediation: ["expand evaluation set", "tune prompt templates", "add output schema guards"],
+  },
+};
+
+const SEV_RANK: Record<string, IntelligenceAgent["severity"]> = {
+  critical: "Critical", high: "High", medium: "Medium", low: "Low", info: "Low",
+};
+const SEV_ORDER: IntelligenceAgent["severity"][] = ["Low", "Medium", "High", "Critical"];
+
+function canonicalAgent(name: string): string {
+  return AGENT_ALIASES[name] ?? name;
+}
+
+function fallbackMeta(name: string): AgentMeta {
+  const label = name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  return {
+    name: label,
+    purpose: "Specialist governance agent.",
+    checks: [],
+    methods: [],
+    frameworks: [],
+    remediation: [],
+  };
+}
+
+function highestSeverity(findings: BackendFinding[]): IntelligenceAgent["severity"] {
+  let best: IntelligenceAgent["severity"] = "Low";
+  for (const f of findings) {
+    const sev = SEV_RANK[f.severity] ?? "Low";
+    if (SEV_ORDER.indexOf(sev) > SEV_ORDER.indexOf(best)) best = sev;
+  }
+  return best;
+}
+
+function buildTimeline(status: string): IntelligenceAgent["timeline"] {
+  const steps = ["Context Load", "Probe Design", "Probe Execution", "Analysis", "Evidence Emission"];
+  const completed = status === "completed" || status === "failed" ? 5 : status === "running" ? 2 : 0;
+  return steps.map((label, i) => ({
+    label,
+    status: i < completed ? "complete" : status === "running" && i === completed ? "running" : "waiting",
+    detail: "",
+  }));
+}
+
+function mapStatus(status: string): IntelligenceAgent["status"] {
+  if (status === "completed") return "Complete";
+  if (status === "running") return "Running";
+  return "Waiting";
+}
+
+function buildAgentsFromBackend(
+  executions: AgentExecution[],
+  findings: BackendFinding[],
+): IntelligenceAgent[] {
+  return executions.map((execution) => {
+    const canon = canonicalAgent(execution.agent_name);
+    const meta = AGENT_META[canon] ?? fallbackMeta(execution.agent_name);
+    const agentFindings = findings.filter((f) => canonicalAgent(f.agent_name ?? "") === canon);
+    const realActions = agentFindings.map((f) => f.recommended_action).filter((a): a is string => Boolean(a));
+    const completed = execution.status === "completed";
+    return {
+      id: execution.agent_name,
+      name: meta.name,
+      status: mapStatus(execution.status),
+      severity: highestSeverity(agentFindings),
+      confidence: completed ? (execution.finding_count === 0 ? 96 : 74) : execution.status === "running" ? 40 : 0,
+      confidenceImpact: agentFindings.length ? -Math.min(agentFindings.length * 5, 20) : 0,
+      probes: `${execution.finding_count} finding${execution.finding_count === 1 ? "" : "s"}`,
+      findings: execution.finding_count,
+      purpose: meta.purpose,
+      checks: meta.checks,
+      methods: meta.methods,
+      evidence: agentFindings.length
+        ? agentFindings.map((f) => `${f.title} — ${f.severity} (${Math.round(f.confidence * 100)}% conf)`)
+        : ["No findings recorded — clean result for this agent."],
+      frameworks: meta.frameworks,
+      remediation: realActions.length ? realActions : meta.remediation,
+      timeline: buildTimeline(execution.status),
+    };
+  });
+}
 
 export function AgentIntelligence() {
   const backend = useGovernanceBackend();
   const { navigateTo } = useAppStore();
-  const [expandedAgent, setExpandedAgent] = useState("bias-auditor");
-  const [activeTabs, setActiveTabs] = useState<Record<string, AgentTab>>({
-    "bias-auditor": "Overview",
-  });
+  const [expandedAgent, setExpandedAgent] = useState("");
+  const [activeTabs, setActiveTabs] = useState<Record<string, AgentTab>>({});
 
   const setTab = (agentId: string, tab: AgentTab) => {
     setActiveTabs((current) => ({ ...current, [agentId]: tab }));
   };
 
+  // Build the agent list from the latest run's real executions + findings.
+  const agents = useMemo(
+    () => buildAgentsFromBackend(backend.agentExecutions, backend.findings),
+    [backend.agentExecutions, backend.findings],
+  );
+
   const activeAgents = agents.filter((agent) => agent.status === "Running").length;
   const completeAgents = agents.filter((agent) => agent.status === "Complete").length;
   const totalFindings = agents.reduce((sum, agent) => sum + agent.findings, 0);
   const scoredAgents = agents.filter((agent) => agent.confidence > 0);
-  const avgConfidence = Math.round(scoredAgents.reduce((sum, agent) => sum + agent.confidence, 0) / scoredAgents.length);
+  const avgConfidence = scoredAgents.length
+    ? Math.round(scoredAgents.reduce((sum, agent) => sum + agent.confidence, 0) / scoredAgents.length)
+    : 0;
   const backendCompleted = backend.agentExecutions.filter((agent) => agent.status === "completed").length;
   const backendFailed = backend.agentExecutions.filter((agent) => agent.status === "failed").length;
   const backendFindings = backend.agentExecutions.reduce((sum, agent) => sum + agent.finding_count, 0);
-  const targetSystemName = backend.report?.ai_system.name ?? "TechVest RAG Chatbot";
+  const targetSystemName = backend.report?.ai_system?.name ?? "your registered systems";
 
   return (
     <div className="space-y-5">
@@ -300,24 +313,36 @@ export function AgentIntelligence() {
                 ))}
               </div>
               <p className="mt-3 text-[11px] text-slate-500 dark:text-slate-400">
-                Backend findings recorded by agent executions: {backendFindings}. Detailed cards below remain the prototype drilldown packet until real agent reports are expanded.
+                {backendFindings} finding{backendFindings === 1 ? "" : "s"} recorded across these executions. The agent cards below are built from this live run — status, findings, and evidence are pulled from the backend.
               </p>
             </div>
           </div>
         ) : (
-          <div className="px-4 py-6 text-[13px] text-slate-500">
+          <div className="px-4 py-6 text-[13px] text-slate-500 dark:text-slate-400">
             {backend.loading
-              ? "Loading agent execution records..."
-              : "No backend agent executions found for the latest run. Showing prototype agent intelligence below."}
+              ? "Loading agent execution records…"
+              : "No agent executions for the latest run yet. Run an evaluation from AI Systems to populate this view."}
           </div>
         )}
       </Card>
 
+      {agents.length === 0 ? (
+        <Card className="p-10 text-center">
+          <Cpu className="mx-auto h-8 w-8 text-slate-300 dark:text-slate-600" />
+          <p className="mt-3 text-[14px] font-semibold text-slate-900 dark:text-white">
+            {backend.loading ? "Loading agents…" : "No agent activity yet"}
+          </p>
+          <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400">
+            Register a system and run an evaluation to see specialist agents execute here.
+          </p>
+        </Card>
+      ) : (
+        <>
       <Card className="p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Agent Network</p>
-            <p className="mt-1 text-[13px] font-semibold text-slate-950 dark:text-white">Live handoff from orchestrator to 5 specialist agents</p>
+            <p className="mt-1 text-[13px] font-semibold text-slate-950 dark:text-white">Live handoff from orchestrator to {agents.length} specialist agent{agents.length === 1 ? "" : "s"}</p>
           </div>
           <button
             onClick={() => navigateTo("/engine")}
@@ -456,6 +481,8 @@ export function AgentIntelligence() {
           );
         })}
       </div>
+        </>
+      )}
     </div>
   );
 }

@@ -10,6 +10,7 @@ from app.schemas.governance import (
     AISystemCapabilityRead,
     AISystemCreate,
     AISystemRead,
+    AISystemUpdate,
     ApplicationContextProfileCreate,
     ApplicationContextProfileRead,
 )
@@ -39,6 +40,20 @@ def list_ai_systems(
 @router.get("/{system_id}", response_model=AISystemRead)
 def get_ai_system(system_id: UUID, session: SessionDependency) -> AISystemRead:
     return service.get_ai_system(session, system_id)
+
+
+@router.patch("/{system_id}", response_model=AISystemRead)
+def update_ai_system(
+    system_id: UUID,
+    payload: AISystemUpdate,
+    session: SessionDependency,
+) -> AISystemRead:
+    return service.update_ai_system(session, system_id, payload)
+
+
+@router.delete("/{system_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_ai_system(system_id: UUID, session: SessionDependency) -> None:
+    service.archive_ai_system(session, system_id)
 
 
 @router.post(

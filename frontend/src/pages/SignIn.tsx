@@ -36,6 +36,12 @@ function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
 }
 
+const DEMO_PASSWORD = "GovernAI2025!";
+const DEMO_ACCOUNTS = [
+  { id: "usr_demo_auditor", email: "auditor@governai.com", name: "M. Okafor", role: "Compliance Lead", initials: "MO", persona: "Auditor" },
+  { id: "usr_demo_dev", email: "dev@governai.com", name: "R. Sharma", role: "ML Engineer", initials: "RS", persona: "Engineer" },
+] as const;
+
 export function SignIn({ onSwitchToSignUp }: { onSwitchToSignUp: () => void }) {
   const signIn = useAuthStore((s) => s.signIn);
   const { theme, toggleTheme } = useThemeStore();
@@ -79,15 +85,17 @@ export function SignIn({ onSwitchToSignUp }: { onSwitchToSignUp: () => void }) {
 
       const safeEmail = sanitizeInput(email.toLowerCase().trim());
 
-      // Demo credential check (remove in production — use real backend auth)
-      if (safeEmail === "admin@governai.com" && password === "GovernAI2025!") {
+      // Demo credential check (remove in production — use real backend auth).
+      // Two accounts demo the strict role lock: an Auditor and an Engineer.
+      const demo = DEMO_ACCOUNTS.find((a) => a.email === safeEmail);
+      if (demo && password === DEMO_PASSWORD) {
         clearRateLimit();
         signIn({
-          id: "usr_demo_001",
+          id: demo.id,
           email: safeEmail,
-          name: "M. Okafor",
-          role: "Compliance Lead",
-          initials: "MO",
+          name: demo.name,
+          role: demo.role,
+          initials: demo.initials,
         });
         return;
       }
@@ -233,9 +241,29 @@ export function SignIn({ onSwitchToSignUp }: { onSwitchToSignUp: () => void }) {
             </p>
           </div>
 
-          <p className="mt-5 text-center text-[11px] text-slate-400 dark:text-slate-600">
-            Demo credentials: <span className="font-mono text-slate-500 dark:text-slate-500">admin@governai.com</span> / <span className="font-mono text-slate-500 dark:text-slate-500">GovernAI2025!</span>
-          </p>
+          <div className="mt-5 rounded-xl border border-slate-200 dark:border-slate-700/60 bg-white/60 dark:bg-slate-900/40 p-3">
+            <p className="mb-2 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
+              Demo accounts
+            </p>
+            <div className="space-y-1.5">
+              {DEMO_ACCOUNTS.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => { setEmail(a.email); setPassword(DEMO_PASSWORD); setError(null); setFieldErrors({}); }}
+                  className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  <span className="font-mono text-[11px] text-slate-600 dark:text-slate-400">{a.email}</span>
+                  <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-semibold text-brand-700 dark:bg-brand-950/50 dark:text-brand-300">
+                    {a.persona}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-center text-[10px] text-slate-400 dark:text-slate-600">
+              Password <span className="font-mono">{DEMO_PASSWORD}</span> · click to autofill
+            </p>
+          </div>
         </div>
       </div>
 
