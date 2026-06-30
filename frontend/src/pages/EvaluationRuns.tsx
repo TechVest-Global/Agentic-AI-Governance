@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, ListChecks, Loader2, PlayCircle, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ListChecks, Loader2, Play, PlayCircle, Plus, X, XCircle } from "lucide-react";
 import clsx from "clsx";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { Badge } from "@/components/ui/Badge";
 import { useAppStore } from "@/store/useAppStore";
 import { useSelectionStore } from "@/store/useSelectionStore";
+import { useEvaluationRunner } from "@/hooks/useEvaluationRunner";
 import {
   listAISystems,
   listEvaluationRuns,
@@ -60,32 +61,52 @@ function summarize(record: Record<string, unknown> | null | undefined): string {
 export function EvaluationRuns() {
   const navigateTo = useAppStore((s) => s.navigateTo);
   const focusRun = useSelectionStore((s) => s.focusRun);
+  const runner = useEvaluationRunner();
   const [runs, setRuns] = useState<EvaluationRun[]>([]);
   const [systems, setSystems] = useState<BackendAISystem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<StatusFilter>("all");
+  const [showNewRun, setShowNewRun] = useState(false);
+  const [selectedSystemId, setSelectedSystemId] = useState<string>("");
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadRuns = () => {
     setLoading(true);
     setError(null);
     Promise.all([listEvaluationRuns(50), listAISystems().catch(() => [] as BackendAISystem[])])
       .then(([runList, systemList]) => {
-        if (cancelled) return;
         setRuns(runList);
         setSystems(systemList);
+        if (!selectedSystemId && systemList.length > 0) {
+          setSelectedSystemId(systemList[0].id);
+        }
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load evaluation runs.");
+        setError(err instanceof Error ? err.message : "Failed to load evaluation runs.");
       })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadRuns();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function handleStartRun() {
+    const system = systems.find((s) => s.id === selectedSystemId);
+    if (!system) return;
+    setShowNewRun(false);
+    const result = await runner.run(system, {
+      onRunCreated: (run) => {
+        focusRun(run.id, system.id);
+      },
+    });
+    if (result) {
+      focusRun(result.id, system.id);
+      loadRuns();
+      navigateTo("/runs");
+    }
+  }
 
   const systemNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -126,17 +147,90 @@ export function EvaluationRuns() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-700 dark:text-blue-400">
-          Run History
-        </p>
-        <h1 className="mt-1 flex items-center gap-2 text-[20px] font-semibold tracking-tight text-slate-950 dark:text-white">
-          <ListChecks className="h-5 w-5 text-slate-400" />
-          Run history
-        </h1>
-        <p className="mt-1 max-w-3xl text-[13px] leading-5 text-slate-600 dark:text-slate-400">
-          Historical governance evaluations triggered against registered AI systems, with status, phase, and result summary.
-        </p>
+      {/* New Run Modal */}
+      {showNewRun && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[3px]" onClick={() => setShowNewRun(false)} />
+          <div className="relative z-10 w-full max-w-md rounded-xl bg-white shadow-2xl ring-1 ring-black/10 dark:bg-slate-900 dark:ring-white/10">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+              <div>
+                <p className="text-[15px] font-semibold text-slate-950 dark:text-white">New Evaluation Run</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">Select a registered AI system to evaluate.</p>
+              </div>
+              <button onClick={() => setShowNewRun(false)} className="flex h-8 w-8 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-4 px-5 py-4">
+              <div className="space-y-1">
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300">AI System *</label>
+                <select
+                  value={selectedSystemId}
+                  onChange={(e) => setSelectedSystemId(e.target.value)}
+                  className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none focus:border-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+                >
+                  {systems.length === 0 && <option value="">No systems registered</option>}
+                  {systems.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name} — {s.risk_tier} risk</option>
+                  ))}
+                </select>
+              </div>
+              {selectedSystemId && (
+                <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800">
+                  {(() => {
+                    const s = systems.find((x) => x.id === selectedSystemId);
+                    return s ? (
+                      <div className="space-y-1 text-[11px] text-slate-600 dark:text-slate-400">
+                        <p><span className="font-semibold text-slate-800 dark:text-slate-200">Frameworks:</span> {s.selected_frameworks.join(", ") || "None"}</p>
+                        <p><span className="font-semibold text-slate-800 dark:text-slate-200">Endpoint:</span> {s.target_endpoint_ref || "Not set"}</p>
+                        <p><span className="font-semibold text-slate-800 dark:text-slate-200">Model:</span> {s.model_name || "Not set"}</p>
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
+              )}
+              {runner.status === "error" && runner.error && (
+                <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">{runner.error}</p>
+              )}
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => setShowNewRun(false)} className="flex-1 rounded border border-slate-300 py-2.5 text-[13px] font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800">
+                  Cancel
+                </button>
+                <button
+                  disabled={!selectedSystemId || runner.status === "running"}
+                  onClick={() => void handleStartRun()}
+                  className="flex flex-1 items-center justify-center gap-2 rounded bg-slate-900 py-2.5 text-[13px] font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {runner.status === "running" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                  {runner.status === "running" ? "Running…" : "Start Evaluation"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-700 dark:text-blue-400">
+            Run History
+          </p>
+          <h1 className="mt-1 flex items-center gap-2 text-[20px] font-semibold tracking-tight text-slate-950 dark:text-white">
+            <ListChecks className="h-5 w-5 text-slate-400" />
+            Run history
+          </h1>
+          <p className="mt-1 max-w-3xl text-[13px] leading-5 text-slate-600 dark:text-slate-400">
+            Historical governance evaluations triggered against registered AI systems, with status, phase, and result summary.
+          </p>
+        </div>
+        <button
+          onClick={() => { runner.reset(); setShowNewRun(true); }}
+          disabled={runner.status === "running"}
+          className="flex items-center gap-2 rounded bg-slate-900 px-4 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {runner.status === "running" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+          {runner.status === "running" ? "Running…" : "New Run"}
+        </button>
       </div>
 
       <div className="grid gap-3 md:grid-cols-4">
@@ -145,6 +239,7 @@ export function EvaluationRuns() {
         <MetricCard label="Completed" value={counts.completed} icon={CheckCircle2} tone="green" compact />
         <MetricCard label="Failed" value={counts.failed} icon={XCircle} tone="red" compact />
       </div>
+
 
       <div className="flex flex-wrap gap-2">
         {pills.map((p) => (

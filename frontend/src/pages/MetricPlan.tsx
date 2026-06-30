@@ -50,7 +50,7 @@ async function loadLivePlan(run: EvaluationRun): Promise<MetricPlanShape | null>
       toolMode: "live",
       ownerAgent: m.primary_agent ?? "—",
       frameworks: m.framework_ids,
-      probeBudget: m.probe_budget ?? 0,
+      probeBudget: m.enabled ? 3 : 0,
       threshold: m.threshold != null ? String(m.threshold) : "—",
       status: m.enabled ? "Planned" : "Skipped",
     })),

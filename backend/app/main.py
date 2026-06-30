@@ -38,6 +38,20 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(api_router, prefix=settings.api_v1_prefix)
+
+    @app.on_event("startup")
+    def _migrate_llm_call_log_columns() -> None:
+        """Add probe transcript columns if they don't exist yet (safe no-op if present)."""
+        from sqlalchemy import inspect, text
+        from app.db.session import engine as _engine
+        with _engine.connect() as conn:
+            cols = {c["name"] for c in inspect(_engine).get_columns("llm_call_logs")}
+            if "prompt_text" not in cols:
+                conn.execute(text("ALTER TABLE llm_call_logs ADD COLUMN prompt_text TEXT"))
+            if "response_text" not in cols:
+                conn.execute(text("ALTER TABLE llm_call_logs ADD COLUMN response_text TEXT"))
+            conn.commit()
+
     return app
 
 

@@ -3,18 +3,19 @@ import {
   createEvaluationRun,
   listMetrics,
   orchestrateRun,
+  waitForRunCompletion,
   type BackendAISystem,
   type EvaluationRun,
-  type OrchestrationResult,
 } from "@/api/governanceApi";
+import { useAppStore } from "@/store/useAppStore";
+import { useSelectionStore } from "@/store/useSelectionStore";
 
 export type RunnerStatus = "idle" | "running" | "done" | "error";
 
 export type EvaluationRunnerState = {
   status: RunnerStatus;
-  /** id of the system currently being evaluated (for per-row spinners). */
   runningSystemId: string | null;
-  result: OrchestrationResult | null;
+  result: EvaluationRun | null;
   error: string | null;
 };
 
@@ -30,40 +31,46 @@ const INITIAL: EvaluationRunnerState = {
 };
 
 /**
- * Drives the full evaluation lifecycle for a registered system:
- *   pick metrics for its frameworks -> create run -> orchestrate (metrics,
- *   agents, council, report) -> expose the result. The orchestrate call is
- *   synchronous on the backend, so `status === "running"` covers the whole run.
+ * Drives the full evaluation lifecycle:
+ *   pick metrics → create run → fire orchestrate (202) → poll until terminal → expose result.
  */
 export function useEvaluationRunner() {
   const [state, setState] = useState<EvaluationRunnerState>(INITIAL);
   const mountedRef = useRef(true);
+  const abortRef   = useRef<AbortController | null>(null);
+  const setGlobalRunnerStatus = useAppStore((s) => s.setGlobalRunnerStatus);
+  const setSelectedRunId      = useSelectionStore((s) => s.setSelectedRunId);
 
   useEffect(() => {
     return () => {
       mountedRef.current = false;
+      abortRef.current?.abort();
     };
   }, []);
 
   const setRunnerState = useCallback((next: EvaluationRunnerState) => {
     if (mountedRef.current) {
       setState(next);
+      setGlobalRunnerStatus(next.status);
     }
-  }, []);
+  }, [setGlobalRunnerStatus]);
 
   const run = useCallback(async (
     system: BackendAISystem,
     options: EvaluationRunnerOptions = {},
-  ): Promise<OrchestrationResult | null> => {
+  ): Promise<EvaluationRun | null> => {
+    // Cancel any in-flight poll from a previous run
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+
     setRunnerState({ status: "running", runningSystemId: system.id, result: null, error: null });
     try {
       const frameworks = system.selected_frameworks ?? [];
       const metrics = await listMetrics();
-      // Metrics whose frameworks intersect the system's selected frameworks.
       const selected = metrics
         .filter((m) => m.framework_ids.some((f) => frameworks.includes(f)))
         .map((m) => m.metric_id);
-      // Fall back to a small default spread if the system declared no frameworks.
       const selectedMetrics = selected.length > 0 ? selected : metrics.slice(0, 6).map((m) => m.metric_id);
 
       const evaluationRun = await createEvaluationRun({
@@ -72,10 +79,27 @@ export function useEvaluationRunner() {
         selected_metrics: selectedMetrics,
       });
       options.onRunCreated?.(evaluationRun);
-      const result = await orchestrateRun(evaluationRun.id);
-      setRunnerState({ status: "done", runningSystemId: null, result, error: null });
-      return result;
+
+      // Pin the run in the global selection store so the header poller sees it immediately
+      setSelectedRunId(evaluationRun.id);
+
+      // Fire-and-forget: orchestrate returns 202 immediately
+      await orchestrateRun(evaluationRun.id);
+
+      // Poll until the run reaches a terminal state
+      const completedRun = await waitForRunCompletion(
+        evaluationRun.id,
+        undefined,
+        ac.signal,
+      );
+
+      setRunnerState({ status: "done", runningSystemId: null, result: completedRun, error: null });
+      return completedRun;
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        // Cancelled by the user — leave status as-is (cancelRun handles it externally)
+        return null;
+      }
       setRunnerState({
         status: "error",
         runningSystemId: null,
@@ -84,9 +108,12 @@ export function useEvaluationRunner() {
       });
       return null;
     }
-  }, [setRunnerState]);
+  }, [setRunnerState, setSelectedRunId]);
 
-  const reset = useCallback(() => setRunnerState(INITIAL), [setRunnerState]);
+  const reset = useCallback(() => {
+    abortRef.current?.abort();
+    setRunnerState(INITIAL);
+  }, [setRunnerState]);
 
   return { ...state, run, reset };
 }

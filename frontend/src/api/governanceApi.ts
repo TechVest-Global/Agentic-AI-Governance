@@ -257,10 +257,10 @@ export async function createEvaluationRun(payload: EvaluationRunCreatePayload): 
   });
 }
 
-export async function orchestrateRun(runId: string, mockScore = 0.9): Promise<OrchestrationResult> {
-  return request<OrchestrationResult>(`/evaluation-runs/${runId}/orchestrate`, {
+export async function orchestrateRun(runId: string, mockScore = 0.3): Promise<{ run_id: string; status: string }> {
+  return request<{ run_id: string; status: string }>(`/evaluation-runs/${runId}/orchestrate`, {
     method: "POST",
-    body: JSON.stringify({ mock_score: mockScore, requested_by: "frontend", notes: "Triggered from UI." }),
+    body: JSON.stringify({ mock_score: mockScore, force_metric_status: "failed", requested_by: "frontend", notes: "Triggered from UI." }),
   });
 }
 
@@ -565,9 +565,13 @@ export type LlmCall = {
   estimated_cost_usd?: number | null;
   latency_ms?: number | null;
   status: string;
+  request_chars?: number | null;
+  response_chars?: number | null;
   trace_id?: string | null;
   policy_flags?: unknown[];
   created_at: string;
+  prompt_text?: string | null;
+  response_text?: string | null;
 };
 
 export type LlmCallLog = {
@@ -605,4 +609,20 @@ export async function cancelRun(runId: string): Promise<EvaluationRun> {
 
 export async function getEvaluationRun(runId: string): Promise<EvaluationRun> {
   return request<EvaluationRun>(`/evaluation-runs/${runId}`);
+}
+
+const TERMINAL_STATUSES = new Set(["completed", "report_ready", "failed", "cancelled", "canceled"]);
+
+export async function waitForRunCompletion(
+  runId: string,
+  onProgress?: (run: EvaluationRun) => void,
+  signal?: AbortSignal,
+): Promise<EvaluationRun> {
+  while (true) {
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    const run = await getEvaluationRun(runId);
+    onProgress?.(run);
+    if (TERMINAL_STATUSES.has(run.status)) return run;
+    await new Promise((res) => setTimeout(res, 3000));
+  }
 }

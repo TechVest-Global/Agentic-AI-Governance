@@ -274,6 +274,8 @@ class MetricPlanItem(APIModel):
     threshold_rules: dict[str, Any] = Field(default_factory=dict)
     scoring_config: dict[str, Any] = Field(default_factory=dict)
     version: str
+    enabled: bool = True
+    threshold: float | None = None
     controls: list[MetricPlanControl] = Field(default_factory=list)
 
 
@@ -703,6 +705,8 @@ class LLMCallLogRead(APIModel):
     trace_id: str | None = None
     policy_flags: list[str] = Field(default_factory=list)
     created_at: datetime
+    prompt_text: str | None = None
+    response_text: str | None = None
 
 
 class LLMCallLogSummary(APIModel):
