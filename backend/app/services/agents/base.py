@@ -15,6 +15,13 @@ class AgentContext:
     evidence: list[EvidenceRecord]
     metric_results: list[MetricResult]
     existing_findings: list[Finding]
+    # metric_id -> normalized_score from the most recent prior completed run
+    prior_metric_scores: dict[str, float | None] = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        # default to empty dict so agents can always do .get() safely
+        if self.prior_metric_scores is None:
+            object.__setattr__(self, "prior_metric_scores", {})
 
 
 class GovernanceAgent(Protocol):

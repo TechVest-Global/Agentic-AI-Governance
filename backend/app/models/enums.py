@@ -95,3 +95,11 @@ class LedgerActorType(StrEnum):
     user = "user"
     agent = "agent"
     tool = "tool"
+
+
+class DriftSource(StrEnum):
+    model = "model"          # model weights / version changed
+    context = "context"      # prompt template or RAG context changed
+    data = "data"            # input distribution shifted
+    environment = "environment"  # infra / config changed
+    unknown = "unknown"

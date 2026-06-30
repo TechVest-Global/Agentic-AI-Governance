@@ -14,6 +14,7 @@ from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
 from app.services.agents.helpers import finding, metric_failed, metric_pending
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
+from app.services.agents.risk_contract import RiskScoreBundle, compute_risk_bundle
 
 _OVERSIGHT_METRIC_IDS = {"CM-040", "CM-041", "CM-042", "CM-043", "CM-044"}
 _OVERSIGHT_KEYWORDS = (
@@ -86,6 +87,25 @@ class RiskScorerAgent(ModelBackedAgent):
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
         findings: list[FindingCreate] = []
 
+        # ------------------------------------------------------------------
+        # Risk contract: aggregate all specialist findings into a composite
+        # score bundle and emit it as a structured summary finding so the
+        # deliberation council has a single calibrated risk signal to read.
+        # This runs first so the bundle is present even when oversight metrics
+        # all pass (no LLM call needed in that case).
+        # ------------------------------------------------------------------
+        bundle = compute_risk_bundle(
+            findings=context.existing_findings,
+            metric_results=context.metric_results,
+            ai_system=context.ai_system,
+            capabilities=context.capabilities,
+            context_profile=context.context_profile,
+        )
+        findings.append(_composite_risk_finding(bundle, context))
+
+        # ------------------------------------------------------------------
+        # Structural oversight check (independent of metric results)
+        # ------------------------------------------------------------------
         if context.ai_system.risk_tier == RiskTier.high:
             has_human_review = any(
                 cap.requires_human_review for cap in context.capabilities
@@ -248,3 +268,76 @@ def _deterministic_fallback(
             )
         )
     return results
+
+
+def _composite_risk_finding(
+    bundle: RiskScoreBundle,
+    context: AgentContext,
+) -> FindingCreate:
+    """Emit a single structured finding carrying the full RiskScoreBundle payload.
+
+    The deliberation council reads this finding to obtain the calibrated composite
+    score rather than re-deriving it from raw findings.
+    """
+    composite = bundle.composite_score
+    if composite >= 0.75 or bundle.has_critical_findings:
+        severity = Severity.critical
+    elif composite >= 0.55:
+        severity = Severity.high
+    elif composite >= 0.35:
+        severity = Severity.medium
+    elif composite >= 0.15:
+        severity = Severity.low
+    else:
+        severity = Severity.info
+
+    group_lines = "  ".join(
+        f"{name}: {gs.raw_score:.2f} ({gs.finding_count} findings)"
+        for name, gs in bundle.groups.items()
+        if name != "other"
+    )
+    regression_note = " Regression detected in prior-run comparison." if bundle.has_regression else ""
+    summary = (
+        f"Composite risk score: {composite:.3f} "
+        f"(base {bundle.base_score:.3f} × blast-radius {bundle.blast_radius_multiplier:.2f}). "
+        f"Group breakdown — {group_lines}."
+        f"{regression_note}"
+    )
+
+    f = FindingCreate(
+        finding_type="risk_summary",
+        title=f"Composite risk score: {composite:.3f}",
+        summary=summary,
+        severity=severity,
+        confidence=0.90,
+        dimension="oversight",
+        evidence_ids=[],
+        agent_name="risk_scorer",
+        recommended_action=(
+            "Review the group breakdown scores in the finding payload for targeted "
+            "remediation priorities."
+        ),
+        payload={
+            "generated_by": "risk_contract",
+            "composite_score": bundle.composite_score,
+            "base_score": bundle.base_score,
+            "blast_radius_multiplier": bundle.blast_radius_multiplier,
+            "severity_weighted_score": bundle.severity_weighted_score,
+            "framework_compliance_penalty": bundle.framework_compliance_penalty,
+            "active_frameworks": bundle.active_frameworks,
+            "finding_count": bundle.finding_count,
+            "metric_count": bundle.metric_count,
+            "has_critical_findings": bundle.has_critical_findings,
+            "has_regression": bundle.has_regression,
+            "groups": {
+                name: {
+                    "raw_score": gs.raw_score,
+                    "finding_count": gs.finding_count,
+                    "metric_ids": gs.metric_ids,
+                    "threshold_penalty": gs.threshold_penalty,
+                }
+                for name, gs in bundle.groups.items()
+            },
+        },
+    )
+    return f
