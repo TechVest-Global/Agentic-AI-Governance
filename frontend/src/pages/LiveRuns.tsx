@@ -316,10 +316,21 @@ export function LiveRuns() {
       <div className="space-y-5">
         <ExecutionLayerTrace />
         <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
-          <RuntimeEventStream />
+          <RuntimeEventStream ledgerEntries={backend.ledgerEntries} />
           <div className="space-y-5">
-            <RuntimeArchitecture />
-            <ArtifactDrawer />
+            <RuntimeArchitecture currentPhase={livePhase} runStatus={liveStatus} />
+            <ArtifactDrawer
+              liveData={
+                backend.latestRun
+                  ? {
+                      run: backend.latestRun,
+                      report: backend.report,
+                      agentExecutions: backend.agentExecutions,
+                      findings: backend.findings,
+                    }
+                  : null
+              }
+            />
           </div>
         </div>
       </div>

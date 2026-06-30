@@ -120,6 +120,23 @@ const emptyForm: RegisterForm = {
   modelProvider: "azure_foundry", modelName: "", endpoint: "", capabilityName: "Chat response generation",
 };
 
+const techvestPreset: RegisterForm = {
+  name: "TechVest RAG Chatbot",
+  version: "v1",
+  owner: "TechVest Global",
+  domain: "Knowledge Management",
+  applicationType: "RAG Chatbot",
+  environment: "Production",
+  riskTier: "Medium",
+  users: "Public website visitors",
+  frameworks: ["NIST AI RMF", "ISO 42001", "EU AI Act"],
+  notes: "Production RAG chatbot powered by Microsoft Foundry AI (GPT-4.1-mini) and Azure AI Search with parent-child chunking. Serves TechVest Global website visitors with document-grounded Q&A.",
+  modelProvider: "azure_foundry",
+  modelName: "gpt-4.1-mini",
+  endpoint: "https://techvest-chatbot-api-2026.azurewebsites.net",
+  capabilityName: "Chat Q&A",
+};
+
 function labelize(value: string | null | undefined) {
   if (!value) return "Not set";
   return value
@@ -299,7 +316,7 @@ export function AISystems() {
       });
       if (result) {
         // Keep every run-scoped tab on the completed run after orchestration.
-        focusRun(result.run_id, system.id);
+        focusRun(result.id, system.id);
       }
     },
     // loadSystems is declared just below; runner.run is stable.
@@ -411,6 +428,7 @@ export function AISystems() {
                 : [...prev.frameworks, fw],
             }))
           }
+          onFillPreset={(preset) => setRegisterForm(preset)}
           onSubmit={handleSaveSubmit}
           onClose={() => setShowRegisterForm(false)}
           canEditTechnical={canEditTechnical}
@@ -1043,6 +1061,7 @@ type RegisterSystemModalProps = {
   step: "form" | "success";
   onChange: (field: keyof RegisterForm, value: string) => void;
   onToggleFramework: (fw: string) => void;
+  onFillPreset: (preset: RegisterForm) => void;
   onSubmit: () => void | Promise<void>;
   onClose: () => void;
   canEditTechnical: boolean;
@@ -1056,6 +1075,7 @@ function RegisterSystemModal({
   step,
   onChange,
   onToggleFramework,
+  onFillPreset,
   onSubmit,
   onClose,
   canEditTechnical,
@@ -1085,12 +1105,24 @@ function RegisterSystemModal({
             <p className="text-[15px] font-semibold text-slate-950 dark:text-white">{title}</p>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">{subtitle}</p>
           </div>
-          <button
-            onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            {mode === "create" && (
+              <button
+                type="button"
+                onClick={() => onFillPreset(techvestPreset)}
+                className="rounded border border-blue-300 bg-blue-50 px-3 py-1.5 text-[11px] font-semibold text-blue-800 transition-colors hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300 dark:hover:bg-blue-900/40"
+                title="Pre-fill with TechVest RAG Chatbot details"
+              >
+                ⚡ Quick fill: TechVest Chatbot
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="flex h-8 w-8 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         {step === "success" ? (

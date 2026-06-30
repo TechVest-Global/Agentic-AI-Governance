@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardCheck,
+  Clock,
   Cpu,
   ExternalLink,
   FileText,
@@ -14,15 +15,17 @@ import {
   GitCompare,
   Layers,
   Loader2,
+  MessageSquare,
   SearchCheck,
   ShieldAlert,
+  Terminal,
 } from "lucide-react";
 import clsx from "clsx";
 import { Badge } from "@/components/ui/Badge";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { useAppStore } from "@/store/useAppStore";
 import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
-import type { AgentExecution, BackendFinding } from "@/api/governanceApi";
+import { getLlmCalls, type AgentExecution, type BackendFinding, type LlmCall } from "@/api/governanceApi";
 import {
   agentRuntimeDetails,
   complianceMapperDetail,
@@ -154,13 +157,21 @@ function highestSeverity(findings: BackendFinding[]): IntelligenceAgent["severit
   return best;
 }
 
+const PHASE_DETAILS: Record<string, string> = {
+  "Context Load": "Reads run metadata, AI system profile, capabilities, prior metric results, and any evidence already recorded. Builds the AgentContext object passed to all downstream logic.",
+  "Probe Design": "Selects probe prompts from the agent's curated test set. Filters to metrics that failed or are pending — if no relevant metrics exist, the agent exits early without sending any probes.",
+  "Probe Execution": "Sends each structured prompt to the target model via GatewayTargetModelClient. Records latency, token counts, and sanitized output for each call. Raw output is fenced and never directly trusted.",
+  "Analysis": "Passes the fenced probe evidence and metric summary to the governance model. Governance model reasons about the evidence and returns structured finding JSON. Falls back to deterministic logic if the response is not valid JSON.",
+  "Evidence Emission": "Persists findings, LLM call logs (with probe transcripts), and agent execution record to the database. Confidence impacts are carried into the Council Deliberation.",
+};
+
 function buildTimeline(status: string): IntelligenceAgent["timeline"] {
   const steps = ["Context Load", "Probe Design", "Probe Execution", "Analysis", "Evidence Emission"];
   const completed = status === "completed" || status === "failed" ? 5 : status === "running" ? 2 : 0;
   return steps.map((label, i) => ({
     label,
     status: i < completed ? "complete" : status === "running" && i === completed ? "running" : "waiting",
-    detail: "",
+    detail: PHASE_DETAILS[label] ?? "",
   }));
 }
 
@@ -281,50 +292,6 @@ export function AgentIntelligence() {
         </div>
       </Card>
 
-      <Card>
-        <CardHeader
-          title="Backend Agent Executions"
-          eyebrow={
-            backend.usingBackend && backend.latestRun
-              ? `Latest run ${backend.latestRun.id.slice(0, 8)}`
-              : "Prototype fallback"
-          }
-          action={
-            <Badge tone={backend.usingBackend ? "green" : "slate"}>
-              {backend.loading ? "Loading" : backend.usingBackend ? "Connected" : "Mock"}
-            </Badge>
-          }
-        />
-        {backend.agentExecutions.length > 0 ? (
-          <div className="grid gap-3 p-4 md:grid-cols-3">
-            <SummaryMetric label="Persisted Executions" value={`${backend.agentExecutions.length}`} icon={Cpu} tone="blue" />
-            <SummaryMetric label="Completed" value={`${backendCompleted}`} icon={CheckCircle2} tone="green" />
-            <SummaryMetric label="Failed" value={`${backendFailed}`} icon={AlertTriangle} tone={backendFailed ? "red" : "slate"} />
-            <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3 md:col-span-3">
-              <div className="flex flex-wrap gap-2">
-                {backend.agentExecutions.map((execution) => (
-                  <span key={execution.id} className="rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[12px] text-slate-700 dark:text-slate-300">
-                    <span className="font-semibold text-slate-950 dark:text-white">{execution.agent_name}</span>
-                    {" · "}
-                    {execution.status}
-                    {" · "}
-                    {execution.finding_count} findings
-                  </span>
-                ))}
-              </div>
-              <p className="mt-3 text-[11px] text-slate-500 dark:text-slate-400">
-                {backendFindings} finding{backendFindings === 1 ? "" : "s"} recorded across these executions. The agent cards below are built from this live run — status, findings, and evidence are pulled from the backend.
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="px-4 py-6 text-[13px] text-slate-500 dark:text-slate-400">
-            {backend.loading
-              ? "Loading agent execution records…"
-              : "No agent executions for the latest run yet. Run an evaluation from AI Systems to populate this view."}
-          </div>
-        )}
-      </Card>
 
       {agents.length === 0 ? (
         <Card className="p-10 text-center">
@@ -473,7 +440,7 @@ export function AgentIntelligence() {
                     ))}
                   </div>
                   <div className="bg-white dark:bg-slate-900 p-4">
-                    <ExpandedTab agent={agent} tab={activeTab} />
+                    <ExpandedTab agent={agent} tab={activeTab} runId={backend.latestRun?.id ?? null} />
                   </div>
                 </div>
               )}
@@ -487,7 +454,15 @@ export function AgentIntelligence() {
   );
 }
 
-function ExpandedTab({ agent, tab }: { agent: IntelligenceAgent; tab: AgentTab }) {
+function ExpandedTab({
+  agent,
+  tab,
+  runId,
+}: {
+  agent: IntelligenceAgent;
+  tab: AgentTab;
+  runId: string | null;
+}) {
   if (tab === "Runtime") {
     return <RuntimeTab agentId={agent.id} />;
   }
@@ -520,21 +495,7 @@ function ExpandedTab({ agent, tab }: { agent: IntelligenceAgent; tab: AgentTab }
   }
 
   if (tab === "Probes") {
-    return (
-      <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
-        <div>
-          <SectionTitle icon={SearchCheck} title="Probe Methods" />
-          <ChipGrid items={agent.methods} tone="blue" />
-          <div className="mt-5 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-4">
-            <p className="text-[12px] font-semibold text-slate-950 dark:text-white">Probe execution model</p>
-            <p className="mt-2 text-[12px] leading-5 text-slate-600 dark:text-slate-400">
-              The agent isolates governance variables, executes structured probes against the target model, and records evidence without exposing raw target output to the governance LLM.
-            </p>
-          </div>
-        </div>
-        <Timeline items={agent.timeline} />
-      </div>
-    );
+    return <ProbesTab agent={agent} runId={runId} />;
   }
 
   if (tab === "Evidence") {
@@ -589,6 +550,195 @@ function ExpandedTab({ agent, tab }: { agent: IntelligenceAgent; tab: AgentTab }
         ))}
       </div>
       <ActionRow />
+    </div>
+  );
+}
+
+// ── Probe Transcript Tab ──────────────────────────────────────────────────
+
+function ProbesTab({ agent, runId }: { agent: IntelligenceAgent; runId: string | null }) {
+  const [calls, setCalls] = useState<LlmCall[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!runId) return;
+    setLoading(true);
+    getLlmCalls(runId)
+      .then((log) => {
+        // Only target-call probes for this agent
+        const agentCalls = log.calls.filter(
+          (c) => c.call_type === "target" && (!c.agent_name || c.agent_name === agent.id),
+        );
+        setCalls(agentCalls.length > 0 ? agentCalls : log.calls.filter((c) => c.call_type === "target"));
+      })
+      .catch(() => setCalls([]))
+      .finally(() => setLoading(false));
+  }, [runId, agent.id]);
+
+  const targetCalls = calls ?? [];
+
+  return (
+    <div className="space-y-5">
+      {/* Probe methods header */}
+      <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
+        <div>
+          <SectionTitle icon={SearchCheck} title="Probe Methods" />
+          <ChipGrid items={agent.methods} tone="blue" />
+          <p className="mt-3 text-[11px] leading-5 text-slate-500 dark:text-slate-400">
+            Each probe is sent as a standalone message to the target model. Output is sanitized and fenced
+            before being passed to the governance reasoning layer — raw target content never enters
+            governance prompts unfenced.
+          </p>
+        </div>
+        <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 p-3 space-y-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Execution summary</p>
+          <div className="flex justify-between text-[12px]">
+            <span className="text-slate-600 dark:text-slate-400">Probes sent</span>
+            <span className="font-semibold text-slate-900 dark:text-white">{loading ? "…" : targetCalls.length}</span>
+          </div>
+          <div className="flex justify-between text-[12px]">
+            <span className="text-slate-600 dark:text-slate-400">Errors</span>
+            <span className="font-semibold text-red-600 dark:text-red-400">
+              {loading ? "…" : targetCalls.filter((c) => c.status !== "success").length}
+            </span>
+          </div>
+          <div className="flex justify-between text-[12px]">
+            <span className="text-slate-600 dark:text-slate-400">Avg latency</span>
+            <span className="font-semibold text-slate-900 dark:text-white">
+              {loading || targetCalls.length === 0
+                ? "—"
+                : `${Math.round(targetCalls.reduce((s, c) => s + (c.latency_ms ?? 0), 0) / targetCalls.length)} ms`}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Live probe transcript */}
+      <div>
+        <SectionTitle icon={Terminal} title="Probe Transcript" />
+        {loading && (
+          <div className="flex items-center gap-2 text-[12px] text-slate-500 dark:text-slate-400 py-4">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading probe transcript…
+          </div>
+        )}
+        {!loading && targetCalls.length === 0 && (
+          <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-4 py-6 text-center">
+            <Terminal className="mx-auto h-6 w-6 text-slate-300 dark:text-slate-600 mb-2" />
+            <p className="text-[12px] text-slate-500 dark:text-slate-400">
+              {runId
+                ? "No target probes recorded for this run yet. Probes are sent only when relevant metrics fail."
+                : "No active run selected."}
+            </p>
+          </div>
+        )}
+        {!loading && targetCalls.length > 0 && (
+          <div className="space-y-2">
+            {targetCalls.map((call, idx) => {
+              const isOpen = expanded === call.id;
+              const hasText = call.prompt_text || call.response_text;
+              return (
+                <div
+                  key={call.id}
+                  className={clsx(
+                    "rounded border overflow-hidden transition-colors",
+                    call.status === "success"
+                      ? "border-slate-200 dark:border-slate-700"
+                      : "border-red-200 dark:border-red-800",
+                  )}
+                >
+                  {/* Probe row header */}
+                  <button
+                    onClick={() => setExpanded(isOpen ? null : call.id)}
+                    className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                  >
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-slate-800 dark:bg-slate-600 text-[10px] font-bold text-white">
+                      {idx + 1}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[12px] font-semibold text-slate-900 dark:text-white font-mono">
+                          {call.task ?? "probe"}
+                        </span>
+                        <span className={clsx(
+                          "rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                          call.status === "success"
+                            ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400"
+                            : "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400",
+                        )}>
+                          {call.status}
+                        </span>
+                        <span className="rounded bg-blue-100 dark:bg-blue-900/30 px-1.5 py-0.5 text-[9px] font-semibold text-blue-700 dark:text-blue-400 uppercase">
+                          target
+                        </span>
+                      </div>
+                      <div className="mt-0.5 flex items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400">
+                        {call.latency_ms != null && (
+                          <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{call.latency_ms} ms</span>
+                        )}
+                        {call.request_chars != null && (
+                          <span>{call.request_chars} req chars</span>
+                        )}
+                        {call.response_chars != null && (
+                          <span>{call.response_chars} resp chars</span>
+                        )}
+                        {call.total_tokens != null && (
+                          <span>{call.total_tokens} tokens</span>
+                        )}
+                      </div>
+                    </div>
+                    {hasText
+                      ? isOpen ? <ChevronDown className="h-4 w-4 text-slate-400 shrink-0" /> : <ChevronRight className="h-4 w-4 text-slate-400 shrink-0" />
+                      : <span className="text-[10px] text-slate-300 dark:text-slate-600 shrink-0">metadata only</span>
+                    }
+                  </button>
+
+                  {/* Expanded transcript */}
+                  {isOpen && (
+                    <div className="border-t border-slate-100 dark:border-slate-700/50 divide-y divide-slate-100 dark:divide-slate-700/50">
+                      {call.prompt_text && (
+                        <div className="p-3 space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <MessageSquare className="h-3.5 w-3.5 text-blue-500 dark:text-blue-400" />
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-600 dark:text-blue-400">Probe sent to target</p>
+                          </div>
+                          <pre className="rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 text-[11px] leading-5 text-slate-800 dark:text-slate-200 whitespace-pre-wrap font-mono overflow-x-auto max-h-48 overflow-y-auto">
+                            {call.prompt_text}
+                          </pre>
+                        </div>
+                      )}
+                      {call.response_text && (
+                        <div className="p-3 space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <MessageSquare className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" />
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-600 dark:text-emerald-400">Response from target</p>
+                            <span className="ml-auto text-[10px] text-amber-600 dark:text-amber-400 font-medium">⚠ sanitized · fenced before governance use</span>
+                          </div>
+                          <pre className="rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 text-[11px] leading-5 text-slate-800 dark:text-slate-200 whitespace-pre-wrap font-mono overflow-x-auto max-h-48 overflow-y-auto">
+                            {call.response_text}
+                          </pre>
+                        </div>
+                      )}
+                      {!call.prompt_text && !call.response_text && (
+                        <div className="px-3 py-2 text-[11px] text-slate-500 dark:text-slate-400">
+                          Probe text not captured for this run (available from next run onwards).
+                        </div>
+                      )}
+                      {call.trace_id && (
+                        <div className="flex items-center gap-2 px-3 py-2 text-[11px] text-slate-500 dark:text-slate-400">
+                          <span className="font-semibold">Trace ID:</span>
+                          <span className="font-mono">{call.trace_id}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1021,19 +1171,48 @@ function ImpactBar({ value }: { value: number }) {
 }
 
 function Timeline({ items }: { items: IntelligenceAgent["timeline"] }) {
+  const [openPhase, setOpenPhase] = useState<string | null>(null);
   return (
     <div>
       <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Status Timeline</p>
-      <div className="space-y-3">
-        {items.map((item) => (
-          <div key={item.label} className="flex gap-3">
-            <div className={clsx("mt-1 h-2.5 w-2.5 rounded-full shrink-0", item.status === "complete" ? "bg-emerald-600" : item.status === "running" ? "bg-blue-700" : "bg-slate-300 dark:bg-slate-600")} />
-            <div>
-              <p className="text-[12px] font-semibold text-slate-950 dark:text-white">{item.label}</p>
-              <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">{item.detail}</p>
+      <div className="space-y-1">
+        {items.map((item) => {
+          const isOpen = openPhase === item.label;
+          const dotColor =
+            item.status === "complete"
+              ? "bg-emerald-500"
+              : item.status === "running"
+              ? "bg-blue-500 animate-pulse"
+              : "bg-slate-300 dark:bg-slate-600";
+          return (
+            <div key={item.label} className="rounded overflow-hidden border border-transparent hover:border-slate-200 dark:hover:border-slate-700 transition-colors">
+              <button
+                onClick={() => setOpenPhase(isOpen ? null : item.label)}
+                className="flex w-full items-start gap-3 px-2 py-2 text-left"
+              >
+                <div className={clsx("mt-1.5 h-2.5 w-2.5 rounded-full shrink-0", dotColor)} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12px] font-semibold text-slate-950 dark:text-white">{item.label}</p>
+                  {!isOpen && (
+                    <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400 truncate">{item.detail}</p>
+                  )}
+                </div>
+                {item.detail && (
+                  isOpen
+                    ? <ChevronDown className="h-3.5 w-3.5 text-slate-400 shrink-0 mt-0.5" />
+                    : <ChevronRight className="h-3.5 w-3.5 text-slate-400 shrink-0 mt-0.5" />
+                )}
+              </button>
+              {isOpen && item.detail && (
+                <div className="px-7 pb-3">
+                  <p className="text-[11px] leading-5 text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 rounded border border-slate-200 dark:border-slate-700 px-3 py-2.5">
+                    {item.detail}
+                  </p>
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

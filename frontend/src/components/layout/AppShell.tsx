@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Bell, ChevronDown, LogOut, Moon, PanelLeft, PanelLeftClose,
-  Play, Search, Shield, Sun, X,
+  Pause, Play, Search, Shield, Sun, X,
 } from "lucide-react";
 import clsx from "clsx";
 import { SearchOverlay } from "@/components/SearchOverlay";
@@ -18,8 +18,47 @@ const RUN_SCOPED: ReadonlySet<PageIdType> = new Set<PageIdType>([
 import { useAppStore } from "@/store/useAppStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useThemeStore } from "@/store/useThemeStore";
+import { useSelectionStore } from "@/store/useSelectionStore";
+import { cancelRun, getLatestEvaluationRun } from "@/api/governanceApi";
 import { PERSONA_LABEL, personaForRole } from "@/lib/persona";
 import type { PageId } from "@/types";
+
+const TERMINAL = new Set(["completed", "report_ready", "failed", "cancelled", "canceled"]);
+
+function useIsRunActive(): { active: boolean; activeRunId: string | null } {
+  const [active, setActive] = useState(false);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const selectedRunId = useSelectionStore((s) => s.selectedRunId);
+  const globalRunnerStatus = useAppStore((s) => s.globalRunnerStatus);
+
+  // Immediately reflect runner hook state
+  useEffect(() => {
+    if (globalRunnerStatus === "running") setActive(true);
+    else if (globalRunnerStatus === "done" || globalRunnerStatus === "error") setActive(false);
+  }, [globalRunnerStatus]);
+
+  // Poll backend every 4s to catch runs started in other tabs / after page reload
+  useEffect(() => {
+    let cancelled = false;
+    async function check() {
+      try {
+        const run = selectedRunId
+          ? await fetch(`${import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1"}/evaluation-runs/${selectedRunId}`).then(r => r.json())
+          : await getLatestEvaluationRun();
+        if (!cancelled && run) {
+          const isActive = !TERMINAL.has(run.status);
+          setActive(isActive);
+          setActiveRunId(isActive ? (run.id ?? null) : null);
+        }
+      } catch { /* ignore */ }
+    }
+    check();
+    const id = setInterval(check, 4000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [selectedRunId]);
+
+  return { active, activeRunId };
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const activePage   = useAppStore((s) => s.activePage);
@@ -32,10 +71,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const persona    = personaForRole(user?.role);
   const navItems   = navigation.filter((item) => item.personas.includes(persona));
   const current    = navItems.find((item) => item.id === activePage);
-  const isEngine    = activePage === "engine";
-  // Both personas can start a run. Developers get the engine walkthrough;
-  // auditors land on the registry to pick a target and run an evaluation.
-  const startRunPath = persona === "auditor" ? "/systems" : "/engine";
+  const isEngine = activePage === "engine";
+  const { active: isRunning, activeRunId } = useIsRunActive();
+  const setGlobalRunnerStatus = useAppStore((s) => s.setGlobalRunnerStatus);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen,  setSearchOpen]  = useState(false);
@@ -143,14 +181,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
 
-        {/* tenant */}
-        <div className="border-t border-white/10 p-3">
-          <div className="rounded-md bg-slate-800/80 p-3 ring-1 ring-white/5">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Tenant</p>
-            <p className="mt-2 text-[12px] font-semibold text-white">Northwind Financial</p>
-            <p className="mt-0.5 text-[10px] text-slate-500">org_4f8a · Enterprise</p>
-          </div>
-        </div>
       </aside>
 
       {/* ── Main area ────────────────────────────────────────────── */}
@@ -216,15 +246,33 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-orange-500" />
             </button>
 
-            {/* start run button */}
+            {/* start / pause run button */}
             {!isEngine && (
-              <button
-                onClick={() => navigateTo(startRunPath)}
-                className="flex items-center gap-2 rounded-lg bg-brand-600 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
-              >
-                <Play className="h-3.5 w-3.5" />
-                Start Governance Run
-              </button>
+              isRunning ? (
+                <button
+                  onClick={async () => {
+                    if (activeRunId) {
+                      try {
+                        await cancelRun(activeRunId);
+                      } catch { /* ignore — run may have already finished */ }
+                      setGlobalRunnerStatus("idle");
+                    }
+                    navigateTo("/runs");
+                  }}
+                  className="flex items-center gap-2 rounded-lg bg-amber-500 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
+                >
+                  <Pause className="h-3.5 w-3.5" />
+                  Pause Governance Run
+                </button>
+              ) : (
+                <button
+                  onClick={() => navigateTo("/systems")}
+                  className="flex items-center gap-2 rounded-lg bg-brand-600 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
+                >
+                  <Play className="h-3.5 w-3.5" />
+                  Start Governance Run
+                </button>
+              )
             )}
 
             {/* user menu */}
@@ -292,25 +340,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </main>
 
-        {/* ── Footer ───────────────────────────────────────────── */}
-        <footer className="border-t border-[#e7e9f0] dark:border-white/10 bg-white dark:bg-[#0a0f1c] transition-colors duration-200 px-6 py-4">
-          <div className="flex flex-col items-center justify-between gap-3 sm:flex-row">
-            <div className="flex items-center gap-2">
-              <div className="flex h-6 w-6 items-center justify-center rounded-[6px] bg-brand-600 text-white">
-                <Shield className="h-3 w-3" />
-              </div>
-              <span className="text-[12px] font-semibold text-slate-700 dark:text-slate-300">GovernAI</span>
-              <span className="text-[11px] text-slate-400 dark:text-slate-600">·</span>
-              <span className="text-[11px] text-slate-400 dark:text-slate-600">Output-only AI Governance Engine</span>
-            </div>
-            <div className="flex items-center gap-4 text-[11px] text-slate-400 dark:text-slate-600">
-              <span className="hover:text-slate-600 dark:hover:text-slate-400 cursor-pointer transition-colors">Privacy Policy</span>
-              <span className="hover:text-slate-600 dark:hover:text-slate-400 cursor-pointer transition-colors">Terms of Service</span>
-              <span className="hover:text-slate-600 dark:hover:text-slate-400 cursor-pointer transition-colors">Documentation</span>
-              <span>© {new Date().getFullYear()} GovernAI</span>
-            </div>
-          </div>
-        </footer>
       </div>
     </div>
   );

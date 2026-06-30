@@ -249,6 +249,9 @@ class GatewayTargetModelClient:
                     "response_chars": len(response.raw_output),
                     "trace_id": response.trace_id,
                     "policy_flags": [],
+                    # Auditor-visible probe transcript (target calls only)
+                    "prompt_text": request.prompt,
+                    "response_text": response.raw_output,
                 })
                 return response
             except (RateLimitError, APIConnectionError, APITimeoutError) as exc:

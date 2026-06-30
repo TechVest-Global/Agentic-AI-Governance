@@ -7,6 +7,7 @@ status. This makes LLM spend queryable alongside governance findings and verdict
 
 from uuid import UUID
 
+import sqlalchemy as sa
 from sqlalchemy import JSON, Column
 from sqlmodel import Field
 
@@ -41,3 +42,6 @@ class LLMCallLog(TimestampMixin, UUIDPrimaryKey, table=True):
     policy_flags: list[str] = Field(
         default_factory=list, sa_column=Column(JSON, nullable=False)
     )
+    # Auditor-visible probe transcript — stored only for target calls
+    prompt_text: str | None = Field(default=None, sa_column=Column("prompt_text", sa.Text, nullable=True))
+    response_text: str | None = Field(default=None, sa_column=Column("response_text", sa.Text, nullable=True))

@@ -125,6 +125,7 @@ def _build_metric_plan_item(
         for mapping in mappings
         if metric.metric_id in mapping.metric_ids
     ]
+    threshold = _extract_threshold(metric.threshold_rules)
     return MetricPlanItem(
         metric_config_id=metric.id,
         metric_id=metric.metric_id,
@@ -138,5 +139,15 @@ def _build_metric_plan_item(
         threshold_rules=metric.threshold_rules,
         scoring_config=metric.scoring_config,
         version=metric.version,
+        enabled=metric.enabled,
+        threshold=threshold,
         controls=controls,
     )
+
+
+def _extract_threshold(threshold_rules: dict) -> float | None:
+    for key in ("minimum", "medium_risk_minimum", "high_risk_minimum"):
+        value = threshold_rules.get(key)
+        if isinstance(value, int | float):
+            return float(value)
+    return None
