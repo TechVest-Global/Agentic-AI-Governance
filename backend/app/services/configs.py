@@ -6,6 +6,7 @@ from app.configs.config_loader import load_metric_configs_from_dir
 from app.configs.config_models import MetricConfig as FileMetricConfig
 from app.configs.defaults import DEFAULT_FRAMEWORK_MAPPINGS
 from app.core.exceptions import ResourceConflictError, ResourceNotFoundError
+from app.models.base import utc_now
 from app.models.config import FrameworkMapping, MetricConfig
 from app.schemas.governance import (
     FrameworkMappingCreate,
@@ -18,9 +19,9 @@ AGENT_OWNER_TO_RUNTIME_AGENT = {
     "bias_auditor": "bias_agent",
     "drift_analyst": "drift_agent",
     "misuse_detector": "misuse_agent",
-    "compliance_mapper": "compliance_agent",
+    "compliance_mapper": "compliance_mapper",
     "explainability_agent": "explainability_agent",
-    "risk_scorer": "risk_agent",
+    "risk_scorer": "risk_scorer",
 }
 
 
@@ -183,6 +184,7 @@ def bootstrap_default_governance_configs(
             )
         ).first()
         if existing_metric is not None:
+            _sync_metric_config(existing_metric, payload)
             metric_ids_skipped.append(payload.metric_id)
             continue
 
@@ -203,6 +205,7 @@ def bootstrap_default_governance_configs(
             f"{payload.control_ref}"
         )
         if existing_mapping is not None:
+            _sync_framework_mapping(existing_mapping, payload)
             control_refs_skipped.append(control_key)
             continue
 
@@ -220,6 +223,24 @@ def bootstrap_default_governance_configs(
         control_refs_created=control_refs_created,
         control_refs_skipped=control_refs_skipped,
     )
+
+
+def _sync_metric_config(
+    metric_config: MetricConfig,
+    payload: MetricConfigCreate,
+) -> None:
+    for field_name, value in payload.model_dump().items():
+        setattr(metric_config, field_name, value)
+    metric_config.updated_at = utc_now()
+
+
+def _sync_framework_mapping(
+    framework_mapping: FrameworkMapping,
+    payload: FrameworkMappingCreate,
+) -> None:
+    for field_name, value in payload.model_dump().items():
+        setattr(framework_mapping, field_name, value)
+    framework_mapping.updated_at = utc_now()
 
 
 def _load_metric_config_payloads() -> list[MetricConfigCreate]:

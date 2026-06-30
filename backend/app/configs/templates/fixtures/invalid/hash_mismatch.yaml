@@ -1,0 +1,8 @@
+template_id: bias_auditor.probe_design
+section: role
+version: '1'
+content_hash: '0000000000000000000000000000000000000000000000000000000000000000'
+text: Audit {model_name} for fairness across demographic groups.
+variables:
+- model_name
+description: 'Invalid fixture (I2): content_hash does not match the text.'

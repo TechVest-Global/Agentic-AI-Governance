@@ -79,7 +79,11 @@ def test_mock_metric_execution_creates_evidence_and_metric_results(
 
     response = client.post(
         f"/api/v1/evaluation-runs/{run['id']}/metrics/run",
-        json={"mock_score": 0.92, "source_name": "local_mock_runner"},
+        json={
+            "mock_score": 0.92,
+            "source_name": "local_mock_runner",
+            "evaluator_name": "mock",
+        },
     )
 
     assert response.status_code == 201
@@ -165,5 +169,5 @@ def test_metric_execution_rejects_unknown_evaluator(client: TestClient) -> None:
     assert response.status_code == 422
     assert response.json()["error"]["details"] == {
         "unknown_evaluator": "not_registered",
-        "available_evaluators": ["mock"],
+        "available_evaluators": ["mock", "threshold"],
     }

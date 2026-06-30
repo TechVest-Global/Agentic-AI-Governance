@@ -187,7 +187,7 @@ class PromptRegistry:
         try:
             return self._index[(template_id, content_hash)]
         except KeyError:
-            raise TemplateLookupError(template_id, content_hash)
+            raise TemplateLookupError(template_id, content_hash) from None
 
     def list_versions(self, template_id: str) -> list[TemplateSummary]:
         """Return all known versions of a template, for human inspection only.

@@ -1,17 +1,20 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   BookOpen,
   ChevronDown,
   ChevronRight,
-  Clock,
   Download,
   ExternalLink,
-  Filter,
   Info,
+  Loader2,
+  Pencil,
+  Play,
   Plus,
   Server,
   ShieldAlert,
+  Trash2,
   TrendingUp,
   Users,
   X,
@@ -21,10 +24,16 @@ import { Badge, toneForRisk, toneForStatus } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { useAppStore } from "@/store/useAppStore";
+import { useAuthStore } from "@/store/useAuthStore";
+import { useSelectionStore } from "@/store/useSelectionStore";
+import { personaForRole } from "@/lib/persona";
+import { useEvaluationRunner } from "@/hooks/useEvaluationRunner";
 import {
   createAISystem,
   createAISystemCapability,
+  deleteAISystem,
   listAISystems,
+  updateAISystem,
   type BackendAISystem,
   type BackendAISystemCapabilityCreate,
   type BackendAISystemCreate,
@@ -49,17 +58,14 @@ const verdictDescriptions: Record<string, { label: string; description: string; 
 };
 
 const columnDescriptions: Record<string, string> = {
-  System: "Model identifier, version, and daily active user count.",
-  "Application Type": "Technical architecture and AI methodology.",
+  System: "Registered application, version, and usage level.",
   Domain: "Business domain the system operates within.",
   Env: "Deployment environment: Production, Shadow (parallel monitoring), or Staging.",
   "Risk Tier": "Regulatory risk classification. High-risk systems face stricter EU AI Act requirements.",
   Owner: "Accountable team responsible for governance sign-off.",
-  "Last Run": "Timestamp of most recent completed governance evaluation.",
-  Verdict: "Governance outcome: Pass (autonomous), Medium (supervised), or Blocked.",
-  Confidence: "Aggregate confidence score from all specialist agents in the last run.",
-  "Next Review": "Scheduled date for the next mandatory governance evaluation.",
+  Frameworks: "Frameworks selected for this application's governance runs.",
   Status: "Current operational status of the AI system.",
+  Actions: "Update details or run a governance evaluation. Technical edit and delete are developer-only.",
 };
 
 const riskTiers = ["High", "Medium", "Low"] as const;
@@ -114,23 +120,6 @@ const emptyForm: RegisterForm = {
   modelProvider: "azure_foundry", modelName: "", endpoint: "", capabilityName: "Chat response generation",
 };
 
-const techVestChatbotTemplate: RegisterForm = {
-  name: "TechVest RAG Chatbot",
-  version: "v1",
-  owner: "TechVest Global",
-  domain: "Customer Operations",
-  applicationType: "RAG Chatbot",
-  environment: "Development",
-  riskTier: "Medium",
-  users: "Internal pilot",
-  frameworks: ["NIST AI RMF", "OWASP LLM Top 10", "ISO 42001"],
-  notes: "Azure Foundry and Azure AI Search RAG chatbot used as the first target AI application for governance testing.",
-  modelProvider: "azure_foundry",
-  modelName: "gpt-4.1-mini",
-  endpoint: "http://localhost:8000/api/chat",
-  capabilityName: "Chat response generation",
-};
-
 function labelize(value: string | null | undefined) {
   if (!value) return "Not set";
   return value
@@ -153,6 +142,32 @@ function mapBackendRisk(value: BackendAISystem["risk_tier"]): RegistrySystem["ri
 
 function normalizeFramework(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+}
+
+const frameworkLabelById = new Map(frameworkOptions.map((label) => [normalizeFramework(label), label]));
+
+function frameworkToLabel(value: string) {
+  return frameworkLabelById.get(value) ?? value;
+}
+
+function systemToForm(system: BackendAISystem): RegisterForm {
+  const metadata = system.metadata_json ?? {};
+  return {
+    name: system.name,
+    version: system.model_version ?? "v1",
+    owner: system.owner,
+    domain: typeof metadata.domain === "string" ? metadata.domain : "Other",
+    applicationType: labelize(system.system_type),
+    environment: labelize(system.deployment_environment),
+    riskTier: mapBackendRisk(system.risk_tier),
+    users: typeof metadata.daily_active_users === "string" ? metadata.daily_active_users : "",
+    frameworks: system.selected_frameworks.map(frameworkToLabel),
+    notes: system.description ?? "",
+    modelProvider: system.model_provider,
+    modelName: system.model_name ?? "",
+    endpoint: system.target_endpoint_ref ?? "",
+    capabilityName: "Chat response generation",
+  };
 }
 
 function mapStatus(value: BackendAISystem["status"]): string {
@@ -221,20 +236,76 @@ function buildCapabilityPayload(form: RegisterForm): BackendAISystemCapabilityCr
   };
 }
 
+function buildSystemPayload(form: RegisterForm): BackendAISystemCreate {
+  return {
+    name: form.name.trim(),
+    description: form.notes.trim() || null,
+    owner: form.owner.trim(),
+    system_type: normalizeFramework(form.applicationType || "other"),
+    risk_tier: mapRiskTier(form.riskTier),
+    deployment_environment: normalizeFramework(form.environment || "local"),
+    selected_frameworks: form.frameworks.map(normalizeFramework),
+    model_provider: normalizeFramework(form.modelProvider || "azure_foundry"),
+    model_name: form.modelName.trim() || null,
+    model_version: form.version.trim() || null,
+    target_endpoint_ref: form.endpoint.trim() || null,
+    metadata_json: {
+      domain: form.domain,
+      daily_active_users: form.users || "Not provided",
+      registered_from: "frontend_portal",
+    },
+  };
+}
+
 export function AISystems() {
   const navigateTo = useAppStore((state) => state.navigateTo);
+  const role = useAuthStore((state) => state.user?.role);
+  const persona = personaForRole(role);
+  const focusRun = useSelectionStore((s) => s.focusRun);
+  // Auditors own the assurance registry: they can register applications and
+  // maintain the fields needed for governance runs.
+  const canRegister = true;
+  const canRun = true;
+  const canEditTechnical = persona === "developer";
+  const canDelete = persona === "developer";
   const [expandedSystem, setExpandedSystem] = useState<string | null>(null);
   const [hoveredFramework, setHoveredFramework] = useState<string | null>(null);
   const [hoveredColumn, setHoveredColumn] = useState<string | null>(null);
   const [showRegisterForm, setShowRegisterForm] = useState(false);
+  const [formMode, setFormMode] = useState<"create" | "edit">("create");
+  const [editingSystemId, setEditingSystemId] = useState<string | null>(null);
   const [registerForm, setRegisterForm] = useState<RegisterForm>(emptyForm);
   const [registerStep, setRegisterStep] = useState<"form" | "success">("form");
   const [backendSystems, setBackendSystems] = useState<BackendAISystem[]>([]);
+  const [deleteTarget, setDeleteTarget] = useState<RegistrySystem | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const setHeaderHidden = useAppStore((state) => state.setHeaderHidden);
+  const runner = useEvaluationRunner();
+
+  const handleRunEvaluation = useCallback(
+    async (systemId: string) => {
+      const system = backendSystems.find((s) => s.id === systemId);
+      if (!system) return;
+      const result = await runner.run(system, {
+        onRunCreated: (run) => {
+          focusRun(run.id, system.id);
+          navigateTo("/runs");
+        },
+      });
+      if (result) {
+        // Keep every run-scoped tab on the completed run after orchestration.
+        focusRun(result.run_id, system.id);
+      }
+    },
+    // loadSystems is declared just below; runner.run is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [backendSystems, runner.run, navigateTo, focusRun],
+  );
 
   const loadSystems = useCallback(async () => {
     try {
@@ -264,37 +335,63 @@ export function AISystems() {
     ? Math.round(registrySystems.reduce((sum, s) => sum + s.confidence, 0) / registrySystems.length)
     : 0;
 
-  async function handleRegisterSubmit() {
-    const payload: BackendAISystemCreate = {
-      name: registerForm.name.trim(),
-      description: registerForm.notes.trim() || null,
-      owner: registerForm.owner.trim(),
-      system_type: normalizeFramework(registerForm.applicationType || "other"),
-      risk_tier: mapRiskTier(registerForm.riskTier),
-      deployment_environment: normalizeFramework(registerForm.environment || "local"),
-      selected_frameworks: registerForm.frameworks.map(normalizeFramework),
-      model_provider: normalizeFramework(registerForm.modelProvider || "azure_foundry"),
-      model_name: registerForm.modelName.trim() || null,
-      model_version: registerForm.version.trim() || null,
-      target_endpoint_ref: registerForm.endpoint.trim(),
-      metadata_json: {
-        domain: registerForm.domain,
-        daily_active_users: registerForm.users || "Not provided",
-        registered_from: "frontend_portal",
-      },
-    };
+  function openCreateModal() {
+    setFormMode("create");
+    setEditingSystemId(null);
+    setRegisterForm(emptyForm);
+    setRegisterStep("form");
+    setSubmitError(null);
+    setShowRegisterForm(true);
+  }
 
+  function openEditModal(systemId: string) {
+    const system = backendSystems.find((item) => item.id === systemId);
+    if (!system) return;
+    setFormMode("edit");
+    setEditingSystemId(systemId);
+    setRegisterForm(systemToForm(system));
+    setRegisterStep("form");
+    setSubmitError(null);
+    setShowRegisterForm(true);
+  }
+
+  async function handleSaveSubmit() {
+    const payload = buildSystemPayload(registerForm);
     try {
       setIsSubmitting(true);
       setSubmitError(null);
-      const createdSystem = await createAISystem(payload);
-      await createAISystemCapability(createdSystem.id, buildCapabilityPayload(registerForm));
+      if (formMode === "edit" && editingSystemId) {
+        await updateAISystem(editingSystemId, payload);
+      } else {
+        const createdSystem = await createAISystem(payload);
+        if (canEditTechnical && registerForm.endpoint.trim()) {
+          await createAISystemCapability(createdSystem.id, buildCapabilityPayload(registerForm));
+        }
+      }
       await loadSystems();
       setRegisterStep("success");
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : "Registration failed.");
+      setSubmitError(error instanceof Error ? error.message : "Unable to save AI system.");
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function handleDeleteConfirmed() {
+    if (!deleteTarget || !canDelete) return;
+    try {
+      setIsDeleting(true);
+      setDeleteError(null);
+      await deleteAISystem(deleteTarget.id);
+      if (expandedSystem === deleteTarget.id) {
+        setExpandedSystem(null);
+      }
+      setDeleteTarget(null);
+      await loadSystems();
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "Unable to delete AI system.");
+    } finally {
+      setIsDeleting(false);
     }
   }
 
@@ -302,6 +399,7 @@ export function AISystems() {
     <div className="space-y-5">
       {showRegisterForm && (
         <RegisterSystemModal
+          mode={formMode}
           form={registerForm}
           step={registerStep}
           onChange={(field, value) => setRegisterForm((prev) => ({ ...prev, [field]: value }))}
@@ -313,41 +411,51 @@ export function AISystems() {
                 : [...prev.frameworks, fw],
             }))
           }
-          onSubmit={handleRegisterSubmit}
+          onSubmit={handleSaveSubmit}
           onClose={() => setShowRegisterForm(false)}
-          onUseTemplate={() => setRegisterForm(techVestChatbotTemplate)}
+          canEditTechnical={canEditTechnical}
           isSubmitting={isSubmitting}
           error={submitError}
         />
       )}
+      {deleteTarget && canDelete && (
+        <DeleteSystemDialog
+          system={deleteTarget}
+          isDeleting={isDeleting}
+          error={deleteError}
+          onCancel={() => {
+            setDeleteTarget(null);
+            setDeleteError(null);
+          }}
+          onConfirm={handleDeleteConfirmed}
+        />
+      )}
       {/* Page intro + actions */}
-      <div className="flex items-start justify-between border-b border-slate-200 dark:border-slate-700 pb-5">
-        <div className="max-w-2xl space-y-1">
-          <p className="text-[13px] leading-5 text-slate-600 dark:text-slate-300">
-            Every AI system registered here is bound to a model owner, risk tier, and applicable regulatory frameworks. Governance runs evaluate each system continuously — click any row to explore its current posture.
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4 dark:border-slate-700">
+        <div>
+          <p className="text-[15px] font-semibold text-slate-950 dark:text-white">
+            AI application registry
           </p>
-          <p className="text-[11px] text-slate-400 dark:text-slate-500">Click a row to expand full system details · Click a framework tag for its description · Hover column headers for field definitions</p>
+          <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400">
+            Register the target application, assign frameworks, then run the governance audit.
+          </p>
         </div>
         <div className="flex shrink-0 gap-2">
-          <button
-            title="Filter registry by risk tier, domain, or status"
-            className="flex items-center gap-2 rounded border border-slate-300 bg-white px-3 py-2 text-[12px] font-medium text-slate-900 transition-colors hover:border-slate-400 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-700"
-          >
-            <Filter className="h-4 w-4" /> Filter
-          </button>
           <button
             title="Export registry data as CSV or JSON"
             className="flex items-center gap-2 rounded border border-slate-300 bg-white px-3 py-2 text-[12px] font-medium text-slate-900 transition-colors hover:border-slate-400 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-700"
           >
             <Download className="h-4 w-4" /> Export
           </button>
-          <button
-            title="Onboard a new AI system to the governance registry"
-            onClick={() => { setRegisterForm(emptyForm); setRegisterStep("form"); setShowRegisterForm(true); }}
-            className="flex items-center gap-2 rounded bg-[#111827] px-3 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-slate-700"
-          >
-            <Plus className="h-4 w-4" /> Register System
-          </button>
+          {canRegister && (
+            <button
+              title="Onboard a new AI system to the governance registry"
+              onClick={openCreateModal}
+              className="flex items-center gap-2 rounded bg-[#111827] px-3 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-slate-700"
+            >
+              <Plus className="h-4 w-4" /> Register Application
+            </button>
+          )}
         </div>
       </div>
 
@@ -377,7 +485,7 @@ export function AISystems() {
       {/* Registry table */}
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1320px] border-collapse text-left">
+          <table className="w-full min-w-[980px] border-collapse text-left">
             <thead className="bg-slate-50 dark:bg-slate-800">
               <tr className="border-b border-slate-200 dark:border-slate-700">
                 <th className="w-6 px-3 py-2.5" />
@@ -404,7 +512,6 @@ export function AISystems() {
             <tbody>
               {registrySystems.map((system) => {
                 const expanded = expandedSystem === system.id;
-                const verdict = verdictDescriptions[system.verdict];
                 return (
                   <Fragment key={system.id}>
                     <tr
@@ -428,7 +535,6 @@ export function AISystems() {
                           <span>{system.users} daily users</span>
                         </p>
                       </td>
-                      <td className="px-3 py-3 text-[12px] text-slate-700 dark:text-slate-300">{system.applicationType}</td>
                       <td className="px-3 py-3 text-[12px] font-medium text-slate-950 dark:text-white">{system.domain}</td>
                       <td className="px-3 py-3">
                         <Badge tone="neutral">
@@ -440,46 +546,78 @@ export function AISystems() {
                       </td>
                       <td className="px-3 py-3 text-[12px] text-slate-700 dark:text-slate-300">{system.owner}</td>
                       <td className="px-3 py-3">
-                        <p className="font-mono text-[11px] text-slate-700 dark:text-slate-300">{system.lastRun}</p>
-                      </td>
-                      <td className="px-3 py-3">
-                        <Badge tone={toneForStatus(system.verdict)}>{system.verdict}</Badge>
-                        <p className={clsx("mt-1 text-[10px] font-medium", verdict.color)}>{verdict.label}</p>
-                      </td>
-                      <td className="px-3 py-3">
-                        <div className="flex items-center gap-2">
-                          <span className={clsx("w-8 text-[12px] font-semibold",
-                            system.confidence >= 80 ? "text-emerald-700" :
-                            system.confidence >= 60 ? "text-amber-700" : "text-red-700"
-                          )}>{system.confidence}%</span>
-                          <div className="h-1.5 w-20 rounded bg-slate-200 dark:bg-slate-700">
-                            <div
-                              className={clsx("h-full rounded transition-all",
-                                system.confidence >= 80 ? "bg-emerald-600" :
-                                system.confidence >= 60 ? "bg-amber-500" : "bg-red-500"
-                              )}
-                              style={{ width: `${system.confidence}%` }}
-                            />
-                          </div>
+                        <div className="flex max-w-[260px] flex-wrap gap-1.5">
+                          {(system.frameworks.length ? system.frameworks : ["No frameworks"]).slice(0, 4).map((fw) => (
+                            <Badge key={fw} tone="blue">{frameworkToLabel(fw)}</Badge>
+                          ))}
+                          {system.frameworks.length > 4 && <Badge tone="neutral">+{system.frameworks.length - 4}</Badge>}
                         </div>
                       </td>
                       <td className="px-3 py-3">
-                        <p className="font-mono text-[11px] text-slate-700 dark:text-slate-300">{system.nextReview}</p>
-                        <p className="mt-0.5 text-[10px] text-slate-400 dark:text-slate-500">
-                          <Clock className="mr-0.5 inline h-2.5 w-2.5" />
-                          Scheduled
-                        </p>
+                        <Badge tone={toneForStatus(system.status)}>{system.status}</Badge>
                       </td>
                       <td className="px-3 py-3">
-                        <Badge tone={toneForStatus(system.status)}>{system.status}</Badge>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            title={canEditTechnical ? "Edit AI application" : "Update application details"}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openEditModal(system.id);
+                            }}
+                            className="flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 transition-colors hover:border-blue-300 hover:text-blue-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          {canDelete && (
+                            <button
+                              title="Delete AI application"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setDeleteTarget(system);
+                                setDeleteError(null);
+                              }}
+                              className="flex h-8 w-8 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 transition-colors hover:border-red-300 hover:text-red-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                          <button
+                            title="Run governance evaluation"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleRunEvaluation(system.id);
+                            }}
+                            disabled={runner.status === "running" && runner.runningSystemId === system.id}
+                            className="flex h-8 w-8 items-center justify-center rounded bg-brand-600 text-white transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {runner.status === "running" && runner.runningSystemId === system.id
+                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              : <Play className="h-3.5 w-3.5" />}
+                          </button>
+                        </div>
                       </td>
                     </tr>
 
                     {/* Inline expanded detail */}
                     {expanded && (
                       <tr key={`${system.id}-expanded`} className="border-b border-blue-100 bg-blue-50/60 dark:border-blue-900/40 dark:bg-blue-950/20">
-                        <td colSpan={12} className="px-4 py-4">
-                          <SystemDetail system={system} onNavigate={navigateTo} onClose={() => setExpandedSystem(null)} />
+                        <td colSpan={9} className="px-4 py-4">
+                          <SystemDetail
+                            system={system}
+                            onNavigate={navigateTo}
+                            onClose={() => setExpandedSystem(null)}
+                            onEdit={() => openEditModal(system.id)}
+                            editLabel={canEditTechnical ? "Edit" : "Update Details"}
+                            onDelete={() => {
+                              setDeleteTarget(system);
+                              setDeleteError(null);
+                            }}
+                            onRunEvaluation={() => handleRunEvaluation(system.id)}
+                            running={runner.status === "running" && runner.runningSystemId === system.id}
+                            runError={runner.status === "error" ? runner.error : null}
+                            canManage={canRun}
+                            canDelete={canDelete}
+                          />
                         </td>
                       </tr>
                     )}
@@ -488,17 +626,17 @@ export function AISystems() {
               })}
               {!isLoading && registrySystems.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="px-4 py-12 text-center">
+                  <td colSpan={9} className="px-4 py-12 text-center">
                     <p className="text-[14px] font-semibold text-slate-950 dark:text-white">No AI systems registered yet</p>
                     <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400">
-                      Register the TechVest chatbot or another target AI application to start governance testing.
+                      Register the target AI application to start governance testing.
                     </p>
                   </td>
                 </tr>
               )}
               {isLoading && (
                 <tr>
-                  <td colSpan={12} className="px-4 py-12 text-center text-[12px] text-slate-500 dark:text-slate-400">
+                  <td colSpan={9} className="px-4 py-12 text-center text-[12px] text-slate-500 dark:text-slate-400">
                     Loading registered AI systems from backend...
                   </td>
                 </tr>
@@ -508,43 +646,24 @@ export function AISystems() {
         </div>
       </Card>
 
-      {/* Footer info bar */}
-      <div className="grid gap-5 rounded-md border border-slate-200 bg-white p-4 lg:grid-cols-3 dark:border-slate-700 dark:bg-slate-900">
-        <div>
-          <p className="mb-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600 dark:text-slate-400">
-            Frameworks Tracked Across Registry
-          </p>
-          <div className="relative flex flex-wrap gap-2">
-            {Object.keys(frameworkDescriptions).map((fw) => (
-              <span
-                key={fw}
-                onMouseEnter={() => setHoveredFramework(fw)}
-                onMouseLeave={() => setHoveredFramework(null)}
-                className="cursor-default rounded border border-slate-300 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-900 transition-colors hover:border-blue-400 hover:bg-blue-50 hover:text-blue-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-blue-500 dark:hover:bg-blue-900/40 dark:hover:text-blue-300"
-              >
-                {fw}
-              </span>
-            ))}
-            {hoveredFramework && (
-              <div className="absolute bottom-full left-0 z-20 mb-2 max-w-xs rounded border border-slate-200 bg-white p-2.5 text-[11px] leading-4 text-slate-700 shadow-lg dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                <p className="mb-1 font-semibold text-slate-950 dark:text-white">{hoveredFramework}</p>
-                {frameworkDescriptions[hoveredFramework]}
-              </div>
-            )}
+      <div className="relative flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900">
+        <p className="mr-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Frameworks</p>
+        {Object.keys(frameworkDescriptions).map((fw) => (
+          <span
+            key={fw}
+            onMouseEnter={() => setHoveredFramework(fw)}
+            onMouseLeave={() => setHoveredFramework(null)}
+            className="cursor-default rounded border border-slate-300 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-900 transition-colors hover:border-blue-400 hover:bg-blue-50 hover:text-blue-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+          >
+            {fw}
+          </span>
+        ))}
+        {hoveredFramework && (
+          <div className="absolute bottom-full left-4 z-20 mb-2 max-w-xs rounded border border-slate-200 bg-white p-2.5 text-[11px] leading-4 text-slate-700 shadow-lg dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+            <p className="mb-1 font-semibold text-slate-950 dark:text-white">{hoveredFramework}</p>
+            {frameworkDescriptions[hoveredFramework]}
           </div>
-        </div>
-        <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600 dark:text-slate-400">Onboarding Policy</p>
-          <p className="text-[12px] leading-5 text-slate-600 dark:text-slate-300">
-            Every system requires an intended-use declaration, prohibited-use list, and dual-control sign-off before reaching Production tier. Shadow deployments run in parallel for 30 days before promotion.
-          </p>
-        </div>
-        <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600 dark:text-slate-400">Governance Disclaimer</p>
-          <p className="text-[12px] leading-5 text-slate-600 dark:text-slate-300">
-            Registry entries reflect the current automated governance posture. Final compliance determinations and production decisions require authorized human review per the organization's model risk policy.
-          </p>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -554,10 +673,26 @@ function SystemDetail({
   system,
   onNavigate,
   onClose,
+  onEdit,
+  editLabel,
+  onDelete,
+  onRunEvaluation,
+  running,
+  runError,
+  canManage,
+  canDelete,
 }: {
   system: RegistrySystem;
   onNavigate: (path: string) => void;
   onClose: () => void;
+  onEdit: () => void;
+  editLabel: string;
+  onDelete: () => void;
+  onRunEvaluation: () => void;
+  running: boolean;
+  runError: string | null;
+  canManage: boolean;
+  canDelete: boolean;
 }) {
   const [activeTab, setActiveTab] = useState<"Overview" | "Context Profile" | "Risk" | "Frameworks" | "Actions">("Overview");
   const verdict = verdictDescriptions[system.verdict];
@@ -578,18 +713,51 @@ function SystemDetail({
           <Badge tone={toneForRisk(system.riskTier)}>{system.riskTier} Risk</Badge>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => onNavigate("/runs")}
-            className="flex items-center gap-1.5 rounded border border-blue-300 bg-blue-50 px-3 py-1.5 text-[12px] font-medium text-blue-800 transition-colors hover:bg-blue-100"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-            View Live Run
-          </button>
+          {canManage && (
+            <>
+              <button
+                onClick={onEdit}
+                className="flex items-center gap-1.5 rounded border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-medium text-slate-800 transition-colors hover:border-blue-300 hover:text-blue-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                {editLabel}
+              </button>
+              <button
+                onClick={onRunEvaluation}
+                disabled={running}
+                className="flex items-center gap-1.5 rounded bg-brand-600 px-3 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-brand-700 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                {running ? "Running evaluation…" : "Run Evaluation"}
+              </button>
+              <button
+                onClick={() => onNavigate("/runs")}
+                className="flex items-center gap-1.5 rounded border border-blue-300 bg-blue-50 px-3 py-1.5 text-[12px] font-medium text-blue-800 transition-colors hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                View Live Run
+              </button>
+              {canDelete && (
+                <button
+                  onClick={onDelete}
+                  className="flex items-center gap-1.5 rounded border border-red-200 bg-white px-3 py-1.5 text-[12px] font-medium text-red-700 transition-colors hover:bg-red-50 dark:border-red-900/60 dark:bg-slate-900 dark:text-red-400"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete
+                </button>
+              )}
+            </>
+          )}
           <button onClick={onClose} className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300">
             <X className="h-4 w-4" />
           </button>
         </div>
       </div>
+      {runError && (
+        <div className="border-b border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 px-4 py-2 text-[11px] text-red-700 dark:text-red-400">
+          Evaluation failed: {runError}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-slate-200 px-4 pt-2 dark:border-slate-700">
@@ -728,7 +896,7 @@ function SystemDetail({
               {
                 label: "View Agent Findings",
                 desc: "Explore each specialist agent's probes, findings, and evidence for this system.",
-                path: "/agents",
+                path: "/findings",
                 icon: BookOpen,
                 tone: "violet",
               },
@@ -867,74 +1035,73 @@ function InfoRow({ label, value, mono = false }: { label: string; value: string;
   );
 }
 
-// ─── Register System Modal ────────────────────────────────────────────────────
+// ─── Register Application Modal ───────────────────────────────────────────────
 
 type RegisterSystemModalProps = {
+  mode: "create" | "edit";
   form: RegisterForm;
   step: "form" | "success";
   onChange: (field: keyof RegisterForm, value: string) => void;
   onToggleFramework: (fw: string) => void;
   onSubmit: () => void | Promise<void>;
   onClose: () => void;
-  onUseTemplate: () => void;
+  canEditTechnical: boolean;
   isSubmitting: boolean;
   error: string | null;
 };
 
 function RegisterSystemModal({
+  mode,
   form,
   step,
   onChange,
   onToggleFramework,
   onSubmit,
   onClose,
-  onUseTemplate,
+  canEditTechnical,
   isSubmitting,
   error,
 }: RegisterSystemModalProps) {
-  const canSubmit = form.name && form.version && form.owner && form.domain && form.riskTier && form.applicationType && form.environment && form.endpoint;
+  const baseComplete = form.name && form.version && form.owner && form.domain && form.riskTier && form.applicationType && form.environment;
+  const canSubmit = baseComplete && form.endpoint.trim().length > 0;
+  const title = mode === "edit"
+    ? canEditTechnical ? "Edit AI Application" : "Update Application Details"
+    : "Register AI Application";
+  const successTitle = mode === "edit" ? `${form.name} updated` : `${form.name} registered`;
+  const subtitle = canEditTechnical
+    ? "Capture business details and technical connection settings for governance evaluation."
+    : "Capture the business, governance, and target endpoint details for evaluation. Credentials remain developer-managed.";
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6">
+  return createPortal(
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center overflow-hidden px-4 py-4 sm:px-6">
       {/* Backdrop */}
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[3px]" onClick={onClose} />
 
       {/* Centered modal card */}
-      <div className="relative z-10 flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black/10 dark:bg-slate-900 dark:ring-white/10">
+      <div className="relative z-10 flex h-[min(760px,calc(100vh-2rem))] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black/10 dark:bg-slate-900 dark:ring-white/10">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
           <div>
-            <p className="text-[15px] font-semibold text-slate-950 dark:text-white">Register AI System</p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">Onboard a new system to the governance registry</p>
+            <p className="text-[15px] font-semibold text-slate-950 dark:text-white">{title}</p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">{subtitle}</p>
           </div>
-          <div className="flex items-center gap-2">
-            {step === "form" && (
-              <button
-                type="button"
-                onClick={onUseTemplate}
-                className="rounded border border-blue-300 bg-blue-50 px-3 py-1.5 text-[11px] font-semibold text-blue-800 transition-colors hover:bg-blue-100"
-              >
-                Use TechVest Chatbot
-              </button>
-            )}
           <button
             onClick={onClose}
             className="flex h-8 w-8 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
           >
             <X className="h-4 w-4" />
           </button>
-          </div>
         </div>
 
         {step === "success" ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 overflow-y-auto p-8 text-center">
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
               <Server className="h-7 w-7" />
             </div>
             <div>
-              <p className="text-[16px] font-semibold text-slate-950 dark:text-white">{form.name} registered</p>
+              <p className="text-[16px] font-semibold text-slate-950 dark:text-white">{successTitle}</p>
               <p className="mt-1 text-[12px] leading-5 text-slate-600 dark:text-slate-300">
-                <span className="font-mono font-medium">{form.name} v{form.version}</span> has been added to the governance registry. A baseline governance run will be scheduled automatically.
+                <span className="font-mono font-medium">{form.name} v{form.version}</span> is ready in the governance registry.
               </p>
             </div>
             <div className="w-full rounded border border-slate-200 bg-slate-50 p-3 text-left dark:border-slate-700 dark:bg-slate-800">
@@ -944,7 +1111,8 @@ function RegisterSystemModal({
                   ["Domain", form.domain],
                   ["Risk Tier", form.riskTier],
                   ["Environment", form.environment],
-                  ["Endpoint", form.endpoint],
+                  ["Target Endpoint", form.endpoint ? "Registered" : "Not provided"],
+                  ["Credentials", canEditTechnical ? "Developer managed" : "Pending developer setup"],
                   ["Frameworks", form.frameworks.length ? form.frameworks.join(", ") : "None selected"],
                 ].map(([label, value]) => (
                   <div key={label}>
@@ -964,16 +1132,16 @@ function RegisterSystemModal({
         ) : (
           <>
             {/* Form body */}
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
               {/* System Identity */}
               <section>
                 <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">System Identity</p>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="System Name *" hint="e.g. TechVest RAG Chatbot">
+                  <Field label="Application Name *" hint="Use the business or product name auditors recognize.">
                     <input
                       value={form.name}
                       onChange={(e) => onChange("name", e.target.value)}
-                      placeholder="TechVest RAG Chatbot"
+                      placeholder="Customer Support Assistant"
                       className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
                     />
                   </Field>
@@ -989,7 +1157,7 @@ function RegisterSystemModal({
                     <input
                       value={form.owner}
                       onChange={(e) => onChange("owner", e.target.value)}
-                      placeholder="TechVest Global"
+                      placeholder="AI Governance Office"
                       className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
                     />
                   </Field>
@@ -1035,43 +1203,56 @@ function RegisterSystemModal({
                 </div>
               </section>
 
-              {/* Model and target endpoint */}
+              {/* Connection details */}
               <section>
-                <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Model and Target Endpoint</p>
+                <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Connection Details</p>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="Model Provider" hint="Provider used by the target application">
-                    <input
-                      value={form.modelProvider}
-                      onChange={(e) => onChange("modelProvider", e.target.value)}
-                      placeholder="azure_foundry"
-                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
-                    />
-                  </Field>
-                  <Field label="Model Name" hint="Deployment/model name if known">
-                    <input
-                      value={form.modelName}
-                      onChange={(e) => onChange("modelName", e.target.value)}
-                      placeholder="gpt-4.1-mini"
-                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
-                    />
-                  </Field>
-                  <Field label="Target Endpoint *" hint="The endpoint our governance backend will call for testing">
+                  <Field label="Target API Endpoint *" hint="The application endpoint the governance backend will call for testing">
                     <input
                       value={form.endpoint}
                       onChange={(e) => onChange("endpoint", e.target.value)}
-                      placeholder="http://localhost:8000/api/chat"
+                      placeholder="https://api.company.com/ai/chat"
                       className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
                     />
                   </Field>
-                  <Field label="First Capability" hint="The initial endpoint/capability to store">
-                    <input
-                      value={form.capabilityName}
-                      onChange={(e) => onChange("capabilityName", e.target.value)}
-                      placeholder="Chat response generation"
-                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
-                    />
-                  </Field>
+                  {canEditTechnical ? (
+                    <Field label="First Capability" hint="The initial endpoint/capability to store">
+                      <input
+                        value={form.capabilityName}
+                        onChange={(e) => onChange("capabilityName", e.target.value)}
+                        placeholder="Chat response generation"
+                        className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
+                      />
+                    </Field>
+                  ) : (
+                    <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 dark:border-blue-900/50 dark:bg-blue-950/30">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-700 dark:text-blue-300">Credential Handling</p>
+                      <p className="mt-1 text-[11px] leading-4 text-blue-900 dark:text-blue-200">
+                        Do not enter API keys here. The developer team attaches credentials and capability schemas through the technical setup flow.
+                      </p>
+                    </div>
+                  )}
                 </div>
+                {canEditTechnical && (
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <Field label="Model Provider" hint="Provider used by the target application">
+                      <input
+                        value={form.modelProvider}
+                        onChange={(e) => onChange("modelProvider", e.target.value)}
+                        placeholder="azure_foundry"
+                        className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
+                      />
+                    </Field>
+                    <Field label="Model Name" hint="Deployment/model name if known">
+                      <input
+                        value={form.modelName}
+                        onChange={(e) => onChange("modelName", e.target.value)}
+                        placeholder="gpt-4.1-mini"
+                        className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
+                      />
+                    </Field>
+                  </div>
+                )}
               </section>
 
               {/* Frameworks */}
@@ -1116,9 +1297,13 @@ function RegisterSystemModal({
             </div>
 
             {/* Footer */}
-            <div className="border-t border-slate-200 px-5 py-4 dark:border-slate-700">
+            <div className="shrink-0 border-t border-slate-200 bg-white px-5 py-4 dark:border-slate-700 dark:bg-slate-900">
               {!canSubmit && (
-                <p className="mb-2 text-[11px] text-slate-400 dark:text-slate-500">* Fill in all required fields and a target endpoint to continue</p>
+                <p className="mb-2 text-[11px] text-slate-400 dark:text-slate-500">
+                  {canEditTechnical
+                    ? "* Fill in all required fields and a target endpoint to continue"
+                    : "* Fill in the required business, governance, and target endpoint fields to continue"}
+                </p>
               )}
               {error && (
                 <p className="mb-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-[11px] leading-4 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">{error}</p>
@@ -1138,14 +1323,75 @@ function RegisterSystemModal({
                     canSubmit && !isSubmitting ? "bg-brand-600 hover:bg-brand-700" : "cursor-not-allowed bg-slate-300"
                   )}
                 >
-                  {isSubmitting ? "Registering..." : "Register System"}
+                  {isSubmitting ? "Saving..." : mode === "edit" ? "Save Changes" : "Register Application"}
                 </button>
               </div>
             </div>
           </>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
+  );
+}
+
+function DeleteSystemDialog({
+  system,
+  isDeleting,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  system: RegistrySystem;
+  isDeleting: boolean;
+  error: string | null;
+  onCancel: () => void;
+  onConfirm: () => void | Promise<void>;
+}) {
+  return createPortal(
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]" onClick={onCancel} />
+      <div className="relative z-10 w-full max-w-md rounded-lg bg-white shadow-2xl ring-1 ring-black/10 dark:bg-slate-900 dark:ring-white/10">
+        <div className="flex items-start gap-3 border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400">
+            <Trash2 className="h-4 w-4" />
+          </div>
+          <div>
+            <p className="text-[15px] font-semibold text-slate-950 dark:text-white">Delete AI application?</p>
+            <p className="mt-1 text-[12px] leading-5 text-slate-600 dark:text-slate-300">
+              Please confirm that you want to remove <span className="font-semibold">{system.name}</span> from the active registry. Existing audit history, evidence, and reports will remain available for traceability.
+            </p>
+          </div>
+        </div>
+        <div className="space-y-3 px-5 py-4">
+          <div className="rounded border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800">
+            <InfoRow label="Owner" value={system.owner} />
+            <InfoRow label="Risk Tier" value={system.riskTier} />
+            <InfoRow label="Environment" value={system.environment} />
+          </div>
+          {error && (
+            <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-[11px] leading-4 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">{error}</p>
+          )}
+          <div className="flex gap-2">
+            <button
+              onClick={onCancel}
+              disabled={isDeleting}
+              className="flex-1 rounded border border-slate-300 py-2.5 text-[13px] font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onConfirm}
+              disabled={isDeleting}
+              className="flex-1 rounded bg-red-600 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isDeleting ? "Deleting..." : "Delete Application"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 

@@ -2,6 +2,8 @@ import { Activity, Bot, BookOpen, GitBranch, Search, ShieldCheck } from "lucide-
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
 import { agents, auditEvents, findings, liveRuns, navigation, systems } from "@/data/mockData";
+import { canAccess } from "@/lib/persona";
+import type { PageId, Persona } from "@/types";
 
 type SearchResult = {
   id: string;
@@ -10,6 +12,8 @@ type SearchResult = {
   path: string;
   group: string;
   icon: LucideIcon;
+  /** Page this result lands on — used to hide results a persona can't reach. */
+  page: PageId;
 };
 
 const allResults: SearchResult[] = [
@@ -20,6 +24,7 @@ const allResults: SearchResult[] = [
     path: item.path,
     group: "Pages",
     icon: item.icon,
+    page: item.id,
   })),
   ...systems.map((system) => ({
     id: `system-${system.id}`,
@@ -28,6 +33,7 @@ const allResults: SearchResult[] = [
     path: `/systems/${system.id}`,
     group: "AI Systems",
     icon: ShieldCheck,
+    page: "systems" as PageId,
   })),
   ...liveRuns.map((run) => ({
     id: `run-${run.id}`,
@@ -36,6 +42,7 @@ const allResults: SearchResult[] = [
     path: `/runs/${run.id}`,
     group: "Runs",
     icon: Activity,
+    page: "runs" as PageId,
   })),
   ...agents.map((agent) => ({
     id: `agent-${agent.name}`,
@@ -44,6 +51,7 @@ const allResults: SearchResult[] = [
     path: "/agents",
     group: "Agents",
     icon: Bot,
+    page: "agents" as PageId,
   })),
   ...findings.map((finding) => ({
     id: `finding-${finding.id}`,
@@ -52,6 +60,7 @@ const allResults: SearchResult[] = [
     path: "/verdicts",
     group: "Findings",
     icon: GitBranch,
+    page: "verdicts" as PageId,
   })),
   ...auditEvents.map((event) => ({
     id: `audit-${event.id}`,
@@ -60,22 +69,26 @@ const allResults: SearchResult[] = [
     path: "/ledger",
     group: "Audit Trail",
     icon: BookOpen,
+    page: "ledger" as PageId,
   })),
 ];
 
 export function SearchOverlay({
   query,
   onSelect,
+  persona,
 }: {
   query: string;
   onSelect: (path: string) => void;
+  persona: Persona;
 }) {
   const normalizedQuery = query.trim().toLowerCase();
+  const visible = allResults.filter((result) => canAccess(persona, result.page));
   const results = (normalizedQuery
-    ? allResults.filter((result) =>
+    ? visible.filter((result) =>
         `${result.title} ${result.description} ${result.group}`.toLowerCase().includes(normalizedQuery)
       )
-    : allResults
+    : visible
   ).slice(0, 8);
 
   return (

@@ -74,7 +74,11 @@ def _format_metrics(metrics: list[MetricResult]) -> str:
     lines = []
     for m in metrics:
         status_str = f"status={m.status}"
-        score_str = f"score={m.normalized_score:.3f}" if m.normalized_score is not None else "score=N/A"
+        score_str = (
+            f"score={m.normalized_score:.3f}"
+            if m.normalized_score is not None
+            else "score=N/A"
+        )
         passed_str = f"passed={m.passed}"
         lines.append(f"  [{m.metric_id} | {m.dimension}] {status_str}, {score_str}, {passed_str}")
     return "\n".join(lines)

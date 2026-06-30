@@ -34,7 +34,6 @@ from app.schemas.governance import (
     PriorityTarget,
 )
 from app.services import audit_ledger, context_assembly, governance_state
-from app.services.specialist_agents import metric_plans
 from app.services.adaptive_orchestrator.base import (
     ADAPTIVE_ORCHESTRATOR_ACTOR_ID,
     ADAPTIVE_ORCHESTRATOR_SOURCE,
@@ -48,6 +47,7 @@ from app.services.adaptive_orchestrator.base import (
 )
 from app.services.adaptive_orchestrator.budget import allocate_probe_budget
 from app.services.run_validation import get_run_or_raise
+from app.services.specialist_agents import metric_plans
 
 
 def prepare_evaluation_plan(

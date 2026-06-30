@@ -3,14 +3,47 @@ import type { LucideIcon } from "lucide-react";
 export type PageId =
   | "dashboard"
   | "systems"
+  | "eval-runs"
   | "engine"
   | "runs"
   | "agents"
   | "metric-plan"
   | "council"
+  | "findings"
+  | "metric-results"
   | "verdicts"
   | "reports"
-  | "ledger";
+  | "evidence"
+  | "ledger"
+  // Developer · Configure
+  | "system-setup"
+  | "context-profiles"
+  | "capabilities"
+  | "metrics-config"
+  | "framework-mapping"
+  | "llm-boundary"
+  | "security-tools"
+  // Developer · Operate
+  | "governance-state"
+  | "api-debug";
+
+export type NavSection = "Govern" | "Assurance" | "Configure" | "Operate";
+
+/** Capability flags derived from persona — the permission model for the UI. */
+export type Permission =
+  | "canViewTechnicalConfig"
+  | "canEditAISystem"
+  | "canRunEvaluation"
+  | "canRunSecurityTools"
+  | "canReviewFindings"
+  | "canExportReports";
+
+/**
+ * Persona drives a strict, role-locked split of the product surface:
+ * - `auditor`   — compliance / assurance view. No engine internals.
+ * - `developer` — full governance-engine view (agents, probes, pipeline, council).
+ */
+export type Persona = "auditor" | "developer";
 
 export type RiskTier = "High" | "Medium" | "Low";
 export type RunStatus = "Running" | "Complete" | "Waiting" | "Failed";
@@ -19,10 +52,12 @@ export type FindingSeverity = "Critical" | "High" | "Medium" | "Low";
 export type NavigationItem = {
   id: PageId;
   label: string;
-  section: "Govern" | "Assurance";
+  section: NavSection;
   path: string;
   icon: LucideIcon;
   badge?: string;
+  /** Which personas may see this nav item. */
+  personas: Persona[];
 };
 
 export type AiSystem = {

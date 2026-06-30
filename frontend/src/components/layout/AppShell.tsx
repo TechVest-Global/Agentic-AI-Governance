@@ -5,21 +5,37 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { SearchOverlay } from "@/components/SearchOverlay";
+import { RunSwitcher } from "@/components/layout/RunSwitcher";
 import { navigation } from "@/data/mockData";
+import type { PageId as PageIdType } from "@/types";
+
+// Pages that display data scoped to a single evaluation run — they share the
+// global run switcher in the header.
+const RUN_SCOPED: ReadonlySet<PageIdType> = new Set<PageIdType>([
+  "runs", "agents", "metric-plan", "council", "findings", "metric-results",
+  "verdicts", "reports", "evidence", "ledger", "governance-state", "llm-boundary",
+]);
 import { useAppStore } from "@/store/useAppStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useThemeStore } from "@/store/useThemeStore";
+import { PERSONA_LABEL, personaForRole } from "@/lib/persona";
 import type { PageId } from "@/types";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const activePage   = useAppStore((s) => s.activePage);
   const navigateTo   = useAppStore((s) => s.navigateTo);
   const headerHidden = useAppStore((s) => s.headerHidden);
-  const current      = navigation.find((item) => item.id === activePage);
-  const isEngine     = activePage === "engine";
 
   const { user, signOut }     = useAuthStore();
   const { theme, toggleTheme } = useThemeStore();
+
+  const persona    = personaForRole(user?.role);
+  const navItems   = navigation.filter((item) => item.personas.includes(persona));
+  const current    = navItems.find((item) => item.id === activePage);
+  const isEngine    = activePage === "engine";
+  // Both personas can start a run. Developers get the engine walkthrough;
+  // auditors land on the registry to pick a target and run an evaluation.
+  const startRunPath = persona === "auditor" ? "/systems" : "/engine";
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen,  setSearchOpen]  = useState(false);
@@ -83,7 +99,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-semibold leading-tight text-white">GovernAI</p>
-            <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-slate-400">Output-only AI Governance</p>
+            <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-slate-400">{PERSONA_LABEL[persona]}</p>
           </div>
           <button
             onClick={() => setSidebarOpen(false)}
@@ -96,11 +112,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* nav */}
         <nav className="flex-1 overflow-y-auto px-3 py-5">
-          {(["Govern", "Assurance"] as const).map((section) => (
+          {(["Govern", "Assurance", "Configure", "Operate"] as const)
+            .filter((section) => navItems.some((item) => item.section === section))
+            .map((section) => (
             <div key={section} className="mb-6">
               <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">{section}</p>
               <div className="space-y-1">
-                {navigation
+                {navItems
                   .filter((item) => item.section === section)
                   .map((item) => (
                     <button
@@ -175,11 +193,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   Ctrl K
                 </kbd>
               )}
-              {searchOpen && <SearchOverlay query={searchQuery} onSelect={handleSearchSelect} />}
+              {searchOpen && <SearchOverlay query={searchQuery} onSelect={handleSearchSelect} persona={persona} />}
             </div>
           </div>
 
           <div className="ml-4 flex items-center gap-2">
+            {/* global run switcher — connects every run-scoped tab */}
+            {RUN_SCOPED.has(activePage) && <RunSwitcher />}
+
             {/* theme toggle */}
             <button
               onClick={toggleTheme}
@@ -196,9 +217,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
 
             {/* start run button */}
-            {activePage !== "engine" && (
+            {!isEngine && (
               <button
-                onClick={() => navigateTo("/engine")}
+                onClick={() => navigateTo(startRunPath)}
                 className="flex items-center gap-2 rounded-lg bg-brand-600 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
               >
                 <Play className="h-3.5 w-3.5" />
@@ -258,7 +279,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <div>
                   <h1 className="font-display text-[30px] leading-tight text-ink dark:text-white">{current?.label}</h1>
                   <p className="mt-1.5 max-w-3xl text-[13px] leading-relaxed text-ink-3 dark:text-slate-400">
-                    {pageDescriptions[activePage]}
+                    {activePage === "dashboard" && persona === "auditor"
+                      ? "Compliance posture at a glance — KPIs, framework coverage, risk distribution, and governance outcomes across your AI systems."
+                      : pageDescriptions[activePage]}
                   </p>
                 </div>
               </div>
@@ -302,8 +325,21 @@ const pageDescriptions: Record<PageId, string> = {
   "metric-plan":  "Orchestrator-selected metric plan for the current run — tools, owner agents, framework clauses, probe budgets, and thresholds.",
   council:        "Multi-step deliberation that synthesises agent findings into a verdict. Each step is expandable with full reasoning and confidence impacts.",
   verdicts:       "Final governance outcome for the current run — tier assignment, confidence score, risk dimensions, and prescribed remediation actions.",
-  reports:        "Clause-level compliance reports across EU AI Act, SR 11-7, and NIST AI RMF. Click rows to read clause definitions and evidence.",
+  reports:        "Clause-level compliance reports across EU AI Act, NIST AI RMF, ISO 42001, and OWASP LLM Top 10. Click rows to read clause definitions and evidence.",
+  evidence:       "Evidence records behind every finding and metric result — source, tool, score vs. threshold, pass/fail, and sensitivity. The audit-grade proof layer.",
   ledger:         "Hash-chained, append-only audit trail of every governance action. Filter by type or search — click events to view full hash detail.",
+  "eval-runs":    "Historical governance evaluations — status, phase, frameworks, timestamps, and result. Drill into any run's findings, verdict, and evidence.",
+  findings:       "All findings raised by metrics and specialist agents — severity, confidence, framework refs, and evidence. Review, accept, or request remediation.",
+  "metric-results": "Scored metric outcomes — dimension, tool, normalized score vs. threshold, pass/fail, and the evidence each result links to.",
+  "system-setup": "Create and configure AI systems — identity, owner, risk tier, frameworks, model configuration, and target endpoint reference.",
+  "context-profiles": "Application Context Profiles — identity & purpose, pre-model controls, model configuration, post-model controls, and integration context.",
+  capabilities:   "Callable capabilities per AI system — endpoint, method, schemas, permissions, side-effect level, and human-review requirement.",
+  "metrics-config": "The 44-metric catalog — dimension, owner agent, tool, framework mappings, threshold rules, scoring config, and enabled state.",
+  "framework-mapping": "Framework-to-control mapping — EU AI Act, NIST AI RMF, ISO 42001, OWASP LLM Top 10, SR 11-7, OECD — with metric coverage and evidence requirements.",
+  "llm-boundary": "The trust boundary: Governance Model Client vs. Target Model Client. Target output is untrusted and fenced as evidence after sanitization.",
+  "security-tools": "Security tool adapters — Custom Boundary Test, garak, PyRIT, Inspect AI, CyberSecEval, prompt-injection scanners, tracing, and policy tests.",
+  "governance-state": "Append-only GovernanceState chain — sequence, phase, source, payload, and hash linkage. The reconstruction record for any run.",
+  "api-debug":    "Integration status — API health, route-to-endpoint mapping, role permissions, and request/response inspection for the FastAPI backend.",
 };
 
 function sectionFor(page: PageId) {

@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Download, FileText, Info } from "lucide-react";
 import clsx from "clsx";
-import { complianceRows, oecdRows } from "@/data/mockData";
+import { complianceRows } from "@/data/mockData";
 import { Badge, toneForStatus } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
@@ -14,13 +14,13 @@ type ReportRow = {
   principle?: string;
 };
 
-const frameworkTabs: Framework[] = ["EU AI Act", "SR 11-7", "NIST AI RMF", "OECD AI Principles"];
+const frameworkTabs: Framework[] = ["EU AI Act", "NIST AI RMF", "ISO 42001", "OWASP LLM Top 10"];
 
-const srRows = [
-  { clause: "Model Inventory", status: "Pass", evidence: "System registered in governance registry with owner, version, and risk tier." },
-  { clause: "Validation Independence", status: "Pass", evidence: "Independent review panel signed off on baseline. v1 review is in progress." },
-  { clause: "Ongoing Monitoring", status: "Partial", evidence: "Automated governance runs active. Human review cadence is below quarterly threshold." },
-  { clause: "Documentation Completeness", status: "Fail", evidence: "Model development documentation missing key assumption registry entries." },
+const isoRows = [
+  { clause: "A.5.2 AI Policy", status: "Pass", evidence: "System owner, risk tier, intended use, and governance responsibilities are registered." },
+  { clause: "A.6.2 AI Risk Assessment", status: "Partial", evidence: "Risk tier is present, but mitigation acceptance criteria need explicit owner sign-off." },
+  { clause: "A.8.2 Data for AI Systems", status: "Partial", evidence: "Data source notes exist; provenance and quality checks require stronger evidence references." },
+  { clause: "A.9.1 Monitoring and Review", status: "Fail", evidence: "Monitoring cadence is below the configured threshold for continued assurance." },
 ];
 
 const nistRows = [
@@ -28,6 +28,13 @@ const nistRows = [
   { clause: "Map 1.5 — Context Documentation", status: "Pass", evidence: "Intended-use and prohibited-use declarations present." },
   { clause: "Measure 2.5 — Drift Detection", status: "Fail", evidence: "Semantic similarity 0.61 vs 0.80 threshold. Drift confirmed across 17 prompts." },
   { clause: "Manage 3.2 — Incident Response", status: "Partial", evidence: "Incident escalation path documented. No test run completed in current period." },
+];
+
+const owaspRows = [
+  { clause: "LLM01 Prompt Injection", status: "Partial", evidence: "Boundary probes are configured; latest run must provide attack trace evidence." },
+  { clause: "LLM02 Sensitive Information Disclosure", status: "Pass", evidence: "Evidence records show no sensitive output leakage in sampled responses." },
+  { clause: "LLM04 Data and Model Poisoning", status: "Partial", evidence: "Knowledge source integrity controls are documented but not fully tested." },
+  { clause: "LLM09 Misinformation", status: "Fail", evidence: "Groundedness and source citation metrics produced failed or pending results." },
 ];
 
 const clauseDetail: Record<string, string> = {
@@ -54,16 +61,16 @@ const clauseDetail: Record<string, string> = {
 
 const rowsByFramework: Record<string, ReportRow[]> = {
   "EU AI Act": complianceRows,
-  "SR 11-7": srRows,
   "NIST AI RMF": nistRows,
-  "OECD AI Principles": oecdRows,
+  "ISO 42001": isoRows,
+  "OWASP LLM Top 10": owaspRows,
 };
 
 const frameworkContext: Record<Framework, string> = {
   "EU AI Act": "Regulatory clause-level compliance posture for high-risk AI obligations.",
-  "SR 11-7": "Banking model risk management posture across inventory, validation, monitoring, and documentation.",
   "NIST AI RMF": "Risk management posture across govern, map, measure, and manage functions.",
-  "OECD AI Principles": "Ethical capstone assessment using the 2024 OECD principles and aligned / partially aligned / not aligned ratings.",
+  "ISO 42001": "AI management system posture across policy, risk assessment, data governance, monitoring, and continual improvement.",
+  "OWASP LLM Top 10": "LLM application security posture across prompt injection, disclosure, poisoned context, and misinformation risks.",
 };
 
 export function Reports() {
@@ -164,7 +171,7 @@ export function Reports() {
             Clause-level compliance reports for <span className="font-semibold text-slate-950 dark:text-white">{reportSystemName}</span> generated from the last governance run. Select a framework to view its compliance posture. Click any row to read the full clause context and evidence detail.
           </p>
           <p className="text-[12px] leading-5 text-slate-500 dark:text-slate-400">
-            {frameworkContext[activeFramework]}
+            {frameworkContext[resolvedFramework] ?? "Framework-level control posture generated from the latest governance run."}
             {isOecd && <span className="font-medium text-slate-700 dark:text-slate-300"> Representative rows shown from the 42-indicator assessment.</span>}
           </p>
           <p className="text-[11px] text-slate-400 dark:text-slate-500">Click rows to expand evidence and clause definition · Switch frameworks using the tabs above the table</p>

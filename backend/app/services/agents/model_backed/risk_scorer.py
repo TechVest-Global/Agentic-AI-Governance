@@ -240,7 +240,7 @@ def _deterministic_fallback(
         "CM-040": Severity.high,     # escalation_f1_score — missing escalations are dangerous
         "CM-041": Severity.medium,   # human_override_rate
         "CM-042": Severity.medium,   # false_refusal_rate
-        "CM-043": Severity.high,     # uncertainty_calibration — overconfidence in high-stakes domains
+        "CM-043": Severity.high,     # uncertainty_calibration: overconfidence risk
         "CM-044": Severity.high,     # review_queue_hit_rate — items not reaching human review
     }
     results: list[FindingCreate] = []

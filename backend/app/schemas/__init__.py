@@ -8,6 +8,7 @@ from app.schemas.governance import (
     AISystemCapabilityRead,
     AISystemCreate,
     AISystemRead,
+    AISystemUpdate,
     ApplicationContextProfileCreate,
     ApplicationContextProfileRead,
     AuditLedgerChainVerification,
@@ -48,6 +49,7 @@ from app.schemas.governance import (
 
 __all__ = [
     "AISystemCreate",
+    "AISystemUpdate",
     "AISystemCapabilityCreate",
     "AISystemCapabilityRead",
     "AISystemRead",

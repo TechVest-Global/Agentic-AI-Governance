@@ -5,9 +5,11 @@ from sqlmodel import Session, select
 from app.core.exceptions import ResourceConflictError, ResourceNotFoundError
 from app.models.ai_system import AISystem, AISystemCapability, ApplicationContextProfile
 from app.models.base import utc_now
+from app.models.enums import AISystemStatus
 from app.schemas.governance import (
     AISystemCapabilityCreate,
     AISystemCreate,
+    AISystemUpdate,
     ApplicationContextProfileCreate,
 )
 
@@ -23,6 +25,7 @@ def create_ai_system(session: Session, payload: AISystemCreate) -> AISystem:
 def list_ai_systems(session: Session, *, offset: int, limit: int) -> list[AISystem]:
     statement = (
         select(AISystem)
+        .where(AISystem.status != AISystemStatus.archived)
         .order_by(AISystem.created_at.desc())
         .offset(offset)
         .limit(limit)
@@ -35,6 +38,30 @@ def get_ai_system(session: Session, system_id: UUID) -> AISystem:
     if system is None:
         raise ResourceNotFoundError("AI system", str(system_id))
     return system
+
+
+def update_ai_system(
+    session: Session,
+    system_id: UUID,
+    payload: AISystemUpdate,
+) -> AISystem:
+    system = get_ai_system(session, system_id)
+    values = payload.model_dump(exclude_unset=True)
+    for field, value in values.items():
+        setattr(system, field, value)
+    system.updated_at = utc_now()
+    session.add(system)
+    session.commit()
+    session.refresh(system)
+    return system
+
+
+def archive_ai_system(session: Session, system_id: UUID) -> None:
+    system = get_ai_system(session, system_id)
+    system.status = AISystemStatus.archived
+    system.updated_at = utc_now()
+    session.add(system)
+    session.commit()
 
 
 def create_capability(

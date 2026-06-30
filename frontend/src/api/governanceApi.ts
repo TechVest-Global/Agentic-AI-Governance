@@ -1,4 +1,4 @@
-const API_BASE_URL =
+export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "http://127.0.0.1:8000/api/v1";
 
 
@@ -35,6 +35,8 @@ export type BackendAISystemCreate = {
   target_endpoint_ref?: string | null;
   metadata_json?: Record<string, unknown>;
 };
+
+export type BackendAISystemUpdate = Partial<BackendAISystemCreate>;
 
 export type BackendAISystemCapability = {
   id: string;
@@ -90,14 +92,14 @@ export type Verdict = {
 
 export type GovernanceReport = {
   run: EvaluationRun;
-  ai_system: {
-    id: string;
-    name: string;
-    owner: string;
-    system_type: string;
-    risk_tier: string;
-    status: string;
-  };
+  ai_system: BackendAISystem;
+  context_profile?: ContextProfile | null;
+  capabilities: BackendAISystemCapability[];
+  metric_plan?: RunMetricPlan;
+  agent_executions: AgentExecution[];
+  evidence: EvidenceRecord[];
+  metric_results: MetricResult[];
+  findings: BackendFinding[];
   verdict?: Verdict | null;
   counts: Record<string, number>;
   state_chain: {
@@ -175,6 +177,25 @@ export type CouncilDeliberation = {
   created_verdict: boolean;
 };
 
+export type FindingSeverity = "info" | "low" | "medium" | "high" | "critical";
+
+export type BackendFinding = {
+  id: string;
+  run_id: string;
+  finding_type: string;
+  title: string;
+  summary: string;
+  severity: FindingSeverity;
+  confidence: number;
+  dimension: string;
+  framework_refs: string[];
+  evidence_ids: string[];
+  agent_name?: string | null;
+  recommended_action?: string | null;
+  status: string;
+  created_at: string;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
@@ -189,16 +210,70 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(body || `Request failed with ${response.status}`);
   }
 
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   return response.json() as Promise<T>;
 }
+
+export type MetricConfig = {
+  id: string;
+  metric_id: string;
+  name: string;
+  dimension: string;
+  primary_agent: string;
+  framework_ids: string[];
+  enabled: boolean;
+};
+
+export type EvaluationRunCreatePayload = {
+  ai_system_id: string;
+  selected_frameworks: string[];
+  selected_metrics: string[];
+};
+
+export type OrchestrationResult = {
+  run_id: string;
+  metric_execution: { metric_results_created: number; evidence_created: number };
+  agent_run: { findings_created: number; agents_run: Array<{ agent_name: string }> };
+  council: CouncilDeliberation;
+  report: GovernanceReport;
+};
 
 export async function getLatestEvaluationRun(): Promise<EvaluationRun | null> {
   const runs = await request<EvaluationRun[]>("/evaluation-runs?limit=1");
   return runs[0] ?? null;
 }
 
+export async function listMetrics(): Promise<MetricConfig[]> {
+  return request<MetricConfig[]>("/metrics?enabled=true&limit=100");
+}
+
+export async function createEvaluationRun(payload: EvaluationRunCreatePayload): Promise<EvaluationRun> {
+  return request<EvaluationRun>("/evaluation-runs", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function orchestrateRun(runId: string, mockScore = 0.9): Promise<OrchestrationResult> {
+  return request<OrchestrationResult>(`/evaluation-runs/${runId}/orchestrate`, {
+    method: "POST",
+    body: JSON.stringify({ mock_score: mockScore, requested_by: "frontend", notes: "Triggered from UI." }),
+  });
+}
+
+export async function listEvaluationRuns(limit = 25): Promise<EvaluationRun[]> {
+  return request<EvaluationRun[]>(`/evaluation-runs?limit=${limit}`);
+}
+
 export async function getGovernanceReport(runId: string): Promise<GovernanceReport> {
   return request<GovernanceReport>(`/evaluation-runs/${runId}/report`);
+}
+
+export async function getFindings(runId: string): Promise<BackendFinding[]> {
+  return request<BackendFinding[]>(`/evaluation-runs/${runId}/findings?limit=100`);
 }
 
 export async function getFrameworkMap(runId: string): Promise<FrameworkComplianceMap> {
@@ -238,6 +313,19 @@ export async function createAISystem(payload: BackendAISystemCreate): Promise<Ba
   });
 }
 
+export async function updateAISystem(systemId: string, payload: BackendAISystemUpdate): Promise<BackendAISystem> {
+  return request<BackendAISystem>(`/ai-systems/${systemId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteAISystem(systemId: string): Promise<void> {
+  await request<void>(`/ai-systems/${systemId}`, {
+    method: "DELETE",
+  });
+}
+
 export async function createAISystemCapability(
   systemId: string,
   payload: BackendAISystemCapabilityCreate,
@@ -246,4 +334,275 @@ export async function createAISystemCapability(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+/* ──────────────────────────────────────────────────────────── Evidence ── */
+
+export type EvidenceRecord = {
+  id: string;
+  run_id: string;
+  ai_system_capability_id?: string | null;
+  source_type: string;
+  source_name: string;
+  tool_name?: string | null;
+  raw_score?: number | null;
+  normalized_score?: number | null;
+  threshold?: number | null;
+  passed?: boolean | null;
+  trace_id?: string | null;
+  sensitivity?: string | null;
+  payload?: Record<string, unknown> | null;
+  created_at: string;
+};
+
+export async function listEvidence(
+  runId: string,
+  params: { source_type?: string; source_name?: string; limit?: number } = {},
+): Promise<EvidenceRecord[]> {
+  const query = new URLSearchParams({ limit: String(params.limit ?? 100) });
+  if (params.source_type) query.set("source_type", params.source_type);
+  if (params.source_name) query.set("source_name", params.source_name);
+  return request<EvidenceRecord[]>(`/evaluation-runs/${runId}/evidence?${query.toString()}`);
+}
+
+export async function getEvidence(runId: string, evidenceId: string): Promise<EvidenceRecord> {
+  return request<EvidenceRecord>(`/evaluation-runs/${runId}/evidence/${evidenceId}`);
+}
+
+/* ─────────────────────────────────────────────────────────── Verdict ── */
+
+/** Fetch the single verdict for a run (404 → null). */
+export async function getRunVerdict(runId: string): Promise<Verdict | null> {
+  try {
+    return await request<Verdict>(`/evaluation-runs/${runId}/verdict`);
+  } catch {
+    return null;
+  }
+}
+
+/* ──────────────────────────────────────────────────────── Metric plan ── */
+
+export type RunMetricPlanEntry = {
+  metric_id: string;
+  name: string;
+  dimension: string;
+  tool_name?: string | null;
+  primary_agent?: string | null;
+  framework_ids: string[];
+  probe_budget?: number | null;
+  threshold?: number | null;
+  enabled: boolean;
+};
+
+export type RunMetricPlan = {
+  run_id: string;
+  ai_system_id: string;
+  selected_frameworks: string[];
+  metric_count: number;
+  control_count: number;
+  metrics: RunMetricPlanEntry[];
+};
+
+export async function getRunMetricPlan(runId: string): Promise<RunMetricPlan> {
+  return request<RunMetricPlan>(`/evaluation-runs/${runId}/metric-plan`);
+}
+
+/* ─────────────────────────────────────────────────── Context profile ── */
+
+export type ContextProfile = {
+  id: string;
+  ai_system_id: string;
+  identity_purpose: Record<string, unknown>;
+  pre_model_controls: Record<string, unknown>;
+  model_configuration: Record<string, unknown>;
+  post_model_controls: Record<string, unknown>;
+  integration_context: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string | null;
+};
+
+export async function getContextProfile(systemId: string): Promise<ContextProfile | null> {
+  try {
+    return await request<ContextProfile>(`/ai-systems/${systemId}/context-profile`);
+  } catch {
+    return null;
+  }
+}
+
+export async function upsertContextProfile(
+  systemId: string,
+  payload: Partial<Omit<ContextProfile, "id" | "ai_system_id" | "created_at" | "updated_at">>,
+): Promise<ContextProfile> {
+  return request<ContextProfile>(`/ai-systems/${systemId}/context-profile`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listCapabilities(systemId: string): Promise<BackendAISystemCapability[]> {
+  return request<BackendAISystemCapability[]>(`/ai-systems/${systemId}/capabilities?limit=100`);
+}
+
+/* ─────────────────────────────────────────────────── Metric results ── */
+
+export type MetricResult = {
+  id: string;
+  run_id: string;
+  metric_id: string;
+  dimension: string;
+  tool_name?: string | null;
+  status: string;
+  raw_score?: number | null;
+  normalized_score?: number | null;
+  threshold?: number | null;
+  passed?: boolean | null;
+  evidence_ids: string[];
+  ai_system_capability_id?: string | null;
+  created_at: string;
+};
+
+export async function listMetricResults(runId: string, limit = 100): Promise<MetricResult[]> {
+  return request<MetricResult[]>(`/evaluation-runs/${runId}/metric-results?limit=${Math.min(limit, 100)}`);
+}
+
+/* ─────────────────────────────────────────────── Governance state ── */
+
+export type GovernanceStateEntry = {
+  id: string;
+  run_id: string;
+  entry_type: string;
+  source: string;
+  phase: string;
+  sequence_number: number;
+  payload?: Record<string, unknown> | null;
+  previous_hash?: string | null;
+  entry_hash: string;
+  created_at: string;
+};
+
+export type ChainVerification = {
+  valid: boolean;
+  entry_count: number;
+  failed_sequence?: number | null;
+  failed_entry_id?: string | null;
+  reason?: string | null;
+};
+
+export async function listGovernanceState(runId: string, limit = 200): Promise<GovernanceStateEntry[]> {
+  return request<GovernanceStateEntry[]>(`/evaluation-runs/${runId}/state?limit=${limit}`);
+}
+
+export async function verifyGovernanceState(runId: string): Promise<ChainVerification> {
+  return request<ChainVerification>(`/evaluation-runs/${runId}/state/verify`);
+}
+
+/* ───────────────────────────────────────────── Framework mappings ── */
+
+export type FrameworkMapping = {
+  id: string;
+  framework_id: string;
+  framework_name: string;
+  framework_version?: string | null;
+  control_ref: string;
+  control_title?: string | null;
+  control_category?: string | null;
+  jurisdiction?: string | null;
+  requirement_text?: string | null;
+  metric_ids: string[];
+  agent_names?: string[];
+  risk_tiers?: string[];
+  evidence_requirements?: string[];
+  enabled: boolean;
+  metadata_json?: Record<string, unknown>;
+};
+
+export async function listFrameworkMappings(params: { framework_id?: string; limit?: number } = {}): Promise<FrameworkMapping[]> {
+  const query = new URLSearchParams({ limit: String(Math.min(params.limit ?? 100, 100)) });
+  if (params.framework_id) query.set("framework_id", params.framework_id);
+  return request<FrameworkMapping[]>(`/framework-mappings?${query.toString()}`);
+}
+
+/* ────────────────────────────────────────────── Metric configs ── */
+
+export type MetricConfigFull = {
+  id: string;
+  metric_id: string;
+  name: string;
+  description?: string | null;
+  dimension: string;
+  primary_agent?: string | null;
+  tool_name?: string | null;
+  framework_ids: string[];
+  modality?: string | null;
+  threshold_rules?: Record<string, unknown> | null;
+  scoring_config?: Record<string, unknown> | null;
+  version?: string | null;
+  enabled: boolean;
+  metadata_json?: Record<string, unknown>;
+};
+
+export async function listMetricConfigs(params: { dimension?: string; framework_id?: string; limit?: number } = {}): Promise<MetricConfigFull[]> {
+  const query = new URLSearchParams({ limit: String(Math.min(params.limit ?? 100, 100)) });
+  if (params.dimension) query.set("dimension", params.dimension);
+  if (params.framework_id) query.set("framework_id", params.framework_id);
+  return request<MetricConfigFull[]>(`/metrics?${query.toString()}`);
+}
+
+/* ──────────────────────────────────────────────── LLM call log ── */
+
+export type LlmCall = {
+  id: string;
+  run_id: string;
+  agent_name?: string | null;
+  task: string;
+  call_type: string;
+  model?: string | null;
+  deployment_name?: string | null;
+  client_mode: string;
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  total_tokens?: number | null;
+  estimated_cost_usd?: number | null;
+  latency_ms?: number | null;
+  status: string;
+  trace_id?: string | null;
+  policy_flags?: unknown[];
+  created_at: string;
+};
+
+export type LlmCallLog = {
+  run_id: string;
+  call_count: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_tokens: number;
+  estimated_total_cost_usd: number;
+  live_call_count: number;
+  mock_call_count: number;
+  error_count: number;
+  calls: LlmCall[];
+};
+
+export async function getLlmCalls(runId: string): Promise<LlmCallLog> {
+  return request<LlmCallLog>(`/evaluation-runs/${runId}/llm-calls`);
+}
+
+/* ───────────────────────────────────────────── Run lifecycle ── */
+
+export async function startRun(runId: string): Promise<EvaluationRun> {
+  return request<EvaluationRun>(`/evaluation-runs/${runId}/start`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function cancelRun(runId: string): Promise<EvaluationRun> {
+  return request<EvaluationRun>(`/evaluation-runs/${runId}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ reason: "Cancelled from frontend." }),
+  });
+}
+
+export async function getEvaluationRun(runId: string): Promise<EvaluationRun> {
+  return request<EvaluationRun>(`/evaluation-runs/${runId}`);
 }

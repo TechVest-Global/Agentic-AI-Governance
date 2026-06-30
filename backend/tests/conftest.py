@@ -1,3 +1,21 @@
+import os
+
+# Hermetic tests: neutralize any live model-provider credentials that may be
+# present in the developer .env. Settings() hardcodes env_file=<repo>/.env, so
+# without this the model-client registry resolves a *live* Azure/LiteLLM client
+# instead of its mock fallback, making the suite non-deterministic (and hitting
+# real endpoints). Empty string overrides the .env value via pydantic-settings
+# precedence (env vars > dotenv); deleting the key would NOT, since the .env
+# file is still read. This must run before any app module constructs Settings.
+for _credential_var in (
+    "JUDGE_ENDPOINT",
+    "JUDGE_API_KEY",
+    "JUDGE_DEPLOYMENT_NAME",
+    "LITELLM_PROXY_URL",
+    "LITELLM_MASTER_KEY",
+):
+    os.environ[_credential_var] = ""
+
 from collections.abc import Generator
 
 import app.models  # noqa: F401

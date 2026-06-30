@@ -28,6 +28,7 @@ from uuid import UUID
 
 from sqlmodel import Session, select
 
+from app.configs.prompt_registry import PromptRegistry
 from app.core.exceptions import ResourceConflictError
 from app.models.base import utc_now
 from app.models.enums import (
@@ -39,6 +40,7 @@ from app.models.enums import (
 )
 from app.models.evidence import MetricResult
 from app.models.finding import Finding
+from app.models.llm_call_log import LLMCallLog
 from app.models.verdict import Verdict
 from app.schemas.governance import (
     AuditLedgerEntryCreate,
@@ -46,10 +48,7 @@ from app.schemas.governance import (
     CouncilDeliberationRead,
     GovernanceStateEntryCreate,
 )
-from app.models.llm_call_log import LLMCallLog
 from app.services import audit_ledger, governance_state
-from app.services.model_clients.gateway import drain_log_capture, start_log_capture
-from app.configs.prompt_registry import PromptRegistry
 from app.services.deliberation_council.devils_advocate_agent import (
     DevilsAdvocateAgent,
     Objection,
@@ -60,8 +59,9 @@ from app.services.deliberation_council.remediation_router import (
     build_exhaustion_memo,
     route,
 )
-from app.services.deliberation_council.synthesis_agent import SynthesisMemo, SynthesisAgent
+from app.services.deliberation_council.synthesis_agent import SynthesisAgent, SynthesisMemo
 from app.services.deliberation_council.verdict_agent import VerdictAgent, VerdictOutput
+from app.services.model_clients.gateway import drain_log_capture, start_log_capture
 from app.services.model_clients.mock import MockGovernanceModelClient
 from app.services.model_clients.registry import get_governance_model_client
 from app.services.run_validation import get_run_or_raise
@@ -213,6 +213,7 @@ def deliberate(
         verdict_out=last_verdict,
         memo=last_memo,
         all_objections=all_objections,
+        open_findings=open_findings,
         exhaustion_memo=exhaustion_memo,
         iteration=iteration,
     )
@@ -298,7 +299,11 @@ def _apply_remediation(
                 payload=AgentRunCreate(agent_names=[target_agent]),
             )
         except Exception as exc:
-            logger.error("re_probe of '%s' failed: %s — continuing with existing evidence", target_agent, exc)
+            logger.error(
+                "re_probe of '%s' failed: %s — continuing with existing evidence",
+                target_agent,
+                exc,
+            )
 
     # Refresh findings from DB (new findings appended by re_probe will appear)
     updated_findings = _list_open_findings(session, run_id)
@@ -403,6 +408,7 @@ def _persist_verdict(
     verdict_out: VerdictOutput,
     memo: SynthesisMemo,
     all_objections: list[Objection],
+    open_findings: list[Finding],
     exhaustion_memo: dict | None,
     iteration: int,
 ) -> Verdict:
@@ -433,6 +439,22 @@ def _persist_verdict(
                 "owner": "human_reviewer",
                 "context": "loop_exhaustion",
             }
+        ]
+    else:
+        # Surface each open finding's recommended remediation as a required
+        # action so conditional approvals carry an explicit action list. This
+        # is deterministic — derived from the findings, not the governance
+        # LLM's verdict text — so the action list is stable across runs.
+        required_actions = [
+            {
+                "action": finding.recommended_action,
+                "severity": str(finding.severity),
+                "owner": "system_owner",
+                "context": "open_finding",
+                "finding_id": str(finding.id),
+            }
+            for finding in open_findings
+            if finding.recommended_action
         ]
 
     verdict = Verdict(

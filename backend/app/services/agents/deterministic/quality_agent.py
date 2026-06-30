@@ -3,7 +3,6 @@ from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
 from app.services.agents.helpers import finding, metric_failed, metric_matches
 
-
 _QUALITY_METRIC_IDS = {"CM-001", "CM-002", "CM-003", "CM-004"}
 _QUALITY_KEYWORDS = ("task", "instruction", "schema", "action", "completion", "success")
 

@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
+import { useSelectionStore } from "@/store/useSelectionStore";
 import {
   getAgentExecutions,
   getAuditLedger,
+  getEvaluationRun,
+  getFindings,
   getFrameworkMap,
   getGovernanceReport,
   getLatestEvaluationRun,
@@ -10,6 +13,7 @@ import {
   type AgentExecution,
   type AuditLedgerEntry,
   type AuditLedgerVerification,
+  type BackendFinding,
   type CouncilDeliberation,
   type EvaluationRun,
   type FrameworkComplianceMap,
@@ -23,6 +27,7 @@ type BackendState = {
   report: GovernanceReport | null;
   frameworkMap: FrameworkComplianceMap | null;
   agentExecutions: AgentExecution[];
+  findings: BackendFinding[];
   ledgerEntries: AuditLedgerEntry[];
   ledgerVerification: AuditLedgerVerification | null;
   councilResult: CouncilDeliberation | null;
@@ -35,6 +40,7 @@ const initialState: BackendState = {
   report: null,
   frameworkMap: null,
   agentExecutions: [],
+  findings: [],
   ledgerEntries: [],
   ledgerVerification: null,
   councilResult: null,
@@ -43,6 +49,8 @@ const initialState: BackendState = {
 export function useGovernanceBackend() {
   const [state, setState] = useState<BackendState>(initialState);
   const [refreshToken, setRefreshToken] = useState(0);
+  // Honor the workspace-wide selected run so every tab stays in sync.
+  const selectedRunId = useSelectionStore((s) => s.selectedRunId);
 
   const refresh = useCallback(() => setRefreshToken((value) => value + 1), []);
 
@@ -52,7 +60,13 @@ export function useGovernanceBackend() {
     async function load() {
       setState((current) => ({ ...current, loading: true, error: null }));
       try {
-        const latestRun = await getLatestEvaluationRun();
+        let latestRun = null;
+        if (selectedRunId) {
+          latestRun = await getEvaluationRun(selectedRunId).catch(() => null);
+        }
+        if (!latestRun) {
+          latestRun = await getLatestEvaluationRun();
+        }
         if (!latestRun) {
           if (!cancelled) {
             setState({ ...initialState, loading: false, error: "No evaluation runs found." });
@@ -60,11 +74,12 @@ export function useGovernanceBackend() {
           return;
         }
 
-        const [report, frameworkMap, agentExecutions, ledgerEntries, ledgerVerification] =
+        const [report, frameworkMap, agentExecutions, findings, ledgerEntries, ledgerVerification] =
           await Promise.all([
             getGovernanceReport(latestRun.id),
             getFrameworkMap(latestRun.id),
             getAgentExecutions(latestRun.id),
+            getFindings(latestRun.id),
             getAuditLedger(latestRun.id),
             verifyAuditLedger(latestRun.id),
           ]);
@@ -77,6 +92,7 @@ export function useGovernanceBackend() {
             report,
             frameworkMap,
             agentExecutions,
+            findings,
             ledgerEntries,
             ledgerVerification,
             councilResult: null,
@@ -98,7 +114,7 @@ export function useGovernanceBackend() {
     return () => {
       cancelled = true;
     };
-  }, [refreshToken]);
+  }, [refreshToken, selectedRunId]);
 
   const deliberate = useCallback(async () => {
     if (!state.latestRun) return null;
