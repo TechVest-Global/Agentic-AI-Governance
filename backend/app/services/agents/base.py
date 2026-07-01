@@ -17,11 +17,16 @@ class AgentContext:
     existing_findings: list[Finding]
     # metric_id -> normalized_score from the most recent prior completed run
     prior_metric_scores: dict[str, float | None] = None  # type: ignore[assignment]
+    # agent_name -> probes allocated by the Layer 2 evaluation plan (adaptive_orchestrator).
+    # Model-backed agents scale their probe count to this budget instead of a fixed count.
+    probe_budgets: dict[str, int] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         # default to empty dict so agents can always do .get() safely
         if self.prior_metric_scores is None:
             object.__setattr__(self, "prior_metric_scores", {})
+        if self.probe_budgets is None:
+            object.__setattr__(self, "probe_budgets", {})
 
 
 class GovernanceAgent(Protocol):

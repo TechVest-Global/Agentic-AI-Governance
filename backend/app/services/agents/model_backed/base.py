@@ -13,6 +13,7 @@ import json
 import logging
 from dataclasses import dataclass
 
+from app.services.agents.base import AgentContext
 from app.services.model_clients.base import (
     GovernanceModelClient,
     GovernanceModelRequest,
@@ -46,6 +47,7 @@ class TargetProbeResult:
 
 class ModelBackedAgent:
     execution_mode = "model_backed"
+    name: str
 
     def __init__(
         self,
@@ -54,6 +56,32 @@ class ModelBackedAgent:
     ) -> None:
         self._target = target_client
         self._governance = governance_client
+
+    def _probe_plan(
+        self,
+        prompts: list[tuple[str, str]],
+        *,
+        context: AgentContext,
+    ) -> list[tuple[str, str]]:
+        """Scale a fixed probe set up to this agent's planned probe budget.
+
+        Repeats the curated prompt set round-robin (each repeat tagged with a
+        pass number) so the agent sends as many probes as Layer 2 allocated,
+        instead of always sending exactly len(prompts) regardless of budget.
+        Never sends fewer than the curated set — that set is the minimum
+        coverage needed to probe each dimension at least once.
+        """
+        budget = context.probe_budgets.get(self.name)
+        if not budget or budget <= len(prompts):
+            return prompts
+
+        plan: list[tuple[str, str]] = []
+        for i in range(budget):
+            probe_name, prompt = prompts[i % len(prompts)]
+            pass_number = i // len(prompts) + 1
+            label = probe_name if pass_number == 1 else f"{probe_name}_pass{pass_number}"
+            plan.append((label, prompt))
+        return plan
 
     def _probe_target(
         self,
