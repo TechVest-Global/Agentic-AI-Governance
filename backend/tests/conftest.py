@@ -13,6 +13,8 @@ for _credential_var in (
     "JUDGE_DEPLOYMENT_NAME",
     "LITELLM_PROXY_URL",
     "LITELLM_MASTER_KEY",
+    "TARGET_ENDPOINT",
+    "TARGET_API_KEY",
 ):
     os.environ[_credential_var] = ""
 
