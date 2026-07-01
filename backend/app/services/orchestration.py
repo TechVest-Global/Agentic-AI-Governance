@@ -97,6 +97,7 @@ def run_governance_pipeline(
         session,
         run_id=run_id,
         payload=AgentRunCreate(agent_names=agent_names),
+        evaluation_plan=evaluation_plan,
     )
     _record_pipeline_step(
         session,

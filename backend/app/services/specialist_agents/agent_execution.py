@@ -10,7 +10,7 @@ from app.models.evaluation import EvaluationRun
 from app.models.evidence import EvidenceRecord, MetricResult
 from app.models.finding import Finding
 from app.models.llm_call_log import LLMCallLog
-from app.schemas.governance import AgentRunCreate, AgentRunRead, AgentRunSummary
+from app.schemas.governance import AgentRunCreate, AgentRunRead, AgentRunSummary, EvaluationPlanRead
 from app.services.agents.base import AgentContext
 from app.services.agents.registry import select_agents
 from app.services.model_clients.gateway import drain_log_capture, start_log_capture
@@ -22,6 +22,7 @@ def run_agents(
     *,
     run_id: UUID,
     payload: AgentRunCreate,
+    evaluation_plan: EvaluationPlanRead | None = None,
 ) -> AgentRunRead:
     run = get_run_or_raise(session, run_id)
     start_log_capture()
@@ -36,6 +37,9 @@ def run_agents(
         prior_metric_scores=_get_prior_metric_scores(
             session, ai_system_id=run.ai_system_id, current_run_id=run_id
         ),
+        probe_budgets={
+            item.agent_name: item.probe_budget for item in evaluation_plan.activated_agents
+        } if evaluation_plan is not None else {},
     )
 
     created_findings: list[Finding] = []
