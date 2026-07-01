@@ -339,7 +339,7 @@ export function CouncilDeliberation() {
       {/* Navigation footer */}
       <div className="grid gap-3 sm:grid-cols-2">
         <button
-          onClick={() => navigateTo("/agents")}
+          onClick={() => navigateTo("/runs")}
           className="flex items-center justify-center gap-2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 text-[13px] font-medium text-slate-800 dark:text-slate-200 transition-colors hover:border-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/30 hover:text-blue-800 dark:hover:text-blue-400"
         >
           <Scale className="h-4 w-4" /> ← View Source Agent Findings

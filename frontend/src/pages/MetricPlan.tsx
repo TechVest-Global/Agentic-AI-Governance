@@ -212,7 +212,7 @@ export function MetricPlan() {
 
       <div className="flex flex-wrap gap-2">
         <button
-          onClick={() => navigateTo("/agents")}
+          onClick={() => navigateTo("/runs")}
           className="inline-flex items-center gap-2 rounded border border-slate-300 bg-white px-3 py-2 text-[12px] font-medium text-slate-900 hover:bg-slate-50"
         >
           View specialist agents

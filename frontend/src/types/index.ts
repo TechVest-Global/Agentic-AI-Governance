@@ -6,7 +6,6 @@ export type PageId =
   | "eval-runs"
   | "engine"
   | "runs"
-  | "agents"
   | "metric-plan"
   | "council"
   | "findings"
@@ -58,6 +57,8 @@ export type NavigationItem = {
   badge?: string;
   /** Which personas may see this nav item. */
   personas: Persona[];
+  /** Reachable and permission-checked via canAccess, but not listed in the sidebar (e.g. footer-only links). */
+  hidden?: boolean;
 };
 
 export type AiSystem = {

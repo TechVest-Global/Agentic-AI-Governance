@@ -77,6 +77,22 @@ export type EvaluationRun = {
   updated_at?: string | null;
 };
 
+export type VerdictObjection = {
+  objection_id: string;
+  target_agent?: string | null;
+  category: string;
+  argument: string;
+  suggested_fix: string;
+  remediation_hint?: string | null;
+};
+
+export type VerdictRequiredAction = {
+  action: string;
+  severity: string;
+  owner: string;
+  context?: string | null;
+};
+
 export type Verdict = {
   id: string;
   run_id: string;
@@ -84,9 +100,9 @@ export type Verdict = {
   action_tier: string;
   label: string;
   synthesis?: string | null;
-  objections: Array<Record<string, unknown>>;
+  objections: VerdictObjection[];
   reasoning?: string | null;
-  required_actions: Array<Record<string, unknown>>;
+  required_actions: VerdictRequiredAction[];
   created_at: string;
 };
 
@@ -260,7 +276,11 @@ export async function createEvaluationRun(payload: EvaluationRunCreatePayload): 
 export async function orchestrateRun(runId: string, mockScore = 0.3): Promise<{ run_id: string; status: string }> {
   return request<{ run_id: string; status: string }>(`/evaluation-runs/${runId}/orchestrate`, {
     method: "POST",
-    body: JSON.stringify({ mock_score: mockScore, force_metric_status: "failed", requested_by: "frontend", notes: "Triggered from UI." }),
+    // logs: [] (rather than omitted) makes the backend actually run Context Assembly —
+    // an explicit empty list still executes the layer, just with nothing to analyze.
+    // evaluator_name: "threshold" scores metrics deterministically from each metric's
+    // real threshold_rules instead of the "mock" default, which never computes a real score.
+    body: JSON.stringify({ mock_score: mockScore, force_metric_status: "failed", evaluator_name: "threshold", requested_by: "frontend", notes: "Triggered from UI.", logs: [] }),
   });
 }
 
@@ -405,6 +425,117 @@ export type RunMetricPlan = {
 
 export async function getRunMetricPlan(runId: string): Promise<RunMetricPlan> {
   return request<RunMetricPlan>(`/evaluation-runs/${runId}/metric-plan`);
+}
+
+/* ────────────────────────────────────────────── Evaluation plan (orchestrator) ── */
+
+export type AgentPlanItem = {
+  agent_name: string;
+  activated: boolean;
+  priority: "high" | "medium" | "low";
+  probe_budget: number;
+  assigned_metric_ids: string[];
+  target_dimensions: string[];
+  target_controls: string[];
+  coverage_gap_ids: string[];
+  instructions: string;
+  rationale: string;
+};
+
+export type PriorityTarget = {
+  dimension: string;
+  severity: string;
+  reason: string;
+  control_refs: string[];
+  gap_ids: string[];
+};
+
+export type EvaluationPlanRead = {
+  run_id: string;
+  ai_system_id: string;
+  state_sequence_number: number;
+  state_entry_hash: string;
+  generated_at: string;
+  risk_tier: string;
+  selected_frameworks: string[];
+  metric_count: number;
+  coverage_gap_count: number;
+  probe_budget_total: number;
+  probe_budget_allocated: number;
+  activated_agents: AgentPlanItem[];
+  priority_targets: PriorityTarget[];
+  risk_rationale: string;
+  counts: Record<string, number>;
+};
+
+export async function getEvaluationPlan(runId: string): Promise<EvaluationPlanRead | null> {
+  try {
+    return await request<EvaluationPlanRead>(`/evaluation-runs/${runId}/evaluation-plan`);
+  } catch {
+    return null;
+  }
+}
+
+/* ────────────────────────────────────────────── Context assembly ── */
+
+export type CoverageGapRead = {
+  gap_id: string;
+  framework_id: string;
+  category: string;
+  dimension: string;
+  severity: string;
+  description: string;
+  control_refs: string[];
+  recommended_probe_id?: string | null;
+  recommended_action: string;
+  expected: string[];
+  observed: string[];
+};
+
+export type LogAnalysisSummary = {
+  total_requests: number;
+  empty: boolean;
+  request_category_counts: Record<string, number>;
+  demographic_coverage: Record<string, number>;
+  jurisdiction_coverage: Record<string, number>;
+  outcome_counts: Record<string, number>;
+  modality_counts: Record<string, number>;
+  pii_request_count: number;
+  flagged_request_count: number;
+  distinct_request_categories: number;
+  distinct_demographic_groups: number;
+  distinct_jurisdictions: number;
+  distinct_outcomes: number;
+  observed_request_categories: string[];
+  observed_demographic_groups: string[];
+};
+
+export type RegulatoryContextRead = {
+  selected_frameworks: string[];
+  resolved_frameworks: string[];
+  missing_frameworks: string[];
+  control_count: number;
+};
+
+export type ContextAssemblyRead = {
+  run_id: string;
+  state_sequence_number: number;
+  state_entry_hash: string;
+  generated_at: string;
+  log_analysis: LogAnalysisSummary;
+  regulatory_context: RegulatoryContextRead;
+  coverage_gaps: CoverageGapRead[];
+  gap_count: number;
+  highest_gap_severity?: string | null;
+  counts: Record<string, number>;
+};
+
+export async function getContextAssembly(runId: string): Promise<ContextAssemblyRead | null> {
+  try {
+    return await request<ContextAssemblyRead>(`/evaluation-runs/${runId}/context-assembly`);
+  } catch {
+    return null;
+  }
 }
 
 /* ─────────────────────────────────────────────────── Context profile ── */

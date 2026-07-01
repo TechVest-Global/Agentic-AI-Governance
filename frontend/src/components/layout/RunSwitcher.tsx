@@ -1,3 +1,4 @@
+import clsx from "clsx";
 import { ListChecks } from "lucide-react";
 import { useActiveRun } from "@/hooks/useActiveRun";
 
@@ -10,19 +11,24 @@ function statusDot(status: string): string {
 }
 
 /**
- * Global run switcher in the header. Selecting a run here drives every
- * run-scoped tab (Evidence, Metric Results, Findings, Verdicts, Reports,
- * Compliance, Governance State, LLM Boundary, Live Run) through the shared
- * selection store.
+ * Global run switcher. Selecting a run here drives every run-scoped tab
+ * (Evidence, Metric Results, Findings, Verdicts, Reports, Compliance,
+ * Governance State, LLM Boundary, Live Run) through the shared selection
+ * store. Lives in the header (hidden below `md`) on every run-scoped page
+ * except Live Runs, which renders it inline at the top instead — pass
+ * `alwaysVisible` for that standalone placement.
  */
-export function RunSwitcher() {
+export function RunSwitcher({ alwaysVisible = false }: { alwaysVisible?: boolean } = {}) {
   const { runs, runId, setRunId, systemNameById } = useActiveRun();
   if (runs.length === 0) return null;
 
   const current = runs.find((r) => r.id === runId);
 
   return (
-    <label className="hidden items-center gap-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 pl-2.5 pr-1 py-1 md:flex">
+    <label className={clsx(
+      "items-center gap-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 pl-2.5 pr-1 py-1",
+      alwaysVisible ? "flex" : "hidden md:flex"
+    )}>
       <ListChecks className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500" />
       {current && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDot(current.status)}`} />}
       <select

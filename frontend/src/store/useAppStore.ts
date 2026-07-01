@@ -1,13 +1,15 @@
 import { create } from "zustand";
 import type { PageId } from "@/types";
 
+export type GlobalRunnerStatus = "idle" | "running" | "done" | "error";
+
 const routeMatchers: Array<[RegExp, PageId]> = [
   [/^\/(?:dashboard)?$/, "dashboard"],
   [/^\/systems(?:\/.*)?$/, "systems"],
   [/^\/eval-runs(?:\/.*)?$/, "eval-runs"],
   [/^\/engine(?:\/.*)?$/, "engine"],
   [/^\/runs(?:\/.*)?$/, "runs"],
-  [/^\/agents(?:\/.*)?$/, "agents"],
+  [/^\/agents(?:\/.*)?$/, "runs"],
   [/^\/metric-plan(?:\/.*)?$/, "metric-plan"],
   [/^\/council(?:\/.*)?$/, "council"],
   [/^\/findings(?:\/.*)?$/, "findings"],
@@ -36,6 +38,9 @@ type AppStore = {
   currentPath: string;
   headerHidden: boolean;
   setHeaderHidden: (hidden: boolean) => void;
+  /** Mirrors useEvaluationRunner's status so any page (e.g. the header's run indicator) can react without prop-drilling. */
+  globalRunnerStatus: GlobalRunnerStatus;
+  setGlobalRunnerStatus: (status: GlobalRunnerStatus) => void;
   setRouteFromPath: (path: string) => void;
   navigateTo: (path: string) => void;
 };
@@ -45,6 +50,8 @@ export const useAppStore = create<AppStore>((set) => ({
   currentPath: "/dashboard",
   headerHidden: false,
   setHeaderHidden: (hidden) => set({ headerHidden: hidden }),
+  globalRunnerStatus: "idle",
+  setGlobalRunnerStatus: (status) => set({ globalRunnerStatus: status }),
   setRouteFromPath: (path) => set({ activePage: pageFromPath(path), currentPath: path }),
   navigateTo: (path) => {
     if (window.location.pathname !== path) {

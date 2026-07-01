@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ChevronRight,
   Download,
@@ -305,12 +306,14 @@ const typeColors: Record<ExecutionArtifact["type"], string> = {
 
 type Props = {
   liveData?: LiveData | null;
+  layerFilter?: string;
 };
 
-export function ArtifactDrawer({ liveData }: Props) {
+export function ArtifactDrawer({ liveData, layerFilter }: Props) {
   const [openArtifact, setOpenArtifact] = useState<ExecutionArtifact | null>(null);
 
-  const artifacts = liveData ? buildLiveArtifacts(liveData) : executionArtifacts;
+  const allArtifacts = liveData ? buildLiveArtifacts(liveData) : executionArtifacts;
+  const artifacts = layerFilter ? allArtifacts.filter((a) => a.layer === layerFilter) : allArtifacts;
 
   function handleDownload(artifact: ExecutionArtifact) {
     const blob = new Blob([artifact.content], { type: "application/json" });
@@ -327,9 +330,14 @@ export function ArtifactDrawer({ liveData }: Props) {
       <Card>
         <CardHeader
           title="Execution Artifacts"
-          eyebrow={liveData ? `Run ${liveData.run.id.slice(0, 8)} — click to inspect · download available` : "Click to inspect — download available"}
+          eyebrow={layerFilter ? `${layerFilter} artifacts` : liveData ? `Run ${liveData.run.id.slice(0, 8)} — click to inspect · download available` : "Click to inspect — download available"}
         />
         <div className="divide-y divide-slate-50">
+          {artifacts.length === 0 && (
+            <p className="px-4 py-6 text-center text-[12px] text-slate-400 dark:text-slate-500">
+              No artifacts emitted for this layer yet.
+            </p>
+          )}
           {artifacts.map((artifact) => {
             const Icon = typeIcons[artifact.type];
             return (
@@ -352,42 +360,51 @@ export function ArtifactDrawer({ liveData }: Props) {
         </div>
       </Card>
 
-      {/* Modal */}
-      {openArtifact && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="relative flex h-[80vh] w-full max-w-3xl flex-col rounded-lg border border-slate-200 bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+      {/* Modal — portaled to <body> so it centers on the viewport regardless of any
+          ancestor animation (e.g. the page-transition wrapper), which would otherwise
+          turn it into the fixed-position containing block per the CSS spec. */}
+      {openArtifact && createPortal(
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setOpenArtifact(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative flex h-[80vh] w-full max-w-3xl flex-col rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 px-5 py-3">
               <div className="flex items-center gap-3">
                 <div className={clsx("flex h-8 w-8 items-center justify-center rounded border", typeColors[openArtifact.type])}>
                   {(() => { const Icon = typeIcons[openArtifact.type]; return <Icon className="h-4 w-4" />; })()}
                 </div>
                 <div>
-                  <p className="text-[14px] font-semibold text-slate-950 font-mono">{openArtifact.name}</p>
-                  <p className="text-[11px] text-slate-500">{openArtifact.layer}</p>
+                  <p className="text-[14px] font-semibold text-slate-950 dark:text-white font-mono">{openArtifact.name}</p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">{openArtifact.layer}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => handleDownload(openArtifact)}
-                  className="flex items-center gap-1.5 rounded border border-slate-300 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                  className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
                 >
                   <Download className="h-3 w-3" /> Download
                 </button>
                 <button
                   onClick={() => setOpenArtifact(null)}
-                  className="flex h-7 w-7 items-center justify-center rounded hover:bg-slate-100"
+                  className="flex h-7 w-7 items-center justify-center rounded hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
-                  <X className="h-4 w-4 text-slate-500" />
+                  <X className="h-4 w-4 text-slate-500 dark:text-slate-400" />
                 </button>
               </div>
             </div>
             <div className="flex-1 overflow-auto p-5">
-              <pre className="whitespace-pre-wrap font-mono text-[12px] leading-5 text-slate-800">
+              <pre className="whitespace-pre-wrap font-mono text-[12px] leading-5 text-slate-800 dark:text-slate-200">
                 {openArtifact.content}
               </pre>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );

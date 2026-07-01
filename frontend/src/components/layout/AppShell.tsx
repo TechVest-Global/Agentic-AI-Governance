@@ -1,64 +1,28 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Bell, ChevronDown, LogOut, Moon, PanelLeft, PanelLeftClose,
+  ChevronDown, Cpu, LogOut, Moon, PanelLeft, PanelLeftClose,
   Pause, Play, Search, Shield, Sun, X,
 } from "lucide-react";
 import clsx from "clsx";
 import { SearchOverlay } from "@/components/SearchOverlay";
 import { RunSwitcher } from "@/components/layout/RunSwitcher";
+import { NotificationsMenu } from "@/components/layout/NotificationsMenu";
 import { navigation } from "@/data/mockData";
 import type { PageId as PageIdType } from "@/types";
 
 // Pages that display data scoped to a single evaluation run — they share the
 // global run switcher in the header.
 const RUN_SCOPED: ReadonlySet<PageIdType> = new Set<PageIdType>([
-  "runs", "agents", "metric-plan", "council", "findings", "metric-results",
+  "runs", "metric-plan", "council", "findings", "metric-results",
   "verdicts", "reports", "evidence", "ledger", "governance-state", "llm-boundary",
 ]);
 import { useAppStore } from "@/store/useAppStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useThemeStore } from "@/store/useThemeStore";
-import { useSelectionStore } from "@/store/useSelectionStore";
-import { cancelRun, getLatestEvaluationRun } from "@/api/governanceApi";
+import { cancelRun } from "@/api/governanceApi";
 import { PERSONA_LABEL, personaForRole } from "@/lib/persona";
+import { useIsRunActive } from "@/hooks/useIsRunActive";
 import type { PageId } from "@/types";
-
-const TERMINAL = new Set(["completed", "report_ready", "failed", "cancelled", "canceled"]);
-
-function useIsRunActive(): { active: boolean; activeRunId: string | null } {
-  const [active, setActive] = useState(false);
-  const [activeRunId, setActiveRunId] = useState<string | null>(null);
-  const selectedRunId = useSelectionStore((s) => s.selectedRunId);
-  const globalRunnerStatus = useAppStore((s) => s.globalRunnerStatus);
-
-  // Immediately reflect runner hook state
-  useEffect(() => {
-    if (globalRunnerStatus === "running") setActive(true);
-    else if (globalRunnerStatus === "done" || globalRunnerStatus === "error") setActive(false);
-  }, [globalRunnerStatus]);
-
-  // Poll backend every 4s to catch runs started in other tabs / after page reload
-  useEffect(() => {
-    let cancelled = false;
-    async function check() {
-      try {
-        const run = selectedRunId
-          ? await fetch(`${import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1"}/evaluation-runs/${selectedRunId}`).then(r => r.json())
-          : await getLatestEvaluationRun();
-        if (!cancelled && run) {
-          const isActive = !TERMINAL.has(run.status);
-          setActive(isActive);
-          setActiveRunId(isActive ? (run.id ?? null) : null);
-        }
-      } catch { /* ignore */ }
-    }
-    check();
-    const id = setInterval(check, 4000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [selectedRunId]);
-
-  return { active, activeRunId };
-}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const activePage   = useAppStore((s) => s.activePage);
@@ -69,7 +33,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { theme, toggleTheme } = useThemeStore();
 
   const persona    = personaForRole(user?.role);
-  const navItems   = navigation.filter((item) => item.personas.includes(persona));
+  const navItems   = navigation.filter((item) => item.personas.includes(persona) && !item.hidden);
   const current    = navItems.find((item) => item.id === activePage);
   const isEngine = activePage === "engine";
   const { active: isRunning, activeRunId } = useIsRunActive();
@@ -229,7 +193,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           <div className="ml-4 flex items-center gap-2">
             {/* global run switcher — connects every run-scoped tab */}
-            {RUN_SCOPED.has(activePage) && <RunSwitcher />}
+            {/* Live Runs shows its own switcher inline at the top of the page instead */}
+            {RUN_SCOPED.has(activePage) && activePage !== "runs" && <RunSwitcher />}
 
             {/* theme toggle */}
             <button
@@ -241,10 +206,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
 
             {/* notifications */}
-            <button className="relative flex h-9 w-9 items-center justify-center rounded text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10 hover:text-slate-700 dark:hover:text-white transition-colors">
-              <Bell className="h-4 w-4" />
-              <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-orange-500" />
-            </button>
+            <NotificationsMenu />
 
             {/* start / pause run button */}
             {!isEngine && (
@@ -340,6 +302,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </main>
 
+        {!isEngine && (
+          <footer className="border-t border-hairline dark:border-white/10 px-6 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-[11px] text-ink-4 dark:text-slate-500">
+                <div className="flex h-5 w-5 items-center justify-center rounded-md bg-brand-600 text-white">
+                  <Shield className="h-3 w-3" />
+                </div>
+                <span>© {new Date().getFullYear()} GovernAI</span>
+                <span className="opacity-50">·</span>
+                <span>Output-only AI Governance Engine</span>
+              </div>
+              <button
+                onClick={() => navigateTo("/engine")}
+                className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-ink-3 dark:text-slate-400 transition-colors hover:bg-slate-100 dark:hover:bg-white/10 hover:text-ink dark:hover:text-white"
+              >
+                <Cpu className="h-3.5 w-3.5" />
+                How the engine works
+              </button>
+            </div>
+          </footer>
+        )}
+
       </div>
     </div>
   );
@@ -349,8 +333,7 @@ const pageDescriptions: Record<PageId, string> = {
   dashboard:      "Real-time governance overview — KPIs, risk trends, compliance posture, and agent performance at a glance.",
   systems:        "All registered AI systems bound to owners, risk tiers, and frameworks. Click any row to inspect the current governance posture.",
   engine:         "End-to-end walkthrough of the governance engine — five layers from context assembly through specialist findings, council deliberation, confidence-bounded action, and sealed ledger evidence.",
-  runs:           "Live pipeline execution for active governance runs. Shows agent status, findings, and the full 5-stage evaluation flow.",
-  agents:         "Specialist agents currently probing, testing, and mapping evidence. Expand each agent to see checks, methods, findings, and remediation.",
+  runs:           "Live pipeline execution for active governance runs. Expand each specialist agent to see checks, methods, probes, findings, and remediation.",
   "metric-plan":  "Orchestrator-selected metric plan for the current run — tools, owner agents, framework clauses, probe budgets, and thresholds.",
   council:        "Multi-step deliberation that synthesises agent findings into a verdict. Each step is expandable with full reasoning and confidence impacts.",
   verdicts:       "Final governance outcome for the current run — tier assignment, confidence score, risk dimensions, and prescribed remediation actions.",

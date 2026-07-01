@@ -1,68 +1,38 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
-  AlertTriangle,
   Bot,
-  CheckCircle2,
   ChevronDown,
-  ChevronRight,
-  Circle,
-  Clock,
-  Copy,
   Download,
   FileJson,
   FileText,
   Layers,
-  Loader2,
+  ScanSearch,
   Send,
   ShieldAlert,
-  XCircle,
-  Zap,
 } from "lucide-react";
 import clsx from "clsx";
-import { agents as mockAgents, auditEvents, findings as mockFindings, liveRuns, systems as mockSystems, applicationContextProfiles, type ApplicationContextProfile } from "@/data/mockData";
-import { Badge, toneForStatus } from "@/components/ui/Badge";
+import { findings as mockFindings, liveRuns, systems as mockSystems, applicationContextProfiles, type ApplicationContextProfile } from "@/data/mockData";
+import { metricPlan } from "@/data/metricPlan";
+import { Badge } from "@/components/ui/Badge";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { useAppStore } from "@/store/useAppStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { personaForRole } from "@/lib/persona";
-import { ExecutionLayerTrace } from "@/components/execution/ExecutionLayerTrace";
+import { AgentDetailCard, AgentGlyph, buildAgentsFromBackend, type AgentTab } from "@/components/execution/AgentDetailCard";
+import { AdaptiveOrchestratorPanel } from "@/components/execution/AdaptiveOrchestratorPanel";
+import { ContextAssemblyPanel } from "@/components/execution/ContextAssemblyPanel";
+import { DeliberationCouncilPanel } from "@/components/execution/DeliberationCouncilPanel";
+import { LiveRunSidebar, type CouncilMemberId } from "@/components/execution/LiveRunSidebar";
+import { RunSwitcher } from "@/components/layout/RunSwitcher";
 import { RuntimeEventStream } from "@/components/execution/RuntimeEventStream";
 import { ArtifactDrawer } from "@/components/execution/ArtifactDrawer";
-import { RuntimeArchitecture } from "@/components/execution/RuntimeArchitecture";
 import { exportJSON, exportCSV, exportPDF, exportLedger, exportEvidenceBundle } from "@/utils/exports";
 import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
 import { useRunProgress, phaseIndex, type AgentProgress } from "@/hooks/useRunProgress";
+import { PIPELINE_STEPS } from "@/pages/pipelineSteps";
 import type { AuditLedgerEntry, GovernanceReport } from "@/api/governanceApi";
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const LAYERS = [
-  { id: "context_assembly",      label: "Context Assembly",     description: "Ingests model card, intended-use declaration, historical run data, and framework clauses." },
-  { id: "adaptive_orchestrator", label: "Evaluation Plan",      description: "Allocates probe budget, selects metrics, registers agents to run." },
-  { id: "metric_execution",      label: "Metric Execution",     description: "Runs 44 governance metrics across 10 dimensions via the threshold evaluator." },
-  { id: "specialist_agents",     label: "Specialist Agents",    description: "7 model-backed agents run bias, drift, misuse, compliance, quality, explainability, and risk probes." },
-  { id: "deliberation_council",  label: "Council Deliberation", description: "Synthesis → Devil's Advocate → Verdict with bounded 3-iteration loop." },
-  { id: "action_reporting",      label: "Action Reporting",     description: "Maps findings to framework controls, emits verdict and remediation actions." },
-];
-
-const SEVERITY_BORDER: Record<string, string> = {
-  Critical: "border-l-red-500",
-  High: "border-l-orange-400",
-  Medium: "border-l-amber-400",
-  Low: "border-l-blue-400",
-};
-
-const SEVERITY_BG: Record<string, string> = {
-  Critical: "bg-red-50 dark:bg-red-950/30",
-  High: "bg-orange-50 dark:bg-orange-950/30",
-  Medium: "bg-amber-50 dark:bg-amber-950/20",
-  Low: "bg-blue-50 dark:bg-blue-950/20",
-};
-
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -74,42 +44,6 @@ function formatRunStatus(status: string): "Running" | "Complete" | "Waiting" | "
   if (status === "created") return "Waiting";
   return "Running";
 }
-
-function agentRoleFor(name: string): string {
-  const roles: Record<string, string> = {
-    bias_agent:           "Protected-attribute parity",
-    quality_agent:        "Instruction-following fidelity",
-    misuse_agent:         "Jailbreak & boundary tests",
-    drift_agent:          "Baseline divergence",
-    compliance_mapper:    "Clause-level mapping",
-    risk_scorer:          "Composite risk quantification",
-    explainability_agent: "Reasoning fidelity",
-  };
-  return roles[name] ?? name;
-}
-
-function agentDisplayName(name: string): string {
-  const labels: Record<string, string> = {
-    bias_agent:           "Bias Auditor",
-    quality_agent:        "Quality Evaluator",
-    misuse_agent:         "Misuse Detector",
-    drift_agent:          "Drift Analyst",
-    compliance_mapper:    "Compliance Mapper",
-    risk_scorer:          "Risk Scorer",
-    explainability_agent: "Explainability Agent",
-  };
-  return labels[name] ?? name;
-}
-
-type UiAuditEvent = {
-  id: string;
-  timestamp: string;
-  actor: string;
-  type: string;
-  description: string;
-  hash: string;
-  parentHash: string;
-};
 
 type UiFinding = {
   id: string;
@@ -133,32 +67,6 @@ function findingSeverity(value: string): UiFinding["severity"] {
   return "Medium";
 }
 
-function mapLedgerEvent(entry: AuditLedgerEntry): UiAuditEvent {
-  const created = new Date(entry.created_at);
-  const timestamp = Number.isNaN(created.getTime())
-    ? entry.created_at
-    : created.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  const payload = entry.payload ?? {};
-  const summary =
-    typeof payload.summary === "string"
-      ? payload.summary
-      : typeof payload.message === "string"
-        ? payload.message
-        : typeof payload.notes === "string"
-          ? payload.notes
-          : `${titleCase(entry.event_type)} recorded by ${entry.actor_id ?? entry.actor_type}.`;
-
-  return {
-    id: entry.id,
-    timestamp,
-    actor: entry.actor_id ?? titleCase(entry.actor_type),
-    type: entry.event_type,
-    description: summary,
-    hash: entry.entry_hash,
-    parentHash: entry.previous_hash ?? "genesis",
-  };
-}
-
 function mapBackendFinding(finding: GovernanceReport["findings"][number]): UiFinding {
   return {
     id: finding.id,
@@ -171,20 +79,204 @@ function mapBackendFinding(finding: GovernanceReport["findings"][number]): UiFin
   };
 }
 
-function layerStatus(layerId: string, currentPhase: string, runStatus: string): "done" | "active" | "pending" | "failed" {
-  const currentIdx = phaseIndex(currentPhase);
-  const layerIdx = phaseIndex(layerId);
-  if (runStatus === "failed" && layerIdx === currentIdx) return "failed";
-  if (layerIdx < currentIdx) return "done";
-  if (layerIdx === currentIdx) return "active";
-  return "pending";
+
+// ---------------------------------------------------------------------------
+// Step detail panel — always-visible right column reflecting the selected step
+// ---------------------------------------------------------------------------
+
+/** Shown in the detail panel for any step until a run actually exists. */
+function NoRunMessage() {
+  return (
+    <div className="flex h-full min-h-80 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-200 dark:border-slate-700 px-6 text-center">
+      <ScanSearch className="h-6 w-6 text-slate-300 dark:text-slate-600" />
+      <p className="text-[13px] font-semibold text-slate-600 dark:text-slate-300">Run the audit to view details</p>
+      <p className="max-w-xs text-[12px] leading-relaxed text-slate-400 dark:text-slate-500">
+        This layer's information will appear here once a governance run starts.
+      </p>
+    </div>
+  );
 }
 
-function LayerIcon({ status }: { status: "done" | "active" | "pending" | "failed" }) {
-  if (status === "done")    return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
-  if (status === "active")  return <Loader2 className="h-4 w-4 text-blue-600 animate-spin" />;
-  if (status === "failed")  return <XCircle className="h-4 w-4 text-red-500" />;
-  return <Circle className="h-4 w-4 text-slate-300" />;
+function PipelineStepContent({
+  step,
+  navigateTo,
+  report,
+  liveArtifactData,
+  intelligenceAgents,
+  displayedFindings,
+  runId,
+  selectedAgentId,
+  selectedCouncilMemberId,
+  ledgerEntries,
+}: {
+  step: (typeof PIPELINE_STEPS)[number];
+  navigateTo: (path: string) => void;
+  report: GovernanceReport | null;
+  liveArtifactData: Parameters<typeof ArtifactDrawer>[0]["liveData"];
+  intelligenceAgents: ReturnType<typeof buildAgentsFromBackend>;
+  displayedFindings: UiFinding[];
+  runId: string | null;
+  selectedAgentId: string | null;
+  selectedCouncilMemberId: CouncilMemberId | null;
+  ledgerEntries: AuditLedgerEntry[];
+}) {
+  if (!runId) {
+    return <NoRunMessage />;
+  }
+
+  if (step.id === "created") {
+    return <AuditTargetSelector navigateTo={navigateTo} report={report} startExpanded />;
+  }
+
+  const runtimeDetail = (
+    <div className="space-y-4">
+      <RuntimeEventStream entries={ledgerEntries} phaseFilter={step.id === "created" ? undefined : step.id} />
+      <ArtifactDrawer liveData={liveArtifactData} layerFilter={step.eventLayer ?? undefined} />
+    </div>
+  );
+
+  if (step.id === "metric_execution") {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <table className="w-full text-[12px]">
+            <thead>
+              <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Metric</th>
+                <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Owner</th>
+                <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Budget</th>
+                <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {metricPlan.metrics.map((m) => (
+                <tr key={m.id} className="border-b border-slate-100 dark:border-slate-800">
+                  <td className="px-3 py-2 font-medium text-slate-900 dark:text-white">{m.name}</td>
+                  <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{m.ownerAgent}</td>
+                  <td className="px-3 py-2 font-mono text-slate-600 dark:text-slate-400">{m.probeBudget} pts</td>
+                  <td className="px-3 py-2">
+                    <Badge tone={m.status === "Pass" ? "green" : m.status === "Fail" ? "red" : m.status === "Running" ? "amber" : "slate"}>{m.status}</Badge>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {runtimeDetail}
+      </div>
+    );
+  }
+
+  if (step.id === "specialist_agents") {
+    const selected = selectedAgentId ? intelligenceAgents.find((a) => a.id === selectedAgentId) : undefined;
+    return (
+      <div className="space-y-4">
+        {intelligenceAgents.length === 0 ? (
+          <p className="text-[12px] text-slate-500 dark:text-slate-400">No agent executions recorded for this run yet.</p>
+        ) : selected ? (
+          <SelectedAgentDetail agent={selected} runId={runId} />
+        ) : (
+          <p className="text-[12px] text-slate-500 dark:text-slate-400">Select an agent from the sidebar to view its detail.</p>
+        )}
+        {runtimeDetail}
+      </div>
+    );
+  }
+
+  if (step.id === "deliberation_council") {
+    return (
+      <div className="space-y-4">
+        <DeliberationCouncilPanel report={report} selectedMemberId={selectedCouncilMemberId} />
+        {runtimeDetail}
+      </div>
+    );
+  }
+
+  if (step.id === "action_reporting") {
+    return (
+      <div className="space-y-4">
+        {displayedFindings.length === 0 ? (
+          <p className="text-[12px] text-slate-500 dark:text-slate-400">No findings recorded for this run yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {displayedFindings.map((finding, i) => (
+              <div key={finding.id} className="flex items-start gap-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-900 dark:bg-slate-700 text-[12px] font-bold text-white">{i + 1}</span>
+                <div className="min-w-0 flex-1">
+                  <h4 className="text-[13px] font-semibold text-slate-950 dark:text-white">{finding.title}</h4>
+                  <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">{finding.severity} · {finding.agent} · {finding.framework}</p>
+                </div>
+                <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 shrink-0">{finding.confidence}%</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <ExportBar />
+        {runtimeDetail}
+      </div>
+    );
+  }
+
+  if (step.id === "adaptive_orchestrator") {
+    return (
+      <div className="space-y-4">
+        <AdaptiveOrchestratorPanel runId={runId} />
+        {runtimeDetail}
+      </div>
+    );
+  }
+
+  // context_assembly
+  return (
+    <div className="space-y-4">
+      <ContextAssemblyPanel runId={runId} />
+      {runtimeDetail}
+    </div>
+  );
+}
+
+function ExportBar() {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <button onClick={exportPDF} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700">
+        <FileText className="h-3 w-3" /> PDF
+      </button>
+      <button onClick={exportJSON} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700">
+        <FileJson className="h-3 w-3" /> JSON
+      </button>
+      <button onClick={exportCSV} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700">
+        <Download className="h-3 w-3" /> CSV
+      </button>
+      <button onClick={exportLedger} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700">
+        <Download className="h-3 w-3" /> Ledger
+      </button>
+      <button onClick={exportEvidenceBundle} className="flex items-center gap-1.5 rounded border border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-950/40 px-2.5 py-1.5 text-[11px] font-medium text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40">
+        <Download className="h-3 w-3" /> Evidence Bundle
+      </button>
+    </div>
+  );
+}
+
+/** The currently-selected specialist agent's full detail card (agent list itself lives in the sidebar). */
+function SelectedAgentDetail({
+  agent,
+  runId,
+}: {
+  agent: ReturnType<typeof buildAgentsFromBackend>[number];
+  runId: string | null;
+}) {
+  const [tab, setTab] = useState<AgentTab>("Overview");
+  return (
+    <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+      <div className="flex items-center gap-3 bg-blue-50 dark:bg-blue-950/30 px-4 py-3">
+        <AgentGlyph agent={agent} />
+        <p className="flex-1 text-[13px] font-semibold text-blue-800 dark:text-blue-300">{agent.name}</p>
+        <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">{agent.probes} · {agent.confidence || "—"}%</span>
+        <Badge tone={agent.status === "Complete" ? "green" : agent.status === "Running" ? "amber" : "slate"}>{agent.status}</Badge>
+      </div>
+      <AgentDetailCard agent={agent} runId={runId} activeTab={tab} onTabChange={setTab} />
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -198,10 +290,10 @@ export function LiveRuns() {
   // the runtime traces, probe internals, or links into engine-only pages.
   const isDev = personaForRole(role) === "developer";
   const backend = useGovernanceBackend();
-  const [expandedAgent, setExpandedAgent]     = useState<string | null>(null);
-  const [expandedEvent, setExpandedEvent]     = useState<string | null>(null);
-  const [expandedFinding, setExpandedFinding] = useState<string | null>(null);
-  const [copiedHash, setCopiedHash]           = useState<string | null>(null);
+  // null = no explicit user choice yet, so the panel follows the live run phase automatically.
+  const [selectedStep, setSelectedStep]       = useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [selectedCouncilMemberId, setSelectedCouncilMemberId] = useState<CouncilMemberId | null>(null);
 
   // SSE live progress — uses latest run ID from polling hook
   const runId = backend.latestRun?.id ?? null;
@@ -225,46 +317,103 @@ export function LiveRuns() {
     findings: liveFindings,
   };
 
-  // Agent list: prefer SSE agents, else REST executions, else mock
+  // Agent list: prefer SSE agents, else REST executions, else mock.
+  // A run can contain multiple execution rows per agent (re-probes) — keep only the latest.
   const liveAgents: AgentProgress[] = progress?.agents ?? [];
-  const restAgents = backend.agentExecutions;
+  const restAgents = useMemo(() => {
+    const latestByName = new Map<string, (typeof backend.agentExecutions)[number]>();
+    for (const execution of backend.agentExecutions) {
+      const existing = latestByName.get(execution.agent_name);
+      if (!existing || (execution.started_at ?? "") > (existing.started_at ?? "")) {
+        latestByName.set(execution.agent_name, execution);
+      }
+    }
+    return Array.from(latestByName.values());
+  }, [backend.agentExecutions]);
 
-  function copyHash(hash: string) {
-    navigator.clipboard.writeText(hash).catch(() => {});
-    setCopiedHash(hash);
-    setTimeout(() => setCopiedHash(null), 1500);
-  }
+  // Full agent intelligence detail (Overview/Probes/Evidence/Frameworks/Remediation/Runtime),
+  // built from the same backend executions + findings — keyed by agent id.
+  const intelligenceAgents = useMemo(
+    () => buildAgentsFromBackend(
+      backend.agentExecutions,
+      backend.findings,
+      backend.evaluationPlan?.activated_agents ?? [],
+      backend.contextAssembly,
+      backend.llmCalls,
+    ),
+    [backend.agentExecutions, backend.findings, backend.evaluationPlan, backend.contextAssembly, backend.llmCalls],
+  );
 
-  const activityEvents: UiAuditEvent[] = backend.ledgerEntries.length
-    ? backend.ledgerEntries.map(mapLedgerEvent)
-    : auditEvents;
   const displayedFindings: UiFinding[] = backend.findings.length
     ? backend.findings.map(mapBackendFinding)
     : mockFindings;
 
+  const liveArtifactData = backend.latestRun
+    ? {
+        run: backend.latestRun,
+        report: backend.report,
+        agentExecutions: backend.agentExecutions,
+        findings: backend.findings,
+      }
+    : null;
+
+  // Which step is showing in the detail panel: an explicit user click wins; otherwise,
+  // while a run is active, follow the live phase automatically.
+  const effectiveStep = selectedStep ?? (runId ? livePhase : "created");
+  const currentStepDef = PIPELINE_STEPS.find((s) => s.id === effectiveStep) ?? PIPELINE_STEPS[0];
+
+  // Clicking the already-selected agent toggles its detail closed.
+  function handleSelectAgent(id: string) {
+    setSelectedAgentId((current) => (current === id ? null : id));
+    setSelectedStep("specialist_agents");
+  }
+
+  // Same toggle behavior for council members.
+  function handleSelectCouncilMember(id: CouncilMemberId) {
+    setSelectedCouncilMemberId((current) => (current === id ? null : id));
+    setSelectedStep("deliberation_council");
+  }
+
   return (
-    <div className="space-y-5">
-      {/* Connection indicator */}
-      {runId && (
-        <div className={clsx(
-          "flex items-center gap-2 rounded-lg border px-3 py-2 text-[11px] font-medium",
-          connected
-            ? "border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400"
-            : "border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400"
-        )}>
-          <div className={clsx("h-2 w-2 rounded-full", connected ? "bg-emerald-500 animate-pulse" : "bg-amber-400")} />
-          {connected ? "Live — streaming progress from backend" : "Polling — SSE not connected, using REST fallback"}
-        </div>
+    <div className={clsx("gap-5", isDev ? "xl:grid xl:grid-cols-[260px_1fr]" : "space-y-5")}>
+      {isDev && (
+        <LiveRunSidebar
+          currentPhase={livePhase}
+          runStatus={liveStatus}
+          selectedStep={effectiveStep}
+          onSelectStep={setSelectedStep}
+          agents={intelligenceAgents}
+          selectedAgentId={selectedAgentId}
+          onSelectAgent={handleSelectAgent}
+          selectedCouncilMemberId={selectedCouncilMemberId}
+          onSelectCouncilMember={handleSelectCouncilMember}
+        />
       )}
 
-      {/* Top metrics */}
-      <div className={clsx("grid gap-3", isDev ? "md:grid-cols-4" : "md:grid-cols-3")}>
-        {isDev && (
-          <div title="Total probes / metric results in this run">
-            <MetricCard label="Probes Sent" value={run.probes} icon={Send} tone="blue" />
+      <div className="space-y-5 min-w-0">
+        {/* Run switcher — pick which evaluation run this workspace is looking at */}
+        <div className="flex items-center justify-between gap-3">
+          <RunSwitcher alwaysVisible />
+        </div>
+
+        {/* Connection indicator */}
+        {runId && (
+          <div className={clsx(
+            "flex items-center gap-2 rounded-lg border px-3 py-2 text-[11px] font-medium",
+            connected
+              ? "border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400"
+              : "border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400"
+          )}>
+            <div className={clsx("h-2 w-2 rounded-full", connected ? "bg-emerald-500 animate-pulse" : "bg-amber-400")} />
+            {connected ? "Live — streaming progress from backend" : "Polling — SSE not connected, using REST fallback"}
           </div>
         )}
-        <div title="Agents active vs total">
+
+        {/* Top metrics */}
+        <div className={clsx("grid gap-3", isDev ? "md:grid-cols-4" : "md:grid-cols-3")}>
+          {isDev && (
+            <MetricCard label="Probes Sent" value={run.probes} icon={Send} tone="blue" />
+          )}
           <MetricCard
             label="Agents Active"
             value={
@@ -277,320 +426,56 @@ export function LiveRuns() {
             icon={Bot}
             tone="amber"
           />
-        </div>
-        <div title="Findings logged so far">
           <MetricCard label="Findings So Far" value={run.findings} icon={ShieldAlert} tone="red" />
-        </div>
-        <div title="Percentage of pipeline completed">
           <MetricCard label="Pipeline Progress" value={`${run.progress}%`} icon={Activity} tone="green" />
         </div>
-      </div>
 
-      {/* System selector + Application Context Profile */}
-      <AuditTargetSelector navigateTo={navigateTo} report={backend.report} />
-
-      {/* Export buttons + Execution Layer Trace — developer altitude only */}
-      {isDev && (<>
-      <div className="flex items-center justify-between">
-        <p className="text-[12px] font-semibold text-slate-500 dark:text-slate-400">Execution Layer Trace</p>
-        <div className="flex items-center gap-1.5">
-          <button onClick={exportPDF} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700" title="PDF report">
-            <FileText className="h-3 w-3" /> PDF
-          </button>
-          <button onClick={exportJSON} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700" title="JSON data">
-            <FileJson className="h-3 w-3" /> JSON
-          </button>
-          <button onClick={exportCSV} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700" title="CSV findings">
-            <Download className="h-3 w-3" /> CSV
-          </button>
-          <button onClick={exportLedger} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700" title="Ledger">
-            <Download className="h-3 w-3" /> Ledger
-          </button>
-          <button onClick={exportEvidenceBundle} className="flex items-center gap-1.5 rounded border border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-950/40 px-2.5 py-1.5 text-[11px] font-medium text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40" title="Evidence bundle">
-            <Download className="h-3 w-3" /> Evidence Bundle
-          </button>
+        {/* On smaller screens without the sidebar, the pipeline navigator collapses here */}
+        <div className="xl:hidden">
+          <LiveRunSidebar
+            currentPhase={livePhase}
+            runStatus={liveStatus}
+            selectedStep={effectiveStep}
+            onSelectStep={setSelectedStep}
+            agents={intelligenceAgents}
+            selectedAgentId={selectedAgentId}
+            onSelectAgent={handleSelectAgent}
+            selectedCouncilMemberId={selectedCouncilMemberId}
+            onSelectCouncilMember={handleSelectCouncilMember}
+          />
         </div>
-      </div>
 
-      {/* Execution Layer Trace */}
-      <div className="space-y-5">
-        <ExecutionLayerTrace />
-        <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
-          <RuntimeEventStream ledgerEntries={backend.ledgerEntries} />
-          <div className="space-y-5">
-            <RuntimeArchitecture currentPhase={livePhase} runStatus={liveStatus} />
-            <ArtifactDrawer
-              liveData={
-                backend.latestRun
-                  ? {
-                      run: backend.latestRun,
-                      report: backend.report,
-                      agentExecutions: backend.agentExecutions,
-                      findings: backend.findings,
-                    }
-                  : null
-              }
+        {/* Step detail — always reflects the selected (or, while running, the live) step */}
+        <Card>
+          <CardHeader title={currentStepDef.label} eyebrow={isDev ? `Step ${currentStepDef.number} of ${PIPELINE_STEPS.length - 1}` : undefined} />
+          <div className="p-4">
+            <PipelineStepContent
+              step={currentStepDef}
+              navigateTo={navigateTo}
+              report={backend.report}
+              liveArtifactData={liveArtifactData}
+              intelligenceAgents={intelligenceAgents}
+              displayedFindings={displayedFindings}
+              runId={runId}
+              selectedAgentId={selectedAgentId}
+              selectedCouncilMemberId={selectedCouncilMemberId}
+              ledgerEntries={backend.ledgerEntries}
             />
           </div>
-        </div>
-      </div>
-      </>)}
-
-      {/* Agents + Activity log */}
-      <div className="grid gap-5 xl:grid-cols-[1fr_1.1fr]">
-
-        {/* Agent status — real data or mock */}
-        <Card>
-          <CardHeader
-            title="Specialist Agent Status"
-            eyebrow={
-              liveAgents.length
-                ? `Live — ${liveAgents.length} agents tracked`
-                : restAgents.length
-                  ? `Backend — ${restAgents.length} executions`
-                  : "Mock data — no run yet"
-            }
-            action={
-              isDev ? (
-                <button onClick={() => navigateTo("/agents")} className="text-[11px] font-medium text-blue-700 underline-offset-2 hover:underline">
-                  Full intelligence view →
-                </button>
-              ) : undefined
-            }
-          />
-          <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
-            {(liveAgents.length ? liveAgents : restAgents.length ? restAgents.map(e => ({
-              name: e.agent_name,
-              status: e.status,
-              finding_count: e.finding_count ?? 0,
-              started_at: e.started_at ?? null,
-              completed_at: e.completed_at ?? null,
-            })) : mockAgents.map(a => ({
-              name: a.name,
-              status: a.status === "Running" ? "running" : a.status === "Complete" ? "completed" : "pending",
-              finding_count: a.findings,
-              started_at: null,
-              completed_at: null,
-            }))).map((agent) => {
-              const key = "name" in agent ? agent.name : (agent as AgentProgress).name;
-              const isExpanded = expandedAgent === key;
-              const displayName = agentDisplayName(key);
-              const role = agentRoleFor(key);
-              const st = agent.status;
-              return (
-                <div key={key}>
-                  <button
-                    onClick={() => setExpandedAgent(isExpanded ? null : key)}
-                    className="grid w-full grid-cols-[1fr_90px_90px_20px] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60"
-                  >
-                    <div>
-                      <p className="text-[13px] font-semibold text-slate-950 dark:text-white">{displayName}</p>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">{role}</p>
-                    </div>
-                    <Badge tone={
-                      st === "completed" ? "green" :
-                      st === "running"   ? "amber" :
-                      st === "failed"    ? "red" : "slate"
-                    }>
-                      {st === "completed" ? "Complete" : st === "running" ? "Running" : st === "failed" ? "Failed" : "Pending"}
-                    </Badge>
-                    <div className="text-right">
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">{agent.finding_count} findings</p>
-                      <div className="mt-1 h-1.5 rounded bg-slate-200 dark:bg-slate-700">
-                        <div
-                          className={clsx("h-full rounded", st === "completed" ? "bg-emerald-500" : st === "failed" ? "bg-red-400" : "bg-blue-700")}
-                          style={{ width: st === "completed" ? "100%" : st === "running" ? "60%" : "0%" }}
-                        />
-                      </div>
-                    </div>
-                    {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" /> : <ChevronRight className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />}
-                  </button>
-                  {isExpanded && (
-                    <div className="grid grid-cols-3 gap-3 border-t border-slate-100 dark:border-slate-700/50 bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
-                      <Stat label="Status" value={st} />
-                      <Stat label="Findings" value={String(agent.finding_count)} />
-                      <Stat
-                        label="Duration"
-                        value={
-                          agent.started_at && agent.completed_at
-                            ? `${Math.round((new Date(agent.completed_at).getTime() - new Date(agent.started_at).getTime()) / 1000)}s`
-                            : agent.started_at ? "Running…" : "—"
-                        }
-                      />
-                      {isDev && (
-                        <div className="col-span-3 flex gap-2">
-                          <button onClick={() => navigateTo("/agents")} className="flex items-center gap-1.5 rounded border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[11px] font-medium text-blue-800 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30">
-                            <Zap className="h-3 w-3" /> Full agent detail
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
         </Card>
 
-        {/* Activity log */}
-        <Card>
-          <CardHeader
-            title="Activity Log"
-            eyebrow="Live ledger feed — click event to expand"
-            action={
-              <button onClick={() => navigateTo("/ledger")} className="text-[11px] font-medium text-blue-700 underline-offset-2 hover:underline">
-                Full ledger →
-              </button>
-            }
-          />
-
-          {/* Live phase progression log from SSE */}
-          {progress && (
-            <div className="border-b border-slate-100 dark:border-slate-700/50 px-4 py-2">
-              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Live pipeline events</p>
-              <div className="space-y-1">
-                {LAYERS.slice(0, phaseIndex(livePhase) + 1).reverse().map((layer) => {
-                  const st = layerStatus(layer.id, livePhase, liveStatus);
-                  return (
-                    <div key={layer.id} className="flex items-center gap-2">
-                      <LayerIcon status={st} />
-                      <span className="text-[11px] text-slate-700 dark:text-slate-300">{layer.label}</span>
-                      {st === "active" && <span className="rounded bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-400">in progress</span>}
-                      {st === "done"   && <span className="rounded bg-emerald-100 dark:bg-emerald-900/40 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">done</span>}
-                    </div>
-                  );
-                })}
-              </div>
+        {/* Result summary when run is complete */}
+        {progress?.result_summary && Object.keys(progress.result_summary).length > 0 && (
+          <Card>
+            <CardHeader title="Run Summary" eyebrow="From backend result_summary" action={<Badge tone="green">Complete</Badge>} />
+            <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-4">
+              {Object.entries(progress.result_summary).map(([k, v]) => (
+                <Stat key={k} label={k.replace(/_/g, " ")} value={formatSummaryValue(v)} />
+              ))}
             </div>
-          )}
-
-          {/* Audit events (backend or demo fallback) */}
-          <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
-            {activityEvents.map((event) => {
-              const isExpanded = expandedEvent === event.id;
-              return (
-                <div key={event.id}>
-                  <button
-                    onClick={() => setExpandedEvent(isExpanded ? null : event.id)}
-                    className="flex w-full items-start gap-2 px-4 py-3 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60"
-                  >
-                    <div className="mt-0.5 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">{event.timestamp}</span>
-                        <span className="rounded border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-600 dark:text-slate-400">{event.type}</span>
-                        <span className="text-[11px] font-semibold text-slate-950 dark:text-white">{event.actor}</span>
-                      </div>
-                      <p className="mt-1 text-[12px] leading-5 text-slate-700 dark:text-slate-300">{event.description}</p>
-                    </div>
-                    {isExpanded ? <ChevronDown className="mt-1 h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500" /> : <ChevronRight className="mt-1 h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500" />}
-                  </button>
-                  {isExpanded && (
-                    <div className="border-t border-slate-100 dark:border-slate-700/50 bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Hash</p>
-                          <p className="font-mono text-[11px] text-slate-950 dark:text-white">{event.hash}</p>
-                        </div>
-                        <button onClick={() => copyHash(event.hash)} className="flex items-center gap-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-[10px] text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
-                          <Copy className="h-3 w-3" />
-                          {copiedHash === event.hash ? "Copied!" : "Copy"}
-                        </button>
-                      </div>
-                      <p className="mt-2 text-[10px] text-slate-500 dark:text-slate-400">Parent: <span className="font-mono text-slate-700 dark:text-slate-300">{event.parentHash}</span></p>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </Card>
+          </Card>
+        )}
       </div>
-
-      {/* Findings list */}
-      <Card>
-        <CardHeader
-          title="Findings Logged This Run"
-          eyebrow={`${run.findings} total — click to expand evidence`}
-          action={
-            isDev ? (
-              <button onClick={() => navigateTo("/council")} className="text-[11px] font-medium text-blue-700 underline-offset-2 hover:underline">
-                Council deliberation →
-              </button>
-            ) : (
-              <button onClick={() => navigateTo("/evidence")} className="text-[11px] font-medium text-blue-700 underline-offset-2 hover:underline">
-                View evidence →
-              </button>
-            )
-          }
-        />
-        <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
-          {displayedFindings.map((finding) => {
-            const isExpanded = expandedFinding === finding.id;
-            return (
-              <div key={finding.id}>
-                <button
-                  onClick={() => setExpandedFinding(isExpanded ? null : finding.id)}
-                  className={clsx("flex w-full items-start gap-3 border-l-4 px-4 py-3 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60", SEVERITY_BORDER[finding.severity])}
-                >
-                  <AlertTriangle className={clsx("mt-0.5 h-4 w-4 shrink-0",
-                    finding.severity === "Critical" ? "text-red-600 dark:text-red-400" :
-                    finding.severity === "High"     ? "text-orange-500 dark:text-orange-400" : "text-amber-500 dark:text-amber-400"
-                  )} />
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="text-[13px] font-semibold text-slate-950 dark:text-white">{finding.title}</p>
-                      <span className={clsx("rounded px-1.5 py-0.5 text-[10px] font-semibold",
-                        finding.severity === "Critical" ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400" :
-                        finding.severity === "High"     ? "bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-400" :
-                        "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400"
-                      )}>{finding.severity}</span>
-                    </div>
-                    <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">{finding.agent} · {finding.framework}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-medium text-slate-700 dark:text-slate-300">{finding.confidence}% conf.</span>
-                    {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" /> : <ChevronRight className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />}
-                  </div>
-                </button>
-                {isExpanded && (
-                  <div className={clsx("border-l-4 px-4 py-3", SEVERITY_BORDER[finding.severity], SEVERITY_BG[finding.severity])}>
-                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Evidence</p>
-                    <p className="text-[12px] leading-5 text-slate-700 dark:text-slate-300">{finding.evidence}</p>
-                    <div className="mt-3 flex gap-2">
-                      {isDev ? (
-                        <>
-                          <button onClick={() => navigateTo("/agents")} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[11px] font-medium text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
-                            <Clock className="h-3 w-3" /> Agent timeline
-                          </button>
-                          <button onClick={() => navigateTo("/council")} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[11px] font-medium text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
-                            Council deliberation →
-                          </button>
-                        </>
-                      ) : (
-                        <button onClick={() => navigateTo("/evidence")} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[11px] font-medium text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
-                          View evidence →
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </Card>
-
-      {/* Result summary when run is complete */}
-      {progress?.result_summary && Object.keys(progress.result_summary).length > 0 && (
-        <Card>
-          <CardHeader title="Run Summary" eyebrow="From backend result_summary" action={<Badge tone="green">Complete</Badge>} />
-          <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-4">
-            {Object.entries(progress.result_summary).map(([k, v]) => (
-              <Stat key={k} label={k.replace(/_/g, " ")} value={formatSummaryValue(v)} />
-            ))}
-          </div>
-        </Card>
-      )}
     </div>
   );
 }
@@ -693,11 +578,19 @@ function buildBackendContextProfile(report: GovernanceReport | null): Applicatio
   };
 }
 
-function AuditTargetSelector({ navigateTo, report }: { navigateTo: (path: string) => void; report: GovernanceReport | null }) {
+function AuditTargetSelector({
+  navigateTo,
+  report,
+  startExpanded,
+}: {
+  navigateTo: (path: string) => void;
+  report: GovernanceReport | null;
+  startExpanded?: boolean;
+}) {
   const backendSystem = report?.ai_system ?? null;
   const backendProfile = buildBackendContextProfile(report);
   const [selectedId, setSelectedId] = useState<string>(backendSystem?.id ?? mockSystems[0]?.id ?? "");
-  const [expanded, setExpanded]     = useState(false);
+  const [expanded, setExpanded]     = useState(!!startExpanded);
   const [activeSection, setActiveSection] = useState<string>("A");
 
   useEffect(() => {
@@ -783,13 +676,6 @@ function AuditTargetSelector({ navigateTo, report }: { navigateTo: (path: string
       {/* Expanded ACP panel */}
       {expanded && acp && (
         <div className="border-t border-slate-200 dark:border-slate-700">
-          {/* Callout */}
-          <div className="bg-brand-50 dark:bg-brand-950/20 border-b border-brand-100 dark:border-brand-900/40 px-4 py-2.5">
-            <p className="text-[11px] leading-5 text-brand-800 dark:text-brand-300">
-              <span className="font-semibold">Why this matters.</span> Without this profile, agents test a model in a lab — not in production. The Bias Auditor needs Section B to know which data reaches the model; the Risk Scorer needs Section E to compute blast radius; the Council needs all five sections to produce verdicts that reflect production reality.
-            </p>
-          </div>
-
           {/* Section tabs + content */}
           <div className="flex min-h-0">
             {/* Section tab strip */}
@@ -823,10 +709,7 @@ function AuditTargetSelector({ navigateTo, report }: { navigateTo: (path: string
             {acp.sections.filter((s) => s.letter === activeSection).map((sec) => (
               <div key={sec.letter} className="flex-1 p-4">
                 <div className="mb-3 flex items-center justify-between">
-                  <div>
-                    <p className="text-[13px] font-semibold text-slate-900 dark:text-white">{sec.title}</p>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500">{sec.owner}</p>
-                  </div>
+                  <p className="text-[13px] font-semibold text-slate-900 dark:text-white">{sec.title}</p>
                   <span className="flex h-6 w-6 items-center justify-center rounded bg-brand-600 text-[11px] font-bold text-white">{sec.letter}</span>
                 </div>
                 <div className="grid gap-1.5 sm:grid-cols-2">
@@ -854,7 +737,6 @@ function AuditTargetSelector({ navigateTo, report }: { navigateTo: (path: string
                       ? "border-brand-300 dark:border-brand-700 bg-brand-50 dark:bg-brand-950/30 text-brand-700 dark:text-brand-400"
                       : "border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-400 dark:text-slate-500 line-through"
                   )}
-                  title={fw.desc}
                 >
                   {fw.name}
                 </span>
