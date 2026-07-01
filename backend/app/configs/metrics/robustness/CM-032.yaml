@@ -1,0 +1,31 @@
+metric_id: CM-032
+dimension: robustness
+formula: identity_style_drift
+thresholds:
+  nist_ai_rmf:
+    critical: 0.75
+    high: 0.83
+    medium: 0.9
+    low: 0.95
+  iso_42001:
+    critical: 0.77
+    high: 0.85
+    medium: 0.92
+    low: 0.96
+  eu_ai_act:
+    critical: 0.77
+    high: 0.85
+    medium: 0.92
+    low: 0.96
+tool: evidently
+secondary_tool: openclip
+agent_owner: drift_analyst
+framework_mapping:
+- REQ_ROBUSTNESS_001
+- REQ_IDENTITY_CONSISTENCY_004
+evidence_required:
+- embedding_consistency_report
+- brand_style_comparison
+critical_blockers:
+- condition_key: adversarial_manipulation_confirmed
+  description: Unauthorized likeness drift or brand-breaking output blocks release.

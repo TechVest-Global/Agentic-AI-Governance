@@ -1,0 +1,759 @@
+export const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "http://127.0.0.1:8000/api/v1";
+
+
+export type BackendAISystem = {
+  id: string;
+  name: string;
+  description?: string | null;
+  owner: string;
+  system_type: string;
+  risk_tier: "low" | "medium" | "high";
+  deployment_environment: string;
+  selected_frameworks: string[];
+  model_provider: string;
+  model_name?: string | null;
+  model_version?: string | null;
+  target_endpoint_ref?: string | null;
+  metadata_json: Record<string, unknown>;
+  status: "registered" | "active" | "inactive" | "archived";
+  created_at: string;
+  updated_at?: string | null;
+};
+
+export type BackendAISystemCreate = {
+  name: string;
+  description?: string | null;
+  owner: string;
+  system_type: string;
+  risk_tier: "low" | "medium" | "high";
+  deployment_environment: string;
+  selected_frameworks: string[];
+  model_provider: string;
+  model_name?: string | null;
+  model_version?: string | null;
+  target_endpoint_ref?: string | null;
+  metadata_json?: Record<string, unknown>;
+};
+
+export type BackendAISystemUpdate = Partial<BackendAISystemCreate>;
+
+export type BackendAISystemCapability = {
+  id: string;
+  ai_system_id: string;
+  name: string;
+  description?: string | null;
+  capability_type: "inference" | "retrieval" | "generation" | "action" | "integration" | "other";
+  endpoint_ref: string;
+  http_method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  input_schema: Record<string, unknown>;
+  output_schema: Record<string, unknown>;
+  permissions: string[];
+  side_effect_level: "none" | "read" | "write" | "destructive";
+  requires_human_review: boolean;
+  enabled: boolean;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+  updated_at?: string | null;
+};
+
+export type BackendAISystemCapabilityCreate = Omit<
+  BackendAISystemCapability,
+  "id" | "ai_system_id" | "created_at" | "updated_at"
+>;
+
+export type EvaluationRun = {
+  id: string;
+  ai_system_id: string;
+  selected_frameworks: string[];
+  selected_metrics: string[];
+  status: string;
+  current_phase: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  result_summary?: Record<string, unknown> | null;
+  error_summary?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at?: string | null;
+};
+
+export type VerdictObjection = {
+  objection_id: string;
+  target_agent?: string | null;
+  category: string;
+  argument: string;
+  suggested_fix: string;
+  remediation_hint?: string | null;
+};
+
+export type VerdictRequiredAction = {
+  action: string;
+  severity: string;
+  owner: string;
+  context?: string | null;
+};
+
+export type Verdict = {
+  id: string;
+  run_id: string;
+  confidence_score: number;
+  action_tier: string;
+  label: string;
+  synthesis?: string | null;
+  objections: VerdictObjection[];
+  reasoning?: string | null;
+  required_actions: VerdictRequiredAction[];
+  created_at: string;
+};
+
+export type GovernanceReport = {
+  run: EvaluationRun;
+  ai_system: BackendAISystem;
+  context_profile?: ContextProfile | null;
+  capabilities: BackendAISystemCapability[];
+  metric_plan?: RunMetricPlan;
+  agent_executions: AgentExecution[];
+  evidence: EvidenceRecord[];
+  metric_results: MetricResult[];
+  findings: BackendFinding[];
+  verdict?: Verdict | null;
+  counts: Record<string, number>;
+  state_chain: {
+    valid: boolean;
+    entry_count: number;
+  };
+};
+
+export type FrameworkControlAssessment = {
+  framework_id: string;
+  framework_name: string;
+  framework_version: string;
+  control_ref: string;
+  control_title?: string | null;
+  control_category?: string | null;
+  jurisdiction?: string | null;
+  status: "passed" | "failed" | "needs_review" | "not_evaluated";
+  metric_ids: string[];
+  passed_metric_count: number;
+  failed_metric_count: number;
+  pending_metric_count: number;
+  finding_count: number;
+  evidence_requirements: string[];
+};
+
+export type FrameworkComplianceMap = {
+  run_id: string;
+  ai_system_id: string;
+  selected_frameworks: string[];
+  control_count: number;
+  status_counts: Record<string, number>;
+  controls: FrameworkControlAssessment[];
+};
+
+export type AgentExecution = {
+  id: string;
+  run_id: string;
+  agent_name: string;
+  status: "pending" | "running" | "completed" | "failed";
+  finding_count: number;
+  started_at?: string | null;
+  completed_at?: string | null;
+  error_summary?: Record<string, unknown> | null;
+  metadata_json: Record<string, unknown>;
+};
+
+export type AuditLedgerEntry = {
+  id: string;
+  run_id: string;
+  event_type: string;
+  actor_type: string;
+  actor_id?: string | null;
+  payload: Record<string, unknown>;
+  previous_hash?: string | null;
+  entry_hash: string;
+  created_at: string;
+};
+
+export type AuditLedgerVerification = {
+  valid: boolean;
+  entry_count: number;
+  failed_entry_id?: string | null;
+  reason?: string | null;
+};
+
+export type CouncilDeliberation = {
+  run_id: string;
+  verdict: Verdict;
+  finding_count: number;
+  open_finding_count: number;
+  metric_result_count: number;
+  failed_metric_count: number;
+  pending_metric_count: number;
+  highest_severity?: string | null;
+  created_verdict: boolean;
+};
+
+export type FindingSeverity = "info" | "low" | "medium" | "high" | "critical";
+
+export type BackendFinding = {
+  id: string;
+  run_id: string;
+  finding_type: string;
+  title: string;
+  summary: string;
+  severity: FindingSeverity;
+  confidence: number;
+  dimension: string;
+  framework_refs: string[];
+  evidence_ids: string[];
+  agent_name?: string | null;
+  recommended_action?: string | null;
+  status: string;
+  created_at: string;
+};
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+    ...init,
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `Request failed with ${response.status}`);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  return response.json() as Promise<T>;
+}
+
+export type MetricConfig = {
+  id: string;
+  metric_id: string;
+  name: string;
+  dimension: string;
+  primary_agent: string;
+  framework_ids: string[];
+  enabled: boolean;
+};
+
+export type EvaluationRunCreatePayload = {
+  ai_system_id: string;
+  selected_frameworks: string[];
+  selected_metrics: string[];
+};
+
+export type OrchestrationResult = {
+  run_id: string;
+  metric_execution: { metric_results_created: number; evidence_created: number };
+  agent_run: { findings_created: number; agents_run: Array<{ agent_name: string }> };
+  council: CouncilDeliberation;
+  report: GovernanceReport;
+};
+
+export async function getLatestEvaluationRun(): Promise<EvaluationRun | null> {
+  const runs = await request<EvaluationRun[]>("/evaluation-runs?limit=1");
+  return runs[0] ?? null;
+}
+
+export async function listMetrics(): Promise<MetricConfig[]> {
+  return request<MetricConfig[]>("/metrics?enabled=true&limit=100");
+}
+
+export async function createEvaluationRun(payload: EvaluationRunCreatePayload): Promise<EvaluationRun> {
+  return request<EvaluationRun>("/evaluation-runs", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function orchestrateRun(runId: string, mockScore = 0.3): Promise<{ run_id: string; status: string }> {
+  return request<{ run_id: string; status: string }>(`/evaluation-runs/${runId}/orchestrate`, {
+    method: "POST",
+    // logs: [] (rather than omitted) makes the backend actually run Context Assembly —
+    // an explicit empty list still executes the layer, just with nothing to analyze.
+    // evaluator_name: "threshold" scores metrics deterministically from each metric's
+    // real threshold_rules instead of the "mock" default, which never computes a real score.
+    body: JSON.stringify({ mock_score: mockScore, force_metric_status: "failed", evaluator_name: "threshold", requested_by: "frontend", notes: "Triggered from UI.", logs: [] }),
+  });
+}
+
+export async function listEvaluationRuns(limit = 25): Promise<EvaluationRun[]> {
+  return request<EvaluationRun[]>(`/evaluation-runs?limit=${limit}`);
+}
+
+export async function getGovernanceReport(runId: string): Promise<GovernanceReport> {
+  return request<GovernanceReport>(`/evaluation-runs/${runId}/report`);
+}
+
+export async function getFindings(runId: string): Promise<BackendFinding[]> {
+  return request<BackendFinding[]>(`/evaluation-runs/${runId}/findings?limit=100`);
+}
+
+export async function getFrameworkMap(runId: string): Promise<FrameworkComplianceMap> {
+  return request<FrameworkComplianceMap>(`/evaluation-runs/${runId}/framework-map`);
+}
+
+export async function getAgentExecutions(runId: string): Promise<AgentExecution[]> {
+  return request<AgentExecution[]>(`/evaluation-runs/${runId}/agents/executions`);
+}
+
+export async function getAuditLedger(runId: string): Promise<AuditLedgerEntry[]> {
+  return request<AuditLedgerEntry[]>(`/evaluation-runs/${runId}/ledger`);
+}
+
+export async function verifyAuditLedger(runId: string): Promise<AuditLedgerVerification> {
+  return request<AuditLedgerVerification>(`/evaluation-runs/${runId}/ledger/verify`);
+}
+
+export async function runCouncilDeliberation(runId: string): Promise<CouncilDeliberation> {
+  return request<CouncilDeliberation>(`/evaluation-runs/${runId}/council/deliberate`, {
+    method: "POST",
+    body: JSON.stringify({
+      requested_by: "frontend",
+      notes: "Triggered from Council Deliberation page.",
+    }),
+  });
+}
+
+export async function listAISystems(): Promise<BackendAISystem[]> {
+  return request<BackendAISystem[]>("/ai-systems");
+}
+
+export async function createAISystem(payload: BackendAISystemCreate): Promise<BackendAISystem> {
+  return request<BackendAISystem>("/ai-systems", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateAISystem(systemId: string, payload: BackendAISystemUpdate): Promise<BackendAISystem> {
+  return request<BackendAISystem>(`/ai-systems/${systemId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteAISystem(systemId: string): Promise<void> {
+  await request<void>(`/ai-systems/${systemId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function createAISystemCapability(
+  systemId: string,
+  payload: BackendAISystemCapabilityCreate,
+): Promise<BackendAISystemCapability> {
+  return request<BackendAISystemCapability>(`/ai-systems/${systemId}/capabilities`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/* ──────────────────────────────────────────────────────────── Evidence ── */
+
+export type EvidenceRecord = {
+  id: string;
+  run_id: string;
+  ai_system_capability_id?: string | null;
+  source_type: string;
+  source_name: string;
+  tool_name?: string | null;
+  raw_score?: number | null;
+  normalized_score?: number | null;
+  threshold?: number | null;
+  passed?: boolean | null;
+  trace_id?: string | null;
+  sensitivity?: string | null;
+  payload?: Record<string, unknown> | null;
+  created_at: string;
+};
+
+export async function listEvidence(
+  runId: string,
+  params: { source_type?: string; source_name?: string; limit?: number } = {},
+): Promise<EvidenceRecord[]> {
+  const query = new URLSearchParams({ limit: String(params.limit ?? 100) });
+  if (params.source_type) query.set("source_type", params.source_type);
+  if (params.source_name) query.set("source_name", params.source_name);
+  return request<EvidenceRecord[]>(`/evaluation-runs/${runId}/evidence?${query.toString()}`);
+}
+
+export async function getEvidence(runId: string, evidenceId: string): Promise<EvidenceRecord> {
+  return request<EvidenceRecord>(`/evaluation-runs/${runId}/evidence/${evidenceId}`);
+}
+
+/* ─────────────────────────────────────────────────────────── Verdict ── */
+
+/** Fetch the single verdict for a run (404 → null). */
+export async function getRunVerdict(runId: string): Promise<Verdict | null> {
+  try {
+    return await request<Verdict>(`/evaluation-runs/${runId}/verdict`);
+  } catch {
+    return null;
+  }
+}
+
+/* ──────────────────────────────────────────────────────── Metric plan ── */
+
+export type RunMetricPlanEntry = {
+  metric_id: string;
+  name: string;
+  dimension: string;
+  tool_name?: string | null;
+  primary_agent?: string | null;
+  framework_ids: string[];
+  probe_budget?: number | null;
+  threshold?: number | null;
+  enabled: boolean;
+};
+
+export type RunMetricPlan = {
+  run_id: string;
+  ai_system_id: string;
+  selected_frameworks: string[];
+  metric_count: number;
+  control_count: number;
+  metrics: RunMetricPlanEntry[];
+};
+
+export async function getRunMetricPlan(runId: string): Promise<RunMetricPlan> {
+  return request<RunMetricPlan>(`/evaluation-runs/${runId}/metric-plan`);
+}
+
+/* ────────────────────────────────────────────── Evaluation plan (orchestrator) ── */
+
+export type AgentPlanItem = {
+  agent_name: string;
+  activated: boolean;
+  priority: "high" | "medium" | "low";
+  probe_budget: number;
+  assigned_metric_ids: string[];
+  target_dimensions: string[];
+  target_controls: string[];
+  coverage_gap_ids: string[];
+  instructions: string;
+  rationale: string;
+};
+
+export type PriorityTarget = {
+  dimension: string;
+  severity: string;
+  reason: string;
+  control_refs: string[];
+  gap_ids: string[];
+};
+
+export type EvaluationPlanRead = {
+  run_id: string;
+  ai_system_id: string;
+  state_sequence_number: number;
+  state_entry_hash: string;
+  generated_at: string;
+  risk_tier: string;
+  selected_frameworks: string[];
+  metric_count: number;
+  coverage_gap_count: number;
+  probe_budget_total: number;
+  probe_budget_allocated: number;
+  activated_agents: AgentPlanItem[];
+  priority_targets: PriorityTarget[];
+  risk_rationale: string;
+  counts: Record<string, number>;
+};
+
+export async function getEvaluationPlan(runId: string): Promise<EvaluationPlanRead | null> {
+  try {
+    return await request<EvaluationPlanRead>(`/evaluation-runs/${runId}/evaluation-plan`);
+  } catch {
+    return null;
+  }
+}
+
+/* ────────────────────────────────────────────── Context assembly ── */
+
+export type CoverageGapRead = {
+  gap_id: string;
+  framework_id: string;
+  category: string;
+  dimension: string;
+  severity: string;
+  description: string;
+  control_refs: string[];
+  recommended_probe_id?: string | null;
+  recommended_action: string;
+  expected: string[];
+  observed: string[];
+};
+
+export type LogAnalysisSummary = {
+  total_requests: number;
+  empty: boolean;
+  request_category_counts: Record<string, number>;
+  demographic_coverage: Record<string, number>;
+  jurisdiction_coverage: Record<string, number>;
+  outcome_counts: Record<string, number>;
+  modality_counts: Record<string, number>;
+  pii_request_count: number;
+  flagged_request_count: number;
+  distinct_request_categories: number;
+  distinct_demographic_groups: number;
+  distinct_jurisdictions: number;
+  distinct_outcomes: number;
+  observed_request_categories: string[];
+  observed_demographic_groups: string[];
+};
+
+export type RegulatoryContextRead = {
+  selected_frameworks: string[];
+  resolved_frameworks: string[];
+  missing_frameworks: string[];
+  control_count: number;
+};
+
+export type ContextAssemblyRead = {
+  run_id: string;
+  state_sequence_number: number;
+  state_entry_hash: string;
+  generated_at: string;
+  log_analysis: LogAnalysisSummary;
+  regulatory_context: RegulatoryContextRead;
+  coverage_gaps: CoverageGapRead[];
+  gap_count: number;
+  highest_gap_severity?: string | null;
+  counts: Record<string, number>;
+};
+
+export async function getContextAssembly(runId: string): Promise<ContextAssemblyRead | null> {
+  try {
+    return await request<ContextAssemblyRead>(`/evaluation-runs/${runId}/context-assembly`);
+  } catch {
+    return null;
+  }
+}
+
+/* ─────────────────────────────────────────────────── Context profile ── */
+
+export type ContextProfile = {
+  id: string;
+  ai_system_id: string;
+  identity_purpose: Record<string, unknown>;
+  pre_model_controls: Record<string, unknown>;
+  model_configuration: Record<string, unknown>;
+  post_model_controls: Record<string, unknown>;
+  integration_context: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string | null;
+};
+
+export async function getContextProfile(systemId: string): Promise<ContextProfile | null> {
+  try {
+    return await request<ContextProfile>(`/ai-systems/${systemId}/context-profile`);
+  } catch {
+    return null;
+  }
+}
+
+export async function upsertContextProfile(
+  systemId: string,
+  payload: Partial<Omit<ContextProfile, "id" | "ai_system_id" | "created_at" | "updated_at">>,
+): Promise<ContextProfile> {
+  return request<ContextProfile>(`/ai-systems/${systemId}/context-profile`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listCapabilities(systemId: string): Promise<BackendAISystemCapability[]> {
+  return request<BackendAISystemCapability[]>(`/ai-systems/${systemId}/capabilities?limit=100`);
+}
+
+/* ─────────────────────────────────────────────────── Metric results ── */
+
+export type MetricResult = {
+  id: string;
+  run_id: string;
+  metric_id: string;
+  dimension: string;
+  tool_name?: string | null;
+  status: string;
+  raw_score?: number | null;
+  normalized_score?: number | null;
+  threshold?: number | null;
+  passed?: boolean | null;
+  evidence_ids: string[];
+  ai_system_capability_id?: string | null;
+  created_at: string;
+};
+
+export async function listMetricResults(runId: string, limit = 100): Promise<MetricResult[]> {
+  return request<MetricResult[]>(`/evaluation-runs/${runId}/metric-results?limit=${Math.min(limit, 100)}`);
+}
+
+/* ─────────────────────────────────────────────── Governance state ── */
+
+export type GovernanceStateEntry = {
+  id: string;
+  run_id: string;
+  entry_type: string;
+  source: string;
+  phase: string;
+  sequence_number: number;
+  payload?: Record<string, unknown> | null;
+  previous_hash?: string | null;
+  entry_hash: string;
+  created_at: string;
+};
+
+export type ChainVerification = {
+  valid: boolean;
+  entry_count: number;
+  failed_sequence?: number | null;
+  failed_entry_id?: string | null;
+  reason?: string | null;
+};
+
+export async function listGovernanceState(runId: string, limit = 200): Promise<GovernanceStateEntry[]> {
+  return request<GovernanceStateEntry[]>(`/evaluation-runs/${runId}/state?limit=${limit}`);
+}
+
+export async function verifyGovernanceState(runId: string): Promise<ChainVerification> {
+  return request<ChainVerification>(`/evaluation-runs/${runId}/state/verify`);
+}
+
+/* ───────────────────────────────────────────── Framework mappings ── */
+
+export type FrameworkMapping = {
+  id: string;
+  framework_id: string;
+  framework_name: string;
+  framework_version?: string | null;
+  control_ref: string;
+  control_title?: string | null;
+  control_category?: string | null;
+  jurisdiction?: string | null;
+  requirement_text?: string | null;
+  metric_ids: string[];
+  agent_names?: string[];
+  risk_tiers?: string[];
+  evidence_requirements?: string[];
+  enabled: boolean;
+  metadata_json?: Record<string, unknown>;
+};
+
+export async function listFrameworkMappings(params: { framework_id?: string; limit?: number } = {}): Promise<FrameworkMapping[]> {
+  const query = new URLSearchParams({ limit: String(Math.min(params.limit ?? 100, 100)) });
+  if (params.framework_id) query.set("framework_id", params.framework_id);
+  return request<FrameworkMapping[]>(`/framework-mappings?${query.toString()}`);
+}
+
+/* ────────────────────────────────────────────── Metric configs ── */
+
+export type MetricConfigFull = {
+  id: string;
+  metric_id: string;
+  name: string;
+  description?: string | null;
+  dimension: string;
+  primary_agent?: string | null;
+  tool_name?: string | null;
+  framework_ids: string[];
+  modality?: string | null;
+  threshold_rules?: Record<string, unknown> | null;
+  scoring_config?: Record<string, unknown> | null;
+  version?: string | null;
+  enabled: boolean;
+  metadata_json?: Record<string, unknown>;
+};
+
+export async function listMetricConfigs(params: { dimension?: string; framework_id?: string; limit?: number } = {}): Promise<MetricConfigFull[]> {
+  const query = new URLSearchParams({ limit: String(Math.min(params.limit ?? 100, 100)) });
+  if (params.dimension) query.set("dimension", params.dimension);
+  if (params.framework_id) query.set("framework_id", params.framework_id);
+  return request<MetricConfigFull[]>(`/metrics?${query.toString()}`);
+}
+
+/* ──────────────────────────────────────────────── LLM call log ── */
+
+export type LlmCall = {
+  id: string;
+  run_id: string;
+  agent_name?: string | null;
+  task: string;
+  call_type: string;
+  model?: string | null;
+  deployment_name?: string | null;
+  client_mode: string;
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  total_tokens?: number | null;
+  estimated_cost_usd?: number | null;
+  latency_ms?: number | null;
+  status: string;
+  request_chars?: number | null;
+  response_chars?: number | null;
+  trace_id?: string | null;
+  policy_flags?: unknown[];
+  created_at: string;
+  prompt_text?: string | null;
+  response_text?: string | null;
+};
+
+export type LlmCallLog = {
+  run_id: string;
+  call_count: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_tokens: number;
+  estimated_total_cost_usd: number;
+  live_call_count: number;
+  mock_call_count: number;
+  error_count: number;
+  calls: LlmCall[];
+};
+
+export async function getLlmCalls(runId: string): Promise<LlmCallLog> {
+  return request<LlmCallLog>(`/evaluation-runs/${runId}/llm-calls`);
+}
+
+/* ───────────────────────────────────────────── Run lifecycle ── */
+
+export async function startRun(runId: string): Promise<EvaluationRun> {
+  return request<EvaluationRun>(`/evaluation-runs/${runId}/start`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function cancelRun(runId: string): Promise<EvaluationRun> {
+  return request<EvaluationRun>(`/evaluation-runs/${runId}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ reason: "Cancelled from frontend." }),
+  });
+}
+
+export async function getEvaluationRun(runId: string): Promise<EvaluationRun> {
+  return request<EvaluationRun>(`/evaluation-runs/${runId}`);
+}
+
+const TERMINAL_STATUSES = new Set(["completed", "report_ready", "failed", "cancelled", "canceled"]);
+
+export async function waitForRunCompletion(
+  runId: string,
+  onProgress?: (run: EvaluationRun) => void,
+  signal?: AbortSignal,
+): Promise<EvaluationRun> {
+  while (true) {
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    const run = await getEvaluationRun(runId);
+    onProgress?.(run);
+    if (TERMINAL_STATUSES.has(run.status)) return run;
+    await new Promise((res) => setTimeout(res, 3000));
+  }
+}

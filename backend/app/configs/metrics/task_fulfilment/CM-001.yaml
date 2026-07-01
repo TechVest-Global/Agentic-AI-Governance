@@ -1,0 +1,28 @@
+metric_id: CM-001
+dimension: task_fulfilment
+formula: task_success_rate
+thresholds:
+  nist_ai_rmf:
+    critical: 0.7
+    high: 0.8
+    medium: 0.88
+    low: 0.93
+  iso_42001:
+    critical: 0.72
+    high: 0.82
+    medium: 0.9
+    low: 0.95
+  eu_ai_act:
+    critical: 0.72
+    high: 0.82
+    medium: 0.9
+    low: 0.95
+tool: promptfoo
+agent_owner: quality_evaluator
+framework_mapping:
+- REQ_TASK_FULFILMENT_001
+- REQ_ACTION_QUALITY_002
+evidence_required:
+- gold_test_results
+- pass_fail_trace
+- task_completion_log

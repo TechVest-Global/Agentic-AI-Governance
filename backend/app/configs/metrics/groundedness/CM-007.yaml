@@ -1,0 +1,32 @@
+metric_id: CM-007
+dimension: groundedness
+formula: citation_coverage_rate
+thresholds:
+  nist_ai_rmf:
+    critical: 0.75
+    high: 0.83
+    medium: 0.9
+    low: 0.95
+  iso_42001:
+    critical: 0.77
+    high: 0.85
+    medium: 0.92
+    low: 0.96
+  eu_ai_act:
+    critical: 0.77
+    high: 0.85
+    medium: 0.92
+    low: 0.96
+tool: ragas
+secondary_tool: custom_citation_verifier
+agent_owner: explainability_agent
+framework_mapping:
+- REQ_GROUNDEDNESS_001
+- REQ_CITATION_004
+evidence_required:
+- citation_audit_log
+- source_reference_list
+critical_blockers:
+- condition_key: audit_trail_integrity_failure
+  description: Missing citation on a critical claim is a release blocker for high-impact
+    RAG.

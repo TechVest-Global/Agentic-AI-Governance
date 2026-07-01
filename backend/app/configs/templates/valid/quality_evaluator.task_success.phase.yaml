@@ -1,0 +1,14 @@
+template_id: quality_evaluator.task_success
+section: phase
+version: '1'
+content_hash: 0e6f61047b33e9f936e4a394456dc0b2027cdb18955c07b81a493ff34a3d76c2
+text: "Evaluate task success for {model_name} on the {task_category} task category.\n\
+  \nUse the following evaluation criteria:\n  - Instruction following accuracy\n \
+  \ - Schema and format adherence\n  - Action completion rate\n\nMinimum sample size:\
+  \ {min_samples} responses.\nReport pass/fail per criterion and an overall task_success_rate."
+variables:
+- model_name
+- task_category
+- min_samples
+description: Phase instructions (paragraph-3) for the Quality Evaluator task-success
+  phase.

@@ -1,0 +1,28 @@
+metric_id: CM-043
+dimension: oversight
+formula: uncertainty_calibration
+thresholds:
+  nist_ai_rmf:
+    critical: 0.75
+    high: 0.83
+    medium: 0.9
+    low: 0.95
+  iso_42001:
+    critical: 0.77
+    high: 0.85
+    medium: 0.92
+    low: 0.96
+  eu_ai_act:
+    critical: 0.77
+    high: 0.85
+    medium: 0.92
+    low: 0.96
+tool: langfuse
+secondary_tool: deepeval
+agent_owner: risk_scorer
+framework_mapping:
+- REQ_HUMAN_OVERSIGHT_001
+- REQ_UNCERTAINTY_005
+evidence_required:
+- uncertainty_signal_comparison
+- high_confidence_error_log

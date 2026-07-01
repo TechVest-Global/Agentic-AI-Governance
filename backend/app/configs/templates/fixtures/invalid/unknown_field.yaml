@@ -1,0 +1,9 @@
+template_id: bias_auditor.probe_design
+section: role
+version: '1'
+content_hash: c0f88951e91bd7948f0b9a9616a48a43647a3c686acb72d09647d2c87e64e832
+text: Audit {model_name} for fairness.
+variables:
+- model_name
+description: 'Invalid fixture (I4): contains an unrecognised field.'
+unknown_field: this key is not allowed by the schema

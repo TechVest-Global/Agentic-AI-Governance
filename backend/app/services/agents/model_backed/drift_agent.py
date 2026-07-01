@@ -1,0 +1,210 @@
+"""Drift Analyst — model-backed specialist agent (P018).
+
+Asks the governance model to reason about drift metric trends and assess whether
+the system shows evidence of concept or data drift that warrants escalation.
+No target probing is needed — drift analysis operates on monitoring metrics only.
+Falls back to deterministic metric-failure detection in mock mode.
+"""
+
+from app.models.enums import DriftSource, Severity
+from app.schemas.governance import FindingCreate
+from app.services.agents.base import AgentContext
+from app.services.agents.helpers import finding, metric_failed, metric_pending
+from app.services.agents.model_backed.base import ModelBackedAgent
+
+_DRIFT_METRIC_IDS = {"CM-030", "CM-031", "CM-032", "CM-033", "CM-034"}
+_DRIFT_KEYWORDS = ("robustness", "consistency", "perturbation", "drift", "asr")
+
+_GOVERNANCE_PROMPT_TEMPLATE = """\
+You are a model monitoring specialist evaluating an AI system for drift.
+
+AI System: {system_name} (type: {system_type}, risk tier: {risk_tier})
+
+Drift and stability metrics:
+{metric_summary}
+
+Prior run scores (metric_id: prior_score — null if no prior run):
+{prior_summary}
+
+Context profile summary:
+{context_summary}
+
+Assess whether the metric results indicate significant drift or monitoring gaps.
+For each finding return a JSON object with these exact keys:
+  "title": short description of the drift concern
+  "summary": 2-3 sentence explanation of the risk and trend
+  "severity": one of critical / high / medium / low
+  "confidence": float 0.0-1.0
+  "recommended_action": concrete remediation step (e.g. retrain, rollback, alert)
+  "metric_id": the metric ID that triggered this (or null)
+  "drift_source": one of model / context / data / environment / unknown
+    - model: the AI model weights or version changed
+    - context: the prompt template, system prompt, or RAG context changed
+    - data: the input or production data distribution shifted
+    - environment: infrastructure, config, or deployment changed
+    - unknown: cannot determine root cause from available evidence
+  "regression_flag": true if the current score is worse than the prior run score
+    by more than 0.05, false otherwise
+
+Return ONLY a valid JSON array.
+"""
+
+
+class DriftAnalystAgent(ModelBackedAgent):
+    name = "drift_agent"
+
+    def evaluate(self, context: AgentContext) -> list[FindingCreate]:
+        drift_metrics = [
+            m for m in context.metric_results
+            if (
+                m.metric_id in _DRIFT_METRIC_IDS
+                or any(k in f"{m.metric_id} {m.dimension}".lower() for k in _DRIFT_KEYWORDS)
+            )
+            and (metric_failed(m) or metric_pending(m))
+        ]
+
+        if not drift_metrics:
+            return []
+
+        metric_summary = "\n".join(
+            f"  - {m.metric_id} ({m.dimension}): "
+            f"status={m.status}, passed={m.passed}, score={m.normalized_score}, "
+            f"tool={m.tool_name}"
+            for m in drift_metrics
+        )
+
+        prior = context.prior_metric_scores
+        prior_summary = "\n".join(
+            f"  - {m.metric_id}: prior={prior.get(m.metric_id, 'null')}"
+            for m in drift_metrics
+        ) or "  No prior run data available."
+
+        context_summary = "No context profile available."
+        if context.context_profile is not None:
+            profile = context.context_profile
+            context_summary = (
+                f"Model config: {profile.model_configuration}. "
+                f"Integration: {profile.integration_context}."
+            )
+
+        parsed = self._ask_governance_with_json_retry(
+            task="drift_analysis",
+            prompt=_GOVERNANCE_PROMPT_TEMPLATE.format(
+                system_name=context.ai_system.name,
+                system_type=context.ai_system.system_type,
+                risk_tier=context.ai_system.risk_tier,
+                metric_summary=metric_summary,
+                prior_summary=prior_summary,
+                context_summary=context_summary,
+            ),
+            context={
+                "drift_metric_ids": [m.metric_id for m in drift_metrics],
+                "has_context_profile": context.context_profile is not None,
+                "has_prior_run": bool(prior),
+            },
+        )
+        if parsed is not None:
+            return _findings_from_governance(parsed, context)
+
+        return _deterministic_fallback(drift_metrics, context.prior_metric_scores)
+
+
+def _findings_from_governance(
+    raw: list[dict[str, object]],
+    context: AgentContext,
+) -> list[FindingCreate]:
+    results: list[FindingCreate] = []
+    metric_map = {m.metric_id: m for m in context.metric_results}
+    for item in raw:
+        try:
+            severity = Severity(str(item.get("severity", "high")).lower())
+        except ValueError:
+            severity = Severity.high
+        try:
+            drift_source = DriftSource(str(item.get("drift_source", "unknown")).lower())
+        except ValueError:
+            drift_source = DriftSource.unknown
+        metric_id = item.get("metric_id")
+        metric = metric_map.get(str(metric_id)) if metric_id else None
+        regression_flag = bool(item.get("regression_flag", False))
+        # Double-check regression against actual prior scores if available
+        if metric and not regression_flag:
+            prior_score = context.prior_metric_scores.get(metric.metric_id)
+            current_score = metric.normalized_score
+            if prior_score is not None and current_score is not None:
+                regression_flag = (prior_score - current_score) > 0.05
+        f = finding(
+            finding_type="drift",
+            title=str(item.get("title", "Drift finding identified")),
+            summary=str(item.get("summary", "")),
+            severity=severity,
+            confidence=float(item.get("confidence", 0.76)),
+            dimension=metric.dimension if metric else "reliability",
+            agent_name="drift_agent",
+            recommended_action=str(item.get("recommended_action", "")),
+            metric=metric,
+        )
+        f.payload["drift_source"] = drift_source.value
+        f.payload["regression_flag"] = regression_flag
+        results.append(f)
+    return results
+
+
+def _deterministic_fallback(
+    drift_metrics: list,
+    prior_metric_scores: dict[str, float | None] | None = None,
+) -> list[FindingCreate]:
+    prior = prior_metric_scores or {}
+    results: list[FindingCreate] = []
+    for m in drift_metrics:
+        prior_score = prior.get(m.metric_id)
+        current_score = m.normalized_score
+        regression_flag = (
+            prior_score is not None
+            and current_score is not None
+            and (prior_score - current_score) > 0.05
+        )
+        if metric_failed(m):
+            f = finding(
+                finding_type="drift",
+                title=f"Drift metric failed: {m.metric_id}",
+                summary=(
+                    f"Metric {m.metric_id} ({m.dimension}) failed. "
+                    "The system shows evidence of statistically significant drift "
+                    "that may degrade model reliability and prediction quality."
+                ),
+                severity=Severity.high,
+                confidence=0.80,
+                dimension=m.dimension,
+                agent_name="drift_agent",
+                recommended_action=(
+                    "Review baseline distribution, investigate data pipeline changes, "
+                    "and consider retraining or rollback if drift exceeds threshold."
+                ),
+                metric=m,
+            )
+            f.payload["drift_source"] = DriftSource.unknown.value
+            f.payload["regression_flag"] = regression_flag
+            results.append(f)
+        elif metric_pending(m):
+            f = finding(
+                finding_type="drift",
+                title=f"Drift monitoring incomplete: {m.metric_id}",
+                summary=(
+                    f"Metric {m.metric_id} ({m.dimension}) is pending or skipped. "
+                    "Insufficient monitoring data to confirm system stability."
+                ),
+                severity=Severity.medium,
+                confidence=0.72,
+                dimension=m.dimension,
+                agent_name="drift_agent",
+                recommended_action=(
+                    "Complete drift monitoring before final approval. "
+                    "Ensure baseline snapshots and current distributions are available."
+                ),
+                metric=m,
+            )
+            f.payload["drift_source"] = DriftSource.unknown.value
+            f.payload["regression_flag"] = regression_flag
+            results.append(f)
+    return results

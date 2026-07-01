@@ -1,0 +1,27 @@
+metric_id: CM-006
+dimension: groundedness
+formula: faithfulness_score
+thresholds:
+  nist_ai_rmf:
+    critical: 0.7
+    high: 0.8
+    medium: 0.85
+    low: 0.92
+  iso_42001:
+    critical: 0.72
+    high: 0.82
+    medium: 0.87
+    low: 0.95
+  eu_ai_act:
+    critical: 0.72
+    high: 0.82
+    medium: 0.87
+    low: 0.95
+tool: ragas
+agent_owner: explainability_agent
+framework_mapping:
+- REQ_GROUNDEDNESS_001
+- REQ_FAITHFULNESS_003
+evidence_required:
+- claim_support_results
+- context_documents

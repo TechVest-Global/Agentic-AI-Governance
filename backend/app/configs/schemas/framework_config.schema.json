@@ -1,0 +1,266 @@
+{
+  "$defs": {
+    "AgentInstructionSet": {
+      "additionalProperties": false,
+      "description": "Per-agent, per-framework behavioural instructions.",
+      "properties": {
+        "focus": {
+          "minLength": 1,
+          "title": "Focus",
+          "type": "string"
+        },
+        "methodology": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Methodology",
+          "type": "array"
+        },
+        "output_format": {
+          "minLength": 1,
+          "title": "Output Format",
+          "type": "string"
+        }
+      },
+      "required": [
+        "focus",
+        "methodology",
+        "output_format"
+      ],
+      "title": "AgentInstructionSet",
+      "type": "object"
+    },
+    "CitationFormat": {
+      "additionalProperties": false,
+      "description": "How this framework's findings should be cited in reports.",
+      "properties": {
+        "template": {
+          "minLength": 1,
+          "title": "Template",
+          "type": "string"
+        },
+        "regulation_name": {
+          "minLength": 1,
+          "title": "Regulation Name",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "template",
+        "regulation_name",
+        "version"
+      ],
+      "title": "CitationFormat",
+      "type": "object"
+    },
+    "ProbeTemplate": {
+      "additionalProperties": false,
+      "description": "A framework-specific probe template for the misuse detector.",
+      "properties": {
+        "probe_id": {
+          "minLength": 1,
+          "title": "Probe Id",
+          "type": "string"
+        },
+        "category": {
+          "minLength": 1,
+          "title": "Category",
+          "type": "string"
+        },
+        "template": {
+          "minLength": 1,
+          "title": "Template",
+          "type": "string"
+        },
+        "variables": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Variables",
+          "type": "array"
+        }
+      },
+      "required": [
+        "probe_id",
+        "category",
+        "template"
+      ],
+      "title": "ProbeTemplate",
+      "type": "object"
+    },
+    "RegulationChunk": {
+      "additionalProperties": false,
+      "description": "A single extracted chunk of regulatory text for RAG / agent grounding.",
+      "properties": {
+        "chunk_id": {
+          "minLength": 1,
+          "title": "Chunk Id",
+          "type": "string"
+        },
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "content": {
+          "minLength": 1,
+          "title": "Content",
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        }
+      },
+      "required": [
+        "chunk_id",
+        "title",
+        "content"
+      ],
+      "title": "RegulationChunk",
+      "type": "object"
+    },
+    "SeverityRubric": {
+      "additionalProperties": false,
+      "description": "Scoring criteria for a single severity level.",
+      "properties": {
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "score_range": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Score Range",
+          "type": "array"
+        }
+      },
+      "required": [
+        "description",
+        "score_range"
+      ],
+      "title": "SeverityRubric",
+      "type": "object"
+    },
+    "SeverityTimeline": {
+      "additionalProperties": false,
+      "description": "Remediation SLA and escalation policy per severity level.",
+      "properties": {
+        "remediation_days": {
+          "minimum": 0,
+          "title": "Remediation Days",
+          "type": "integer"
+        },
+        "escalation_required": {
+          "title": "Escalation Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "remediation_days",
+        "escalation_required"
+      ],
+      "title": "SeverityTimeline",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Validates a whole regulation YAML file.\n\nrequirement_mapping resolves abstract keys (from MetricConfig.framework_mapping)\nto concrete regulatory clauses.  This file is the ONLY place clause references\nmay appear.",
+  "properties": {
+    "framework_id": {
+      "minLength": 1,
+      "title": "Framework Id",
+      "type": "string"
+    },
+    "display_name": {
+      "minLength": 1,
+      "title": "Display Name",
+      "type": "string"
+    },
+    "version": {
+      "minLength": 1,
+      "title": "Version",
+      "type": "string"
+    },
+    "regulation_text": {
+      "items": {
+        "$ref": "#/$defs/RegulationChunk"
+      },
+      "minItems": 1,
+      "title": "Regulation Text",
+      "type": "array"
+    },
+    "agent_instructions": {
+      "additionalProperties": {
+        "$ref": "#/$defs/AgentInstructionSet"
+      },
+      "title": "Agent Instructions",
+      "type": "object"
+    },
+    "evaluation_rubrics": {
+      "additionalProperties": {
+        "$ref": "#/$defs/SeverityRubric"
+      },
+      "title": "Evaluation Rubrics",
+      "type": "object"
+    },
+    "probe_library_extensions": {
+      "items": {
+        "$ref": "#/$defs/ProbeTemplate"
+      },
+      "title": "Probe Library Extensions",
+      "type": "array"
+    },
+    "citation_format": {
+      "$ref": "#/$defs/CitationFormat"
+    },
+    "severity_thresholds": {
+      "additionalProperties": {
+        "$ref": "#/$defs/SeverityTimeline"
+      },
+      "title": "Severity Thresholds",
+      "type": "object"
+    },
+    "requirement_mapping": {
+      "patternProperties": {
+        "^[A-Z][A-Z0-9_]+$": {
+          "type": "string"
+        }
+      },
+      "title": "Requirement Mapping",
+      "type": "object"
+    }
+  },
+  "required": [
+    "framework_id",
+    "display_name",
+    "version",
+    "regulation_text",
+    "agent_instructions",
+    "evaluation_rubrics",
+    "citation_format",
+    "severity_thresholds",
+    "requirement_mapping"
+  ],
+  "title": "FrameworkConfig",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

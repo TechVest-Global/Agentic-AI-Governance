@@ -1,0 +1,78 @@
+__pycache__/
+*.py[cod]
+*$py.class
+
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+.vite/
+
+venv/
+.venv/
+env/
+
+.env
+.env.*
+!.env.example
+
+*.sqlite
+*.sqlite3
+*.db
+
+node_modules/
+.next/
+dist/
+build/
+*.log
+*.err
+
+# Keep local planning/company docs out of GitHub.
+*.doc
+*.docx
+*.docm
+*.ppt
+*.pptx
+*.pptm
+*.xls
+*.xlsx
+*.xlsm
+~$*
+
+# Local/shareable progress reports that are not source documentation.
+docs/person1-backend-progress-*.html
+
+# Local team scheduling and assignment tracker; product/engineering truth lives
+# in the specification and companion technical documents.
+docs/PROJECT_PLAN.md
+
+# OS / IDE artifacts
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*.code-workspace
+
+# Alembic auto-generated migration scripts are source-controlled, but the
+# compiled __pycache__ inside migrations/ is not (already covered by __pycache__/).
+
+# Pytest and coverage artefacts
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# MyPy / Ruff / type-checker caches
+.mypy_cache/
+.ruff_cache/
+
+# Jupyter notebooks if any end up in the repo accidentally
+*.ipynb_checkpoints/
+
+# Temporary script outputs and scratchpad files
+*.tmp
+*.bak
