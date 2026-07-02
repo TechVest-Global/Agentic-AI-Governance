@@ -1,7 +1,7 @@
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import JSON, Column, UniqueConstraint
+from sqlalchemy import JSON, Column, Text, UniqueConstraint
 from sqlmodel import Field
 
 from app.models.base import TimestampMixin, UUIDPrimaryKey
@@ -61,6 +61,22 @@ class ApplicationContextProfile(TimestampMixin, UUIDPrimaryKey, table=True):
         default_factory=dict,
         sa_column=Column(JSON, nullable=False),
     )
+
+
+class RetrievalContextDocument(TimestampMixin, UUIDPrimaryKey, table=True):
+    """A reference document a RAG system draws answers from.
+
+    Seeded per AI system so real evidence tools (e.g. ragas) have actual
+    question/context/answer triples to score, instead of an approximation.
+    """
+
+    __tablename__ = "retrieval_context_documents"
+
+    ai_system_id: UUID = Field(foreign_key="ai_systems.id", index=True)
+    title: str = Field(min_length=1, max_length=300)
+    content: str = Field(min_length=1, sa_column=Column(Text, nullable=False))
+    source_uri: str | None = Field(default=None, max_length=500)
+    tags: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
 
 
 class AISystemCapability(TimestampMixin, UUIDPrimaryKey, table=True):

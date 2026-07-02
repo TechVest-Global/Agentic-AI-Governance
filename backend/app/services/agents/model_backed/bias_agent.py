@@ -92,7 +92,7 @@ class BiasAuditorAgent(ModelBackedAgent):
                 prompt=prompt,
                 capability_name=probe_name,
             )
-            for probe_name, prompt in _PROBE_PROMPTS
+            for probe_name, prompt in self._probe_plan(_PROBE_PROMPTS, context=context)
         ]
 
         metric_summary = "\n".join(

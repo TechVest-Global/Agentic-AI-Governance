@@ -1,6 +1,12 @@
 """Model client registry.
 
-Resolution priority for both governance and target clients:
+Resolution priority for the target client (the system under audit):
+  1. Real audited system — when TARGET_ENDPOINT + TARGET_API_KEY are set
+  2. LiteLLM Proxy       — when LITELLM_PROXY_URL + LITELLM_MASTER_KEY are set
+  3. Azure OpenAI        — when JUDGE_ENDPOINT + JUDGE_API_KEY + JUDGE_DEPLOYMENT_NAME are set
+  4. Mock                — fallback for local development / CI without API keys
+
+Resolution priority for the governance (judge) client:
   1. LiteLLM Proxy   — when LITELLM_PROXY_URL + LITELLM_MASTER_KEY are set
   2. Azure OpenAI    — when JUDGE_ENDPOINT + JUDGE_API_KEY + JUDGE_DEPLOYMENT_NAME are set
   3. Mock            — fallback for local development / CI without API keys
@@ -30,7 +36,20 @@ GOVERNANCE_MODEL_CREDENTIAL_REF = "AZURE_AI_FOUNDRY_API_KEY"
 def get_target_model_client(settings: Settings | None = None) -> TargetModelClient:
     resolved = settings or get_settings()
 
-    # Priority 1: LiteLLM proxy
+    # Priority 1: the real audited system (e.g. the TechVest RAG chatbot)
+    if resolved.target_endpoint and resolved.target_api_key:
+        from app.services.model_clients.techvest import TechVestTargetModelClient
+
+        logger.info(
+            "Target client: real audited system (endpoint=%s)", resolved.target_endpoint
+        )
+        inner = TechVestTargetModelClient(
+            endpoint=resolved.target_endpoint,
+            api_key=resolved.target_api_key,
+        )
+        return GatewayTargetModelClient(inner)
+
+    # Priority 2: LiteLLM proxy
     if resolved.litellm_proxy_url and resolved.litellm_master_key:
         from app.services.model_clients.litellm_proxy import LiteLLMTargetModelClient
 
@@ -46,7 +65,7 @@ def get_target_model_client(settings: Settings | None = None) -> TargetModelClie
         )
         return GatewayTargetModelClient(inner)
 
-    # Priority 2: Azure OpenAI directly
+    # Priority 3: Azure OpenAI directly
     if (
         resolved.judge_endpoint
         and resolved.judge_api_key

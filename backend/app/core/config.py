@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     azure_ai_foundry_project_name: str | None = None
     azure_ai_foundry_deployment_name: str | None = None
 
+    # Real audited-system endpoint (e.g. the TechVest RAG chatbot). Highest
+    # priority target client — probes the actual system under audit rather
+    # than a stand-in model.
+    target_endpoint: str | None = None
+    target_api_key: str | None = None
+
     # Judge model (Azure OpenAI) — powers the Deliberation Council agents
     judge_endpoint: str | None = None
     judge_api_key: str | None = None

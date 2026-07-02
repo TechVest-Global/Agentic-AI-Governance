@@ -291,12 +291,19 @@ def _apply_remediation(
         logger.info("re_probe: re-running specialist agent '%s'", target_agent)
         try:
             from app.schemas.governance import AgentRunCreate
+            from app.services import adaptive_orchestrator
             from app.services.specialist_agents.agent_execution import run_agents
+
+            try:
+                plan = adaptive_orchestrator.get_latest_plan(session, run_id=run_id)
+            except Exception:
+                plan = None
 
             run_agents(
                 session,
                 run_id=run_id,
                 payload=AgentRunCreate(agent_names=[target_agent]),
+                evaluation_plan=plan,
             )
         except Exception as exc:
             logger.error(

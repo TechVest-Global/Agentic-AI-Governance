@@ -3,7 +3,12 @@ from uuid import UUID
 from sqlmodel import Session, select
 
 from app.core.exceptions import ResourceConflictError, ResourceNotFoundError
-from app.models.ai_system import AISystem, AISystemCapability, ApplicationContextProfile
+from app.models.ai_system import (
+    AISystem,
+    AISystemCapability,
+    ApplicationContextProfile,
+    RetrievalContextDocument,
+)
 from app.models.base import utc_now
 from app.models.enums import AISystemStatus
 from app.schemas.governance import (
@@ -11,6 +16,7 @@ from app.schemas.governance import (
     AISystemCreate,
     AISystemUpdate,
     ApplicationContextProfileCreate,
+    RetrievalContextDocumentCreate,
 )
 
 
@@ -154,3 +160,51 @@ def upsert_context_profile(
     session.commit()
     session.refresh(profile)
     return profile
+
+
+def create_retrieval_context_document(
+    session: Session,
+    system_id: UUID,
+    payload: RetrievalContextDocumentCreate,
+) -> RetrievalContextDocument:
+    get_ai_system(session, system_id)
+    document = RetrievalContextDocument(ai_system_id=system_id, **payload.model_dump())
+    session.add(document)
+    session.commit()
+    session.refresh(document)
+    return document
+
+
+def list_retrieval_context_documents(
+    session: Session,
+    system_id: UUID,
+    *,
+    offset: int,
+    limit: int,
+) -> list[RetrievalContextDocument]:
+    get_ai_system(session, system_id)
+    statement = (
+        select(RetrievalContextDocument)
+        .where(RetrievalContextDocument.ai_system_id == system_id)
+        .order_by(RetrievalContextDocument.created_at.asc())
+        .offset(offset)
+        .limit(limit)
+    )
+    return list(session.exec(statement).all())
+
+
+def delete_retrieval_context_document(
+    session: Session,
+    system_id: UUID,
+    document_id: UUID,
+) -> None:
+    get_ai_system(session, system_id)
+    statement = select(RetrievalContextDocument).where(
+        RetrievalContextDocument.id == document_id,
+        RetrievalContextDocument.ai_system_id == system_id,
+    )
+    document = session.exec(statement).one_or_none()
+    if document is None:
+        raise ResourceNotFoundError("Retrieval context document", str(document_id))
+    session.delete(document)
+    session.commit()
