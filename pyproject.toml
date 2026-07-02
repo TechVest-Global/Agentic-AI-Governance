@@ -11,6 +11,7 @@ dependencies = [
     "psycopg[binary]>=3.1.0",
     "pydantic-settings>=2.2.0",
     "python-dotenv>=1.0.0",
+    "python-multipart>=0.0.7",
     "pyyaml>=6.0",
     "sqlmodel>=0.0.21",
     "uvicorn[standard]>=0.30.0",
@@ -55,6 +56,8 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.per-file-ignores]
 "backend/migrations/versions/*.py" = ["E501"]
+# Seed scripts embed long descriptive profile/prose strings verbatim.
+"backend/scripts/seed_*.py" = ["E501"]
 # conftest neutralizes credential env vars before importing app modules.
 "backend/tests/conftest.py" = ["E402"]
 

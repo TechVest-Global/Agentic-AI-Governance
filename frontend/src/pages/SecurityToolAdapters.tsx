@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bug,
   Shield,
@@ -24,6 +24,7 @@ import {
   type SecurityToolAdapter,
   type SecurityToolResult,
 } from "@/data/mockSecurityTools";
+import { getSecurityTools, type SecurityToolsStatus } from "@/api/governanceApi";
 
 /* ──────────────────────────────────────────────── helpers ── */
 
@@ -240,6 +241,25 @@ export function SecurityToolAdapters() {
   );
   const [runningId, setRunningId] = useState<string | null>(null);
 
+  // Live adapter availability from the backend (dependency installed + config
+  // present). Reflects what a real run would actually execute vs skip; null
+  // while loading and on error (page still renders the interface catalog).
+  const [live, setLive] = useState<SecurityToolsStatus | null>(null);
+  const [liveError, setLiveError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getSecurityTools()
+      .then((data) => {
+        if (!cancelled) setLive(data);
+      })
+      .catch((err) => {
+        if (!cancelled) setLiveError(err instanceof Error ? err.message : "unavailable");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const summary = useMemo(() => {
     const total = adapters.length;
     const installed = adapters.filter((a) => a.installed).length;
@@ -319,6 +339,76 @@ export function SecurityToolAdapters() {
         <MetricCard label="Real-ready" value={summary.realReady} icon={ShieldCheck} tone="brand" compact />
         <MetricCard label="Mock-only" value={summary.mockOnly} icon={Zap} tone="amber" compact />
       </div>
+
+      {/* Live backend adapter status — the real deal, not the mock catalog */}
+      <Card>
+        <CardHeader
+          eyebrow="Live backend status"
+          title="Real adapter availability"
+        />
+        <div className="px-5 py-4 text-[12.5px] leading-5 text-slate-600 dark:text-slate-300">
+          {liveError && (
+            <p className="text-amber-700 dark:text-amber-400">
+              Backend adapter status unavailable ({liveError}). Showing the interface catalog below.
+            </p>
+          )}
+          {!liveError && !live && <p>Loading live adapter status…</p>}
+          {live && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium text-ink dark:text-white">Target client:</span>
+                <Badge tone={live.target_client.live ? "green" : "amber"}>
+                  {live.target_client.adapter} · {live.target_client.mode}
+                </Badge>
+                {!live.target_client.live && (
+                  <span className="text-[11.5px] text-slate-400">
+                    Set TARGET_ENDPOINT + TARGET_API_KEY (or LiteLLM/Azure) to probe a real system.
+                  </span>
+                )}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-[12px]">
+                  <thead className="text-slate-400">
+                    <tr>
+                      <th className="py-1 pr-4 font-medium">Adapter</th>
+                      <th className="py-1 pr-4 font-medium">Category</th>
+                      <th className="py-1 pr-4 font-medium">Dependency</th>
+                      <th className="py-1 pr-4 font-medium">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {live.adapters.map((a) => (
+                      <tr key={a.key} className="border-t border-slate-100 dark:border-slate-800">
+                        <td className="py-1.5 pr-4 font-medium text-ink dark:text-white">{a.name}</td>
+                        <td className="py-1.5 pr-4">{a.category}</td>
+                        <td className="py-1.5 pr-4">
+                          {a.dependency ? (
+                            <Badge tone={a.dependency_installed ? "green" : "red"}>
+                              {a.dependency} {a.dependency_installed ? "installed" : "missing"}
+                            </Badge>
+                          ) : (
+                            <span className="text-slate-400">none</span>
+                          )}
+                        </td>
+                        <td className="py-1.5 pr-4">
+                          <Badge tone={a.available ? "green" : "amber"}>
+                            {a.available ? "Real · ready" : a.kind === "deterministic" ? "Deterministic" : "Skips"}
+                          </Badge>
+                          <span className="ml-2 text-[11px] text-slate-400">{a.detail}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[11.5px] text-slate-400 dark:text-slate-500">
+                {live.summary.available} of {live.summary.real} real adapters are ready to run now. Adapters
+                marked “Skips” are wired but idle until their Python package and/or judge/target config is present.
+              </p>
+            </div>
+          )}
+        </div>
+      </Card>
 
       {!canRunTools && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-[12.5px] text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">

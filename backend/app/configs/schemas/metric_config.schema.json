@@ -223,6 +223,34 @@
       },
       "title": "Critical Blockers",
       "type": "array"
+    },
+    "applicable_capability_types": {
+      "items": {
+        "enum": [
+          "inference",
+          "retrieval",
+          "generation",
+          "action",
+          "integration",
+          "other"
+        ],
+        "type": "string"
+      },
+      "title": "Applicable Capability Types",
+      "type": "array"
+    },
+    "applicable_modalities": {
+      "items": {
+        "enum": [
+          "text",
+          "audio",
+          "video",
+          "image"
+        ],
+        "type": "string"
+      },
+      "title": "Applicable Modalities",
+      "type": "array"
     }
   },
   "required": [

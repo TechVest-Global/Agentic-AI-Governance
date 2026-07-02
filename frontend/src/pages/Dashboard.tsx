@@ -34,6 +34,7 @@ import { useAppStore } from "@/store/useAppStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { personaForRole } from "@/lib/persona";
 import { useDashboardData, type DashboardData } from "@/hooks/useDashboardData";
+import { useChartTheme } from "@/hooks/useChartTheme";
 
 type DashboardTab = "Overview" | "Compliance" | "Risk Analysis" | "Agent Performance" | "Metrics & Sources";
 
@@ -42,16 +43,6 @@ type DashboardTab = "Overview" | "Compliance" | "Risk Analysis" | "Agent Perform
 const AUDITOR_TABS: DashboardTab[] = ["Overview", "Compliance", "Risk Analysis", "Agent Performance"];
 const DEVELOPER_TABS: DashboardTab[] = ["Overview", "Compliance", "Risk Analysis", "Agent Performance", "Metrics & Sources"];
 const DASHBOARD_TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
-
-const tooltipProps = {
-  contentStyle: {
-    borderRadius: 10,
-    border: "1px solid #e7e9f0",
-    boxShadow: "0 8px 24px -8px rgba(16,24,40,0.18)",
-    fontSize: 12,
-  },
-  labelStyle: { color: "#0d1224", fontWeight: 600 },
-} as const;
 
 export function Dashboard() {
   const [activeTab, setActiveTab] = useState<DashboardTab>("Overview");
@@ -179,6 +170,7 @@ function DashboardHeader({ data }: { data: DashboardData }) {
 }
 
 function OverviewTab({ data }: { data: DashboardData }) {
+  const chart = useChartTheme();
   return (
     <div className="grid gap-5 xl:grid-cols-2">
       <ChartCard eyebrow="Council Confidence per Run vs. Target (85%)" title="Governance Confidence Trend">
@@ -191,10 +183,10 @@ function OverviewTab({ data }: { data: DashboardData }) {
                   <stop offset="95%" stopColor="#0d9488" stopOpacity={0.02} />
                 </linearGradient>
               </defs>
-              <CartesianGrid stroke="#eef0f6" strokeDasharray="3 3" />
-              <XAxis dataKey="label" tickLine={false} axisLine={{ stroke: "#cbd2e0" }} tick={{ fontSize: 11, fill: "#64748b" }} />
-              <YAxis domain={[0, 100]} tickLine={false} axisLine={{ stroke: "#cbd2e0" }} tick={{ fontSize: 11, fill: "#64748b" }} />
-              <Tooltip {...tooltipProps} />
+              <CartesianGrid stroke={chart.grid} strokeDasharray="3 3" />
+              <XAxis dataKey="label" tickLine={false} axisLine={{ stroke: chart.axisLine }} tick={{ fontSize: 11, fill: chart.tick }} />
+              <YAxis domain={[0, 100]} tickLine={false} axisLine={{ stroke: chart.axisLine }} tick={{ fontSize: 11, fill: chart.tick }} />
+              <Tooltip {...chart.tooltip} />
               <Area type="monotone" dataKey="score" name="Confidence" stroke="#0d9488" strokeWidth={2} fill="url(#confidenceFill)" />
               <Line type="monotone" dataKey={() => 85} stroke="#ef4444" strokeDasharray="4 4" dot={false} />
             </AreaChart>
@@ -209,10 +201,10 @@ function OverviewTab({ data }: { data: DashboardData }) {
           <>
             <ResponsiveContainer width="100%" height={230}>
               <BarChart data={data.outcomeMix} margin={{ left: -18, right: 10, top: 8, bottom: 0 }}>
-                <CartesianGrid stroke="#eef0f6" strokeDasharray="3 3" />
-                <XAxis dataKey="label" tickLine={false} axisLine={{ stroke: "#cbd2e0" }} tick={{ fontSize: 11, fill: "#64748b" }} />
-                <YAxis allowDecimals={false} tickLine={false} axisLine={{ stroke: "#cbd2e0" }} tick={{ fontSize: 11, fill: "#64748b" }} />
-                <Tooltip {...tooltipProps} />
+                <CartesianGrid stroke={chart.grid} strokeDasharray="3 3" />
+                <XAxis dataKey="label" tickLine={false} axisLine={{ stroke: chart.axisLine }} tick={{ fontSize: 11, fill: chart.tick }} />
+                <YAxis allowDecimals={false} tickLine={false} axisLine={{ stroke: chart.axisLine }} tick={{ fontSize: 11, fill: chart.tick }} />
+                <Tooltip {...chart.tooltip} />
                 <Bar dataKey="value" name="Runs" radius={[4, 4, 0, 0]}>
                   {data.outcomeMix.map((entry) => (
                     <Cell key={entry.label} fill={entry.color} />
@@ -237,7 +229,7 @@ function OverviewTab({ data }: { data: DashboardData }) {
                     <Cell key={entry.name} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip {...tooltipProps} />
+                <Tooltip {...chart.tooltip} />
               </PieChart>
             </ResponsiveContainer>
             <div className="space-y-3">
@@ -261,10 +253,10 @@ function OverviewTab({ data }: { data: DashboardData }) {
         {data.severityBreakdown.length > 0 ? (
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={data.severityBreakdown} margin={{ left: -18, right: 10, top: 8, bottom: 0 }}>
-              <CartesianGrid stroke="#eef0f6" strokeDasharray="3 3" />
-              <XAxis dataKey="severity" tickLine={false} axisLine={{ stroke: "#cbd2e0" }} tick={{ fontSize: 11, fill: "#64748b" }} />
-              <YAxis allowDecimals={false} tickLine={false} axisLine={{ stroke: "#cbd2e0" }} tick={{ fontSize: 11, fill: "#64748b" }} />
-              <Tooltip {...tooltipProps} />
+              <CartesianGrid stroke={chart.grid} strokeDasharray="3 3" />
+              <XAxis dataKey="severity" tickLine={false} axisLine={{ stroke: chart.axisLine }} tick={{ fontSize: 11, fill: chart.tick }} />
+              <YAxis allowDecimals={false} tickLine={false} axisLine={{ stroke: chart.axisLine }} tick={{ fontSize: 11, fill: chart.tick }} />
+              <Tooltip {...chart.tooltip} />
               <Bar dataKey="count" name="Findings" radius={[4, 4, 0, 0]}>
                 {data.severityBreakdown.map((entry) => (
                   <Cell key={entry.severity} fill={entry.color} />
@@ -281,6 +273,7 @@ function OverviewTab({ data }: { data: DashboardData }) {
 }
 
 function ComplianceTab({ data }: { data: DashboardData }) {
+  const chart = useChartTheme();
   if (data.frameworkCoverage.length === 0) {
     return <PanelEmpty label="No framework assessments yet" hint="Run an evaluation to map controls to frameworks." />;
   }
@@ -316,10 +309,10 @@ function ComplianceTab({ data }: { data: DashboardData }) {
       <ChartCard eyebrow="Pass Rate by Framework" title="Coverage Comparison">
         <ResponsiveContainer width="100%" height={260}>
           <BarChart data={data.frameworkCoverage} layout="vertical" margin={{ left: 18, right: 10, top: 8, bottom: 0 }}>
-            <CartesianGrid stroke="#eef0f6" strokeDasharray="3 3" />
-            <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11, fill: "#64748b" }} />
-            <YAxis type="category" dataKey="framework" width={120} tick={{ fontSize: 11, fill: "#64748b" }} />
-            <Tooltip {...tooltipProps} />
+            <CartesianGrid stroke={chart.grid} strokeDasharray="3 3" />
+            <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11, fill: chart.tick }} />
+            <YAxis type="category" dataKey="framework" width={120} tick={{ fontSize: 11, fill: chart.tick }} />
+            <Tooltip {...chart.tooltip} />
             <Bar dataKey="coverage" name="Coverage %" fill="#0d9488" radius={[0, 4, 4, 0]} />
           </BarChart>
         </ResponsiveContainer>

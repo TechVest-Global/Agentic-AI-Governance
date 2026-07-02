@@ -23,6 +23,13 @@ class CapabilityType(StrEnum):
     other = "other"
 
 
+class Modality(StrEnum):
+    text = "text"
+    audio = "audio"
+    video = "video"
+    image = "image"
+
+
 class SideEffectLevel(StrEnum):
     none = "none"
     read = "read"
@@ -52,6 +59,7 @@ class RunPhase(StrEnum):
     specialist_agents = "specialist_agents"
     deliberation_council = "deliberation_council"
     action_reporting = "action_reporting"
+    completed = "completed"
 
 
 class Severity(StrEnum):

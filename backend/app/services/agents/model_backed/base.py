@@ -1,9 +1,12 @@
 """Shared infrastructure for model-backed agents.
 
-Provides two building blocks every model-backed agent uses:
+Provides the building blocks every model-backed agent uses:
 - _probe_target(): send a probe to the audited system, sanitize + fence output
 - _ask_governance(): send a reasoning request to the governance model
 - _ask_governance_with_json_retry(): one automatic retry when response is non-JSON
+- _call_evidence_tool(): invoke a real evidence tool (garak/presidio/ragas/deepeval)
+  for one of this agent's owned metrics, so findings are informed by real tool
+  output rather than LLM reasoning alone
 
 The two clients are never mixed: target output is always fenced as UNTRUSTED
 evidence before it enters a governance prompt.
@@ -14,6 +17,7 @@ import logging
 from dataclasses import dataclass
 
 from app.services.agents.base import AgentContext
+from app.services.agents.probe_library import ProbeSet, classify_system, probes_for
 from app.services.model_clients.base import (
     GovernanceModelClient,
     GovernanceModelRequest,
@@ -28,6 +32,17 @@ from app.services.model_clients.sanitization import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ToolCallResult:
+    tool_name: str
+    metric_id: str
+    formula: str
+    status: str
+    normalized_score: float | None
+    passed: bool | None
+    payload: dict[str, object]
 
 _JSON_RETRY_SUFFIX = (
     "\n\nIMPORTANT: Your previous response was not valid JSON. "
@@ -48,6 +63,11 @@ class TargetProbeResult:
 class ModelBackedAgent:
     execution_mode = "model_backed"
     name: str
+    # The facet this agent probes ("bias", "misuse", "explainability", ...).
+    # Used to pick system-appropriate probes from the probe library. Left as
+    # None for agents that have not opted into system-aware probe selection —
+    # those keep their own curated probe set unchanged.
+    probe_dimension: str | None = None
 
     def __init__(
         self,
@@ -57,7 +77,44 @@ class ModelBackedAgent:
         self._target = target_client
         self._governance = governance_client
 
+    def _select_probes(
+        self,
+        fallback: ProbeSet,
+        *,
+        context: AgentContext,
+    ) -> ProbeSet:
+        """Pick system-appropriate probes, scale them to the probe budget, and
+        record how many probes were selected so run progress can report it.
+
+        Chooses a probe set tailored to the audited system's category (e.g. a
+        RAG assistant gets grounding/injection-via-retrieval probes instead of
+        hiring/loan probes) when the agent declares a ``probe_dimension`` and
+        the library has a tailored set; otherwise uses ``fallback``. The chosen
+        set is then repeated up to the agent's Layer-2 probe budget.
+        """
+        base = fallback
+        if self.probe_dimension:
+            profile = classify_system(getattr(context.ai_system, "system_type", None))
+            base = probes_for(self.probe_dimension, profile, fallback)
+
+        plan = self._scale_to_budget(base, context=context)
+        # Record the real probe count for this agent (read by agent_execution
+        # and surfaced in the SSE "Probes Sent" tile).
+        context.probe_counts[self.name] = len(plan)
+        return plan
+
     def _probe_plan(
+        self,
+        prompts: list[tuple[str, str]],
+        *,
+        context: AgentContext,
+    ) -> list[tuple[str, str]]:
+        """Backward-compatible alias: scale a fixed probe set and record count."""
+        plan = self._scale_to_budget(prompts, context=context)
+        context.probe_counts[self.name] = len(plan)
+        return plan
+
+    def _scale_to_budget(
         self,
         prompts: list[tuple[str, str]],
         *,
@@ -82,6 +139,70 @@ class ModelBackedAgent:
             label = probe_name if pass_number == 1 else f"{probe_name}_pass{pass_number}"
             plan.append((label, prompt))
         return plan
+
+    def _call_evidence_tool(
+        self,
+        *,
+        tool_name: str,
+        metric_ids: set[str],
+        context: AgentContext,
+    ) -> list[ToolCallResult]:
+        """Invoke a real evidence-tool evaluator (garak/presidio/ragas/deepeval)
+        for each of this agent's owned metrics that has a matching planned
+        metric item, so findings are grounded in real tool output.
+
+        Returns one ToolCallResult per metric actually scored. Metrics with no
+        matching plan item, or where the tool cleanly skips (e.g. no judge LLM
+        configured, no retrieval context seeded), are simply omitted — callers
+        should treat an empty list as "no real tool evidence available" and
+        fall back to LLM-only reasoning.
+        """
+        from app.services.evaluators.base import MetricEvaluationInput
+        from app.services.evaluators.registry import EVALUATORS
+
+        evaluator = EVALUATORS.get(tool_name)
+        if evaluator is None or context.session is None or context.target_client is None:
+            return []
+
+        results: list[ToolCallResult] = []
+        for plan_item in context.metric_plan_items:
+            if plan_item.metric_id not in metric_ids:
+                continue
+            try:
+                evaluation = evaluator.evaluate(
+                    MetricEvaluationInput(
+                        metric=plan_item,
+                        mock_score=0.5,
+                        force_status=None,
+                        source_name=f"{self.name}_tool_call",
+                        session=context.session,
+                        ai_system=context.ai_system,
+                        target_client=context.target_client,
+                    )
+                )
+            except Exception as exc:
+                logger.error(
+                    "%s: tool call to %s failed for metric %s: %s",
+                    self.__class__.__name__,
+                    tool_name,
+                    plan_item.metric_id,
+                    exc,
+                )
+                continue
+
+            formula = str(plan_item.scoring_config.get("formula", ""))
+            results.append(
+                ToolCallResult(
+                    tool_name=tool_name,
+                    metric_id=plan_item.metric_id,
+                    formula=formula,
+                    status=str(evaluation.status),
+                    normalized_score=evaluation.normalized_score,
+                    passed=evaluation.passed,
+                    payload=evaluation.payload,
+                )
+            )
+        return results
 
     def _probe_target(
         self,

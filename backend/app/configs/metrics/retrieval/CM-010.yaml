@@ -25,3 +25,5 @@ framework_mapping:
 evidence_required:
 - retrieved_chunk_relevance_labels
 - precision_report
+applicable_capability_types:
+- retrieval

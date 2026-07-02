@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { useAppStore } from "@/store/useAppStore";
 import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
+import { useChartTheme } from "@/hooks/useChartTheme";
 
 const riskDescriptions: Record<string, string> = {
   Bias: "Age-based language disparity detected in 24 probe pairs. Score penalized for cohort underrepresentation and blast radius multiplier.",
@@ -580,10 +581,10 @@ const prescribedActions = [
     id: "bias",
     title: "Expand bias probe set to n=50",
     detail: "Run additional controlled probe pairs for age cohort 65+ vs 25–34. Include proxy variables (zip code, tenure) in the next Bias Auditor run. Target ≥ 92% reproducibility.",
-    target: "Bias Auditor configuration · Agent Intelligence",
+    target: "Bias Auditor configuration · Live Runs",
     urgency: "High priority",
     urgencyTone: "amber" as const,
-    navigateTo: "/agents",
+    navigateTo: "/runs",
     icon: CheckCircle2,
     iconColor: "text-amber-600 dark:text-amber-400",
   },
@@ -603,6 +604,7 @@ const prescribedActions = [
 export function Verdicts() {
   const navigateTo = useAppStore((state) => state.navigateTo);
   const backend = useGovernanceBackend();
+  const chart = useChartTheme();
   const [expandedAction, setExpandedAction] = useState<string | null>(null);
   const [hoveredRisk, setHoveredRisk] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState<"approve" | "override" | null>(null);
@@ -699,7 +701,7 @@ export function Verdicts() {
                   endAngle={-270}
                 >
                   <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
-                  <RadialBar dataKey="value" angleAxisId={0} cornerRadius={20} fill="#0d9488" background={{ fill: "#e9edf2" }} />
+                  <RadialBar dataKey="value" angleAxisId={0} cornerRadius={20} fill="#0d9488" background={{ fill: chart.radialTrack }} />
                 </RadialBarChart>
               </ResponsiveContainer>
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
@@ -803,7 +805,7 @@ export function Verdicts() {
                       className="mt-3 flex items-center gap-1.5 rounded border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-blue-800 dark:text-blue-300 transition-colors hover:bg-blue-50 dark:hover:bg-blue-950/50"
                     >
                       <ExternalLink className="h-3 w-3" />
-                      Navigate to {action.navigateTo === "/systems" ? "AI Systems" : action.navigateTo === "/agents" ? "Agent Intelligence" : "Reports"}
+                      Navigate to {action.navigateTo === "/systems" ? "AI Systems" : action.navigateTo === "/runs" ? "Live Runs" : "Reports"}
                     </button>
                   </div>
                 )}

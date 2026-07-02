@@ -13,6 +13,29 @@ import clsx from "clsx";
 import { executionLayers, type ExecutionLayer, type LayerStatus } from "@/data/executionLayerData";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { phaseIndex } from "@/hooks/useRunProgress";
+
+// executionLayers[i] (layer-1..7) lines up positionally with these real run phases.
+const LAYER_PHASES = [
+  "context_assembly",
+  "adaptive_orchestrator",
+  "specialist_agents",
+  "metric_execution",
+  "deliberation_council",
+  "action_reporting",
+  "action_reporting",
+] as const;
+
+/** Derives each layer's displayed status from the real run instead of trusting static mock data. */
+function liveLayerStatus(index: number, currentPhase: string | undefined, runStatus: string | undefined): LayerStatus {
+  if (!currentPhase || !runStatus || runStatus === "created") return "Waiting";
+  const currentIdx = phaseIndex(currentPhase);
+  const layerIdx = phaseIndex(LAYER_PHASES[index]);
+  if (runStatus === "failed" && layerIdx === currentIdx) return "Failed";
+  if (layerIdx < currentIdx || runStatus === "completed") return "Complete";
+  if (layerIdx === currentIdx) return "Running";
+  return "Waiting";
+}
 
 const statusConfig: Record<LayerStatus, { icon: typeof CheckCircle2; color: string; bg: string; badgeTone: "green" | "amber" | "violet" | "blue" | "red" }> = {
   Complete: { icon: CheckCircle2, color: "text-emerald-600", bg: "bg-emerald-50 border-emerald-200", badgeTone: "green" },
@@ -23,8 +46,9 @@ const statusConfig: Record<LayerStatus, { icon: typeof CheckCircle2; color: stri
   Failed: { icon: XCircle, color: "text-red-600", bg: "bg-red-50 border-red-300", badgeTone: "red" },
 };
 
-export function ExecutionLayerTrace() {
-  const [expandedLayer, setExpandedLayer] = useState<string | null>("layer-3");
+export function ExecutionLayerTrace({ currentPhase, runStatus }: { currentPhase?: string; runStatus?: string }) {
+  const [expandedLayer, setExpandedLayer] = useState<string | null>(null);
+  const hasActiveRun = !!currentPhase && !!runStatus && runStatus !== "created";
 
   return (
     <Card>
@@ -52,20 +76,21 @@ export function ExecutionLayerTrace() {
       {/* Progress bar */}
       <div className="px-4 py-3 border-b border-slate-100">
         <div className="flex gap-1">
-          {executionLayers.map((layer) => {
+          {executionLayers.map((layer, index) => {
+            const status = liveLayerStatus(index, currentPhase, runStatus);
             return (
               <div
                 key={layer.id}
                 className={clsx(
                   "flex-1 h-2 rounded-full transition-all",
-                  layer.status === "Complete" && "bg-emerald-500",
-                  layer.status === "Running" && "bg-blue-500 animate-pulse",
-                  layer.status === "Waiting" && "bg-slate-200",
-                  layer.status === "Pending" && "bg-amber-300",
-                  layer.status === "Blocked" && "bg-red-400",
-                  layer.status === "Failed" && "bg-red-600",
+                  status === "Complete" && "bg-emerald-500",
+                  status === "Running" && "bg-blue-500 animate-pulse",
+                  status === "Waiting" && "bg-slate-200",
+                  status === "Pending" && "bg-amber-300",
+                  status === "Blocked" && "bg-red-400",
+                  status === "Failed" && "bg-red-600",
                 )}
-                title={`${layer.name}: ${layer.status}`}
+                title={`${layer.name}: ${status}`}
               />
             );
           })}
@@ -76,12 +101,19 @@ export function ExecutionLayerTrace() {
         </div>
       </div>
 
+      {!hasActiveRun && (
+        <p className="px-4 py-2.5 text-[11.5px] text-slate-400 border-b border-slate-100 bg-slate-50/60">
+          No governance run in progress — layers will populate once a run starts.
+        </p>
+      )}
+
       {/* Layer list */}
       <div className="divide-y divide-slate-100">
-        {executionLayers.map((layer) => (
+        {executionLayers.map((layer, index) => (
           <LayerRow
             key={layer.id}
             layer={layer}
+            status={liveLayerStatus(index, currentPhase, runStatus)}
             expanded={expandedLayer === layer.id}
             onToggle={() => setExpandedLayer(expandedLayer === layer.id ? null : layer.id)}
           />
@@ -91,8 +123,8 @@ export function ExecutionLayerTrace() {
   );
 }
 
-function LayerRow({ layer, expanded, onToggle }: { layer: ExecutionLayer; expanded: boolean; onToggle: () => void }) {
-  const config = statusConfig[layer.status];
+function LayerRow({ layer, status, expanded, onToggle }: { layer: ExecutionLayer; status: LayerStatus; expanded: boolean; onToggle: () => void }) {
+  const config = statusConfig[status];
   const Icon = config.icon;
 
   return (
@@ -101,11 +133,11 @@ function LayerRow({ layer, expanded, onToggle }: { layer: ExecutionLayer; expand
         onClick={onToggle}
         className={clsx(
           "flex w-full items-center gap-3 px-4 py-3 text-left transition-all hover:bg-slate-50",
-          layer.status === "Running" && "bg-blue-50/30",
+          status === "Running" && "bg-blue-50/30",
         )}
       >
         <div className={clsx("flex h-8 w-8 items-center justify-center rounded-full border", config.bg)}>
-          <Icon className={clsx("h-4 w-4", config.color, layer.status === "Running" && "animate-spin")} />
+          <Icon className={clsx("h-4 w-4", config.color, status === "Running" && "animate-spin")} />
         </div>
 
         <div className="flex-1 min-w-0">
@@ -117,10 +149,10 @@ function LayerRow({ layer, expanded, onToggle }: { layer: ExecutionLayer; expand
         </div>
 
         <div className="flex items-center gap-3">
-          {layer.startTime && (
+          {status !== "Waiting" && layer.startTime && (
             <span className="text-[11px] font-mono text-slate-400">{layer.startTime}</span>
           )}
-          <Badge tone={config.badgeTone}>{layer.status}</Badge>
+          <Badge tone={config.badgeTone}>{status}</Badge>
           {expanded ? <ChevronDown className="h-3.5 w-3.5 text-slate-400" /> : <ChevronRight className="h-3.5 w-3.5 text-slate-400" />}
         </div>
       </button>
@@ -170,7 +202,7 @@ function LayerRow({ layer, expanded, onToggle }: { layer: ExecutionLayer; expand
           )}
 
           {/* Timing */}
-          {layer.startTime && (
+          {status !== "Waiting" && layer.startTime && (
             <div className="mt-3 pt-3 border-t border-slate-200 flex gap-4">
               <span className="text-[11px] text-slate-500">Started: <span className="font-mono text-slate-700">{layer.startTime}</span></span>
               {layer.endTime && (

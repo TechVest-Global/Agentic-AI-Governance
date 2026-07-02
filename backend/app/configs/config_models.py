@@ -89,6 +89,15 @@ AgentOwner = Literal[
 
 SeverityLevel = Literal["critical", "high", "medium", "low"]
 
+# Mirrors app.models.enums.CapabilityType — kept as a separate literal here
+# (rather than importing the SQLModel enum) so the config-loading package has
+# no dependency on the DB layer.
+CapabilityTypeLiteral = Literal[
+    "inference", "retrieval", "generation", "action", "integration", "other"
+]
+
+ModalityLiteral = Literal["text", "audio", "video", "image"]
+
 CriticalBlockerCondition = Literal[
     "score_below_threshold",
     "prohibited_use_case_detected",
@@ -168,6 +177,12 @@ class MetricConfig(BaseModel):
     )
     evidence_required: list[str] = Field(min_length=1)
     critical_blockers: list[CriticalBlocker] = Field(default_factory=list)
+    # Empty (the default) means universally applicable — most metrics apply to
+    # every system regardless of capability/modality. Only set these when a
+    # metric is structurally meaningless for systems lacking that capability
+    # (e.g. retrieval-quality metrics) or modality (e.g. an ASR-specific check).
+    applicable_capability_types: list[CapabilityTypeLiteral] = Field(default_factory=list)
+    applicable_modalities: list[ModalityLiteral] = Field(default_factory=list)
 
     @field_validator("thresholds")
     @classmethod

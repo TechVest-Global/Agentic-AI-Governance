@@ -8,6 +8,7 @@ from app.models.base import TimestampMixin, UUIDPrimaryKey
 from app.models.enums import (
     AISystemStatus,
     CapabilityType,
+    Modality,
     RiskTier,
     SideEffectLevel,
 )
@@ -23,6 +24,9 @@ class AISystem(TimestampMixin, UUIDPrimaryKey, table=True):
     risk_tier: RiskTier = Field(default=RiskTier.medium, index=True)
     deployment_environment: str = Field(default="local", index=True, max_length=100)
     status: AISystemStatus = Field(default=AISystemStatus.registered, index=True)
+    # Primary I/O modality — used to scope out modality-specific metrics (e.g.
+    # video/audio robustness checks) for systems they don't apply to.
+    modality: Modality = Field(default=Modality.text, index=True)
     selected_frameworks: list[str] = Field(
         default_factory=list,
         sa_column=Column(JSON, nullable=False),

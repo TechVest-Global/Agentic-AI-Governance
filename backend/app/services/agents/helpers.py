@@ -30,6 +30,7 @@ def finding(
     recommended_action: str,
     metric: MetricResult | None = None,
     confidence: float = 0.8,
+    tool_calls: list[dict] | None = None,
 ) -> FindingCreate:
     return FindingCreate(
         finding_type=finding_type,
@@ -44,5 +45,6 @@ def finding(
         payload={
             "generated_by": "deterministic_agent",
             "metric_id": metric.metric_id if metric is not None else None,
+            "tool_calls": tool_calls or [],
         },
     )

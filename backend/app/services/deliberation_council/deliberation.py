@@ -68,6 +68,12 @@ from app.services.run_validation import get_run_or_raise
 
 logger = logging.getLogger(__name__)
 
+# re_probe remediation needs a *bit* more sample size to address a sample-
+# adequacy objection, not a full plan-scaled re-run (which can be up to 100
+# probes/agent) — that would turn one remediation loop into another full
+# audit pass. This cap keeps mid-council remediation fast.
+RE_PROBE_BUDGET_CAP = 8
+
 
 # ---------------------------------------------------------------------------
 # Public entry point
@@ -162,6 +168,12 @@ def deliberate(
             objections=objections,
             verdict=verdict_out,
         )
+
+        # Commit now (not just flush) so a concurrent request polling this run
+        # can observe real per-iteration progress instead of the whole 1-3
+        # iteration loop being invisible until it fully completes.
+        session.commit()
+        session.refresh(run)
 
         # Deterministic routing — three exits, checked in priority order
         decision = route(verdict_out, iteration)
@@ -288,22 +300,20 @@ def _apply_remediation(
     re_plan:       inert for MVP — treated as re_deliberate.
     """
     if remediation_type == "re_probe" and target_agent:
-        logger.info("re_probe: re-running specialist agent '%s'", target_agent)
+        logger.info(
+            "re_probe: re-running specialist agent '%s' with a capped probe budget (%d)",
+            target_agent,
+            RE_PROBE_BUDGET_CAP,
+        )
         try:
             from app.schemas.governance import AgentRunCreate
-            from app.services import adaptive_orchestrator
             from app.services.specialist_agents.agent_execution import run_agents
-
-            try:
-                plan = adaptive_orchestrator.get_latest_plan(session, run_id=run_id)
-            except Exception:
-                plan = None
 
             run_agents(
                 session,
                 run_id=run_id,
                 payload=AgentRunCreate(agent_names=[target_agent]),
-                evaluation_plan=plan,
+                probe_budget_override=RE_PROBE_BUDGET_CAP,
             )
         except Exception as exc:
             logger.error(

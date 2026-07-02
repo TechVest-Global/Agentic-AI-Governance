@@ -41,35 +41,68 @@ export function phaseIndex(phase: string): number {
   return PHASE_ORDER.indexOf(phase);
 }
 
+// Cap reconnect backoff so a long-lived stream that drops keeps retrying at a
+// steady cadence instead of giving up (the old behavior) or busy-looping.
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 15000;
+
 export function useRunProgress(runId: string | null) {
   const [progress, setProgress] = useState<RunProgress | null>(null);
   const [connected, setConnected] = useState(false);
   const esRef = useRef<EventSource | null>(null);
+  const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const attemptRef = useRef(0);
 
   useEffect(() => {
-    if (!runId) return;
-
-    const url = `${API_BASE_URL}/evaluation-runs/${runId}/progress/stream`;
-    const es = new EventSource(url);
-    esRef.current = es;
-    setConnected(true);
-
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data) as RunProgress;
-        setProgress(data);
-      } catch {
-        // ignore malformed events
-      }
-    };
-
-    es.onerror = () => {
+    if (!runId) {
+      setProgress(null);
       setConnected(false);
-      es.close();
+      return;
+    }
+
+    let closed = false;
+    const url = `${API_BASE_URL}/evaluation-runs/${runId}/progress/stream`;
+
+    const connect = () => {
+      if (closed) return;
+      const es = new EventSource(url);
+      esRef.current = es;
+
+      es.onopen = () => {
+        attemptRef.current = 0; // reset backoff once a connection succeeds
+        setConnected(true);
+      };
+
+      es.onmessage = (event) => {
+        try {
+          setProgress(JSON.parse(event.data) as RunProgress);
+        } catch {
+          // ignore malformed events
+        }
+      };
+
+      es.onerror = () => {
+        // The browser fires onerror on transient drops. Instead of giving up
+        // (which left the tiles frozen), close and reconnect with capped
+        // exponential backoff so live progress recovers on its own.
+        setConnected(false);
+        es.close();
+        if (closed) return;
+        const delay = Math.min(
+          RECONNECT_MAX_MS,
+          RECONNECT_BASE_MS * 2 ** attemptRef.current,
+        );
+        attemptRef.current += 1;
+        retryRef.current = setTimeout(connect, delay);
+      };
     };
+
+    connect();
 
     return () => {
-      es.close();
+      closed = true;
+      if (retryRef.current) clearTimeout(retryRef.current);
+      esRef.current?.close();
       setConnected(false);
     };
   }, [runId]);

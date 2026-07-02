@@ -6,7 +6,6 @@ import { useThemeStore } from "@/store/useThemeStore";
 import { canAccess, defaultPageFor, personaForRole } from "@/lib/persona";
 import { Dashboard } from "@/pages/Dashboard";
 import { AISystems } from "@/pages/AISystems";
-import { AgentIntelligence } from "@/pages/AgentIntelligence";
 import { AuditLedger } from "@/pages/AuditLedger";
 import { CouncilDeliberation } from "@/pages/CouncilDeliberation";
 import { Evidence } from "@/pages/Evidence";
@@ -37,7 +36,6 @@ const pages = {
   "eval-runs": EvaluationRuns,
   engine: GovernanceEngine,
   runs: LiveRuns,
-  agents: AgentIntelligence,
   "metric-plan": MetricPlan,
   council: CouncilDeliberation,
   findings: FindingsReview,

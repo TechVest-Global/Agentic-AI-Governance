@@ -4,12 +4,14 @@ from collections.abc import AsyncGenerator
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
 from app.db.session import get_session
 from app.models.agent import AgentExecution
+from app.models.base import utc_now
+from app.models.enums import RunPhase, RunStatus
 from app.models.evaluation import EvaluationRun
 from app.models.finding import Finding
 from app.schemas.governance import (
@@ -25,7 +27,6 @@ from app.schemas.governance import (
     EvaluationRunStart,
     FrameworkComplianceMapRead,
     GovernancePipelineRunCreate,
-    GovernancePipelineRunRead,
     GovernanceReportRead,
     LLMCallLogSummary,
     MetricExecutionCreate,
@@ -169,13 +170,37 @@ def get_framework_compliance_map(
     return framework_maps.build_framework_compliance_map(session, run_id=run_id)
 
 
-@router.post("/{run_id}/orchestrate", response_model=GovernancePipelineRunRead)
+@router.post("/{run_id}/orchestrate", status_code=status.HTTP_202_ACCEPTED)
 def run_governance_pipeline(
     run_id: UUID,
     payload: GovernancePipelineRunCreate,
     session: SessionDependency,
-) -> GovernancePipelineRunRead:
-    return orchestration.run_governance_pipeline(session, run_id=run_id, payload=payload)
+    background_tasks: BackgroundTasks,
+) -> dict:
+    """Kick off the governance pipeline in the background and return 202.
+
+    The pipeline is long-running (target probes + judge LLM calls per metric).
+    Running it inline blocked the request for its full duration, left the run at
+    a non-terminal status, and prevented the Live Run view from showing phase
+    progression. We now advance the run out of 'created' synchronously, then run
+    the pipeline off the request thread so clients observe each phase via
+    GET /{id} polling or the /progress/stream SSE endpoint.
+    """
+    run = service.get_evaluation_run(session, run_id)
+    # Move out of 'created' immediately so the Live Run view stops showing
+    # "Run Setup" the instant orchestration is requested.
+    if run.current_phase == RunPhase.created:
+        run.status = RunStatus.context_assembly
+        run.current_phase = RunPhase.context_assembly
+        run.started_at = run.started_at or utc_now()
+        run.updated_at = utc_now()
+        session.add(run)
+        session.commit()
+
+    background_tasks.add_task(
+        orchestration.run_governance_pipeline_job, run_id, payload
+    )
+    return {"run_id": str(run_id), "status": "accepted"}
 
 
 @router.post(

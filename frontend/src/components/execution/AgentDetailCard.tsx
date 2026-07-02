@@ -1,40 +1,42 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  Activity,
   AlertTriangle,
   BarChart3,
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
-  ClipboardCheck,
+  CheckCircle2,
   Clock,
-  Cpu,
+  ClipboardCheck,
   ExternalLink,
   FileText,
-  Gauge,
   GitCompare,
   Layers,
   Loader2,
   MessageSquare,
   SearchCheck,
-  ShieldAlert,
   Terminal,
+  Wrench,
 } from "lucide-react";
 import clsx from "clsx";
-import { Badge } from "@/components/ui/Badge";
-import { Card, CardHeader } from "@/components/ui/Card";
 import { useAppStore } from "@/store/useAppStore";
-import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
-import { getLlmCalls, type AgentExecution, type BackendFinding, type LlmCall } from "@/api/governanceApi";
+import {
+  getLlmCalls,
+  type AgentExecution,
+  type AgentPlanItem,
+  type BackendFinding,
+  type ContextAssemblyRead,
+  type FindingToolCall,
+  type LlmCall,
+} from "@/api/governanceApi";
 import {
   agentRuntimeDetails,
   complianceMapperDetail,
   driftAnalystDetail,
 } from "@/data/executionLayerData";
 
-type AgentTab = "Overview" | "Probes" | "Evidence" | "Frameworks" | "Remediation" | "Runtime";
+export type AgentTab = "Overview" | "Probes" | "Evidence" | "Frameworks" | "Remediation" | "Runtime";
 
-type IntelligenceAgent = {
+export type IntelligenceAgent = {
   id: string;
   name: string;
   status: "Running" | "Complete" | "Waiting";
@@ -50,9 +52,10 @@ type IntelligenceAgent = {
   frameworks: string[];
   remediation: string[];
   timeline: Array<{ label: string; status: "complete" | "running" | "waiting"; detail: string }>;
+  toolCalls: FindingToolCall[];
 };
 
-const tabs: AgentTab[] = ["Overview", "Probes", "Evidence", "Frameworks", "Remediation", "Runtime"];
+export const AGENT_TABS: AgentTab[] = ["Overview", "Probes", "Evidence", "Frameworks", "Remediation", "Runtime"];
 
 // Curated, agent-type reference metadata (purpose / checks / methods / frameworks /
 // default remediation). The live run supplies the rest — status, findings, evidence.
@@ -157,21 +160,74 @@ function highestSeverity(findings: BackendFinding[]): IntelligenceAgent["severit
   return best;
 }
 
-const PHASE_DETAILS: Record<string, string> = {
-  "Context Load": "Reads run metadata, AI system profile, capabilities, prior metric results, and any evidence already recorded. Builds the AgentContext object passed to all downstream logic.",
-  "Probe Design": "Selects probe prompts from the agent's curated test set. Filters to metrics that failed or are pending — if no relevant metrics exist, the agent exits early without sending any probes.",
-  "Probe Execution": "Sends each structured prompt to the target model via GatewayTargetModelClient. Records latency, token counts, and sanitized output for each call. Raw output is fenced and never directly trusted.",
-  "Analysis": "Passes the fenced probe evidence and metric summary to the governance model. Governance model reasons about the evidence and returns structured finding JSON. Falls back to deterministic logic if the response is not valid JSON.",
-  "Evidence Emission": "Persists findings, LLM call logs (with probe transcripts), and agent execution record to the database. Confidence impacts are carried into the Council Deliberation.",
-};
+function describeContextLoad(assembly: ContextAssemblyRead | null): string {
+  if (!assembly) return "Context assembly not yet recorded for this run.";
+  const { log_analysis, regulatory_context, gap_count } = assembly;
+  const parts = [
+    log_analysis.empty
+      ? "No production logs supplied — analysis proceeds without real-traffic context."
+      : `Analyzed ${log_analysis.total_requests} logged request${log_analysis.total_requests === 1 ? "" : "s"} across ${log_analysis.distinct_request_categories} categor${log_analysis.distinct_request_categories === 1 ? "y" : "ies"}.`,
+    `Resolved ${regulatory_context.resolved_frameworks.length}/${regulatory_context.selected_frameworks.length} selected framework${regulatory_context.selected_frameworks.length === 1 ? "" : "s"} (${regulatory_context.control_count} controls).`,
+    gap_count > 0 ? `${gap_count} coverage gap${gap_count === 1 ? "" : "s"} identified before probing began.` : "No coverage gaps identified before probing began.",
+  ];
+  return parts.join(" ");
+}
 
-function buildTimeline(status: string): IntelligenceAgent["timeline"] {
-  const steps = ["Context Load", "Probe Design", "Probe Execution", "Analysis", "Evidence Emission"];
+function describeProbeDesign(plan: AgentPlanItem | null): string {
+  if (!plan) return "No evaluation plan entry recorded for this agent on this run.";
+  if (!plan.activated) return `Not activated for this run. ${plan.rationale}`.trim();
+  const metrics = plan.assigned_metric_ids.length
+    ? `Assigned metric${plan.assigned_metric_ids.length === 1 ? "" : "s"}: ${plan.assigned_metric_ids.join(", ")}.`
+    : "No metrics assigned.";
+  return `Priority ${plan.priority} · probe budget ${plan.probe_budget}. ${metrics} ${plan.rationale}`.trim();
+}
+
+function describeProbeExecution(calls: LlmCall[]): string {
+  const targetCalls = calls.filter((c) => c.call_type === "target");
+  if (targetCalls.length === 0) return "No probes were sent to the target model — the agent exited early with no relevant metrics to test.";
+  const tasks = Array.from(new Set(targetCalls.map((c) => c.task))).filter(Boolean);
+  const errors = targetCalls.filter((c) => c.status !== "success").length;
+  const avgLatency = Math.round(targetCalls.reduce((s, c) => s + (c.latency_ms ?? 0), 0) / targetCalls.length);
+  const taskList = tasks.length ? ` Probe tasks: ${tasks.join(", ")}.` : "";
+  return `Sent ${targetCalls.length} probe${targetCalls.length === 1 ? "" : "s"} to the target model (avg latency ${avgLatency}ms, ${errors} error${errors === 1 ? "" : "s"}).${taskList}`;
+}
+
+function describeAnalysis(calls: LlmCall[]): string {
+  const govCalls = calls.filter((c) => c.call_type === "governance");
+  if (govCalls.length === 0) return "No governance-model analysis call recorded for this agent on this run.";
+  const errors = govCalls.filter((c) => c.status !== "success").length;
+  const tasks = Array.from(new Set(govCalls.map((c) => c.task))).filter(Boolean);
+  const taskList = tasks.length ? ` Analysis task${tasks.length === 1 ? "" : "s"}: ${tasks.join(", ")}.` : "";
+  return `Governance model reasoned over the probe evidence in ${govCalls.length} call${govCalls.length === 1 ? "" : "s"} (${errors} error${errors === 1 ? "" : "s"}).${taskList}`;
+}
+
+function describeEvidenceEmission(agentFindings: BackendFinding[], status: string): string {
+  if (status !== "completed" && status !== "failed") return "Evidence not yet emitted for this agent on this run.";
+  if (agentFindings.length === 0) return "Completed with no findings — a clean result was recorded to the evidence package.";
+  const bySeverity = new Map<string, number>();
+  for (const f of agentFindings) bySeverity.set(f.severity, (bySeverity.get(f.severity) ?? 0) + 1);
+  const breakdown = Array.from(bySeverity.entries()).map(([sev, n]) => `${n} ${sev}`).join(", ");
+  return `Persisted ${agentFindings.length} finding${agentFindings.length === 1 ? "" : "s"} (${breakdown}) to the evidence package, carried into Council Deliberation.`;
+}
+
+function buildTimeline(
+  status: string,
+  plan: AgentPlanItem | null,
+  contextAssembly: ContextAssemblyRead | null,
+  agentCalls: LlmCall[],
+  agentFindings: BackendFinding[],
+): IntelligenceAgent["timeline"] {
+  const steps: Array<{ label: string; detail: string }> = [
+    { label: "Context Load", detail: describeContextLoad(contextAssembly) },
+    { label: "Probe Design", detail: describeProbeDesign(plan) },
+    { label: "Probe Execution", detail: describeProbeExecution(agentCalls) },
+    { label: "Analysis", detail: describeAnalysis(agentCalls) },
+    { label: "Evidence Emission", detail: describeEvidenceEmission(agentFindings, status) },
+  ];
   const completed = status === "completed" || status === "failed" ? 5 : status === "running" ? 2 : 0;
-  return steps.map((label, i) => ({
-    label,
+  return steps.map((step, i) => ({
+    ...step,
     status: i < completed ? "complete" : status === "running" && i === completed ? "running" : "waiting",
-    detail: PHASE_DETAILS[label] ?? "",
   }));
 }
 
@@ -181,16 +237,51 @@ function mapStatus(status: string): IntelligenceAgent["status"] {
   return "Waiting";
 }
 
-function buildAgentsFromBackend(
-  executions: AgentExecution[],
+/** Findings carry the same tool_calls payload repeated across every finding from one
+ * evaluate() call — dedupe by tool+metric so each real tool invocation shows once. */
+function dedupeToolCalls(agentFindings: BackendFinding[]): FindingToolCall[] {
+  const byKey = new Map<string, FindingToolCall>();
+  for (const f of agentFindings) {
+    const calls = f.payload?.tool_calls ?? [];
+    for (const call of calls) {
+      byKey.set(`${call.tool_name}:${call.metric_id}`, call);
+    }
+  }
+  return Array.from(byKey.values());
+}
+
+/** A run can contain multiple execution rows for the same agent (re-probes) — keep only the latest. */
+function latestExecutionPerAgent(executions: AgentExecution[]): AgentExecution[] {
+  const latestByCanon = new Map<string, AgentExecution>();
+  for (const execution of executions) {
+    const canon = canonicalAgent(execution.agent_name);
+    const existing = latestByCanon.get(canon);
+    if (!existing || (execution.started_at ?? "") > (existing.started_at ?? "")) {
+      latestByCanon.set(canon, execution);
+    }
+  }
+  return Array.from(latestByCanon.values());
+}
+
+export function buildAgentsFromBackend(
+  allExecutions: AgentExecution[],
   findings: BackendFinding[],
+  plans: AgentPlanItem[] = [],
+  contextAssembly: ContextAssemblyRead | null = null,
+  llmCalls: LlmCall[] = [],
 ): IntelligenceAgent[] {
+  const executions = latestExecutionPerAgent(allExecutions);
   return executions.map((execution) => {
     const canon = canonicalAgent(execution.agent_name);
     const meta = AGENT_META[canon] ?? fallbackMeta(execution.agent_name);
     const agentFindings = findings.filter((f) => canonicalAgent(f.agent_name ?? "") === canon);
     const realActions = agentFindings.map((f) => f.recommended_action).filter((a): a is string => Boolean(a));
+    const toolCalls = dedupeToolCalls(agentFindings);
     const completed = execution.status === "completed";
+    const plan = plans.find((p) => canonicalAgent(p.agent_name) === canon) ?? null;
+    const namedCalls = llmCalls.filter((c) => c.agent_name && canonicalAgent(c.agent_name) === canon);
+    // Older runs may not attribute agent_name on call records — fall back to the full call set for this run.
+    const agentCalls = namedCalls.length > 0 ? namedCalls : llmCalls;
     return {
       id: execution.agent_name,
       name: meta.name,
@@ -208,248 +299,46 @@ function buildAgentsFromBackend(
         : ["No findings recorded — clean result for this agent."],
       frameworks: meta.frameworks,
       remediation: realActions.length ? realActions : meta.remediation,
-      timeline: buildTimeline(execution.status),
+      timeline: buildTimeline(execution.status, plan, contextAssembly, agentCalls, agentFindings),
+      toolCalls,
     };
   });
 }
 
-export function AgentIntelligence() {
-  const backend = useGovernanceBackend();
-  const { navigateTo } = useAppStore();
-  const [expandedAgent, setExpandedAgent] = useState("");
-  const [activeTabs, setActiveTabs] = useState<Record<string, AgentTab>>({});
-
-  const setTab = (agentId: string, tab: AgentTab) => {
-    setActiveTabs((current) => ({ ...current, [agentId]: tab }));
-  };
-
-  // Build the agent list from the latest run's real executions + findings.
-  const agents = useMemo(
-    () => buildAgentsFromBackend(backend.agentExecutions, backend.findings),
-    [backend.agentExecutions, backend.findings],
-  );
-
-  const activeAgents = agents.filter((agent) => agent.status === "Running").length;
-  const completeAgents = agents.filter((agent) => agent.status === "Complete").length;
-  const totalFindings = agents.reduce((sum, agent) => sum + agent.findings, 0);
-  const scoredAgents = agents.filter((agent) => agent.confidence > 0);
-  const avgConfidence = scoredAgents.length
-    ? Math.round(scoredAgents.reduce((sum, agent) => sum + agent.confidence, 0) / scoredAgents.length)
-    : 0;
-  const backendCompleted = backend.agentExecutions.filter((agent) => agent.status === "completed").length;
-  const backendFailed = backend.agentExecutions.filter((agent) => agent.status === "failed").length;
-  const backendFindings = backend.agentExecutions.reduce((sum, agent) => sum + agent.finding_count, 0);
-  const targetSystemName = backend.report?.ai_system?.name ?? "your registered systems";
-
+/** Full agent detail card — phase stepper + tabs (Overview/Probes/Evidence/Frameworks/Remediation/Runtime). */
+export function AgentDetailCard({
+  agent,
+  runId,
+  activeTab,
+  onTabChange,
+}: {
+  agent: IntelligenceAgent;
+  runId: string | null;
+  activeTab: AgentTab;
+  onTabChange: (tab: AgentTab) => void;
+}) {
   return (
-    <div className="space-y-5">
-      <Card className="overflow-hidden">
-        <div className="grid gap-0 xl:grid-cols-[1fr_340px]">
-          <div className="border-b border-slate-200 dark:border-white/10 p-5 xl:border-b-0 xl:border-r">
-            <div className="flex items-start gap-4">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-[#111827] dark:bg-brand-700 text-white">
-                <Cpu className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-brand-700 dark:text-brand-400">Specialist Agent Swarm</p>
-                <h2 className="mt-1 text-[20px] font-semibold tracking-tight text-slate-950 dark:text-white">Parallel governance intelligence for {targetSystemName}</h2>
-                <p className="mt-2 max-w-3xl text-[13px] leading-5 text-slate-600 dark:text-slate-400">
-                  Specialist agents probe the same target from different risk perspectives, write evidence into shared run state, and carry confidence impacts into council scoring.
-                </p>
-              </div>
-            </div>
-            <div className="mt-5 grid gap-3 md:grid-cols-4">
-              <SummaryMetric label="Running" value={`${activeAgents}`} icon={Activity} tone="blue" />
-              <SummaryMetric label="Complete" value={`${completeAgents}`} icon={CheckCircle2} tone="green" />
-              <SummaryMetric label="Findings" value={`${totalFindings}`} icon={ShieldAlert} tone="red" />
-              <SummaryMetric label="Avg Confidence" value={`${avgConfidence}%`} icon={Gauge} />
-            </div>
-          </div>
-          <div className="bg-slate-50 dark:bg-slate-800/60 p-5">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Next actions</p>
-            <p className="mt-2 text-[12px] leading-5 text-slate-600 dark:text-slate-400">
-              Use this page for the agent-level operating picture. Open the engine when you need the lead-provided drawers, event trace, and ledger proof.
-            </p>
-            <div className="mt-4 flex flex-col gap-2">
-              <button
-                onClick={() => navigateTo("/engine")}
-                title="Open the full governance engine with lead-provided agent drill-downs, event details, and ledger evidence"
-                className="inline-flex items-center justify-center gap-2 rounded bg-[#111827] px-3 py-2 text-[12px] font-semibold text-white hover:bg-slate-800"
-              >
-                <ExternalLink className="h-4 w-4" />
-                Open Full Engine Trace
-              </button>
-              <button
-                onClick={() => navigateTo("/council")}
-                title="Jump to the Council Deliberation where all agent findings are synthesised"
-                className="inline-flex items-center justify-center gap-2 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-[12px] font-medium text-slate-900 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-700"
-              >
-                <FileText className="h-4 w-4" />
-                Go to Council
-              </button>
-            </div>
-          </div>
-        </div>
-      </Card>
-
-
-      {agents.length === 0 ? (
-        <Card className="p-10 text-center">
-          <Cpu className="mx-auto h-8 w-8 text-slate-300 dark:text-slate-600" />
-          <p className="mt-3 text-[14px] font-semibold text-slate-900 dark:text-white">
-            {backend.loading ? "Loading agents…" : "No agent activity yet"}
-          </p>
-          <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400">
-            Register a system and run an evaluation to see specialist agents execute here.
-          </p>
-        </Card>
-      ) : (
-        <>
-      <Card className="p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Agent Network</p>
-            <p className="mt-1 text-[13px] font-semibold text-slate-950 dark:text-white">Live handoff from orchestrator to {agents.length} specialist agent{agents.length === 1 ? "" : "s"}</p>
-          </div>
+    <div className="border-t border-slate-200 dark:border-white/10 bg-slate-50/60 dark:bg-slate-800/40">
+      <PhaseStepperBar phases={agent.timeline} />
+      <div className="flex gap-1 border-b border-slate-200 dark:border-white/10 px-4 pt-3">
+        {AGENT_TABS.map((tab) => (
           <button
-            onClick={() => navigateTo("/engine")}
-            className="hidden rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-[12px] font-medium text-slate-900 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-700 md:block"
+            key={tab}
+            onClick={() => onTabChange(tab)}
+            className={clsx(
+              "rounded-t border border-b-0 px-3 py-2 text-[12px] font-medium",
+              activeTab === tab
+                ? "border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-white"
+                : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+            )}
           >
-            Inspect in Engine
+            {tab}
           </button>
-        </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-5">
-          {agents.map((agent, i) => (
-            <button
-              key={agent.id}
-              style={{ animationDelay: `${i * 70}ms` }}
-              onClick={() => {
-                setExpandedAgent(agent.id);
-                setTab(agent.id, "Overview");
-              }}
-              className={clsx(
-                "animate-rise rounded-lg border p-3 text-left transition-all hover:border-brand-300 hover:bg-brand-50/40 dark:hover:bg-brand-900/20 hover:shadow-sm",
-                expandedAgent === agent.id ? "border-brand-300 bg-brand-50/50 dark:bg-brand-900/20" : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-              )}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <AgentGlyph agent={agent} />
-                <StatusDot status={agent.status} />
-              </div>
-              <p className="mt-3 truncate text-[12px] font-semibold text-slate-950 dark:text-white">{agent.name}</p>
-              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{agent.probes}</p>
-              <div className="mt-3 flex items-center gap-2">
-                <div className="h-1.5 flex-1 rounded-full bg-slate-100 dark:bg-slate-700">
-                  <div
-                    className={clsx("h-1.5 rounded-full", agent.status === "Complete" ? "bg-emerald-500" : agent.status === "Running" ? "bg-brand-500" : "bg-slate-300 dark:bg-slate-600")}
-                    style={{ width: `${agent.confidence || 18}%` }}
-                  />
-                </div>
-                <span className="text-[11px] font-semibold tabular-nums text-slate-500 dark:text-slate-400">{agent.confidence || 18}%</span>
-              </div>
-            </button>
-          ))}
-        </div>
-      </Card>
-
-      <div className="hidden">
-        <div className="max-w-2xl space-y-1">
-          <p className="text-[13px] leading-5 text-slate-600">
-            Specialist governance agents run concurrently to probe, test, and map evidence about the target AI system. Each agent contributes confidence deductions and finding packages to the Council Deliberation.
-          </p>
-          <p className="text-[11px] text-slate-400">Click an agent row to expand · Use tabs to navigate Overview / Probes / Evidence / Frameworks / Remediation / Runtime · Navigate to Council or Verdict from within each agent</p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => navigateTo("/engine")}
-            title="Open the full governance engine with lead-provided agent drill-downs, event details, and ledger evidence"
-            className="rounded border border-slate-300 bg-white px-3 py-2 text-[12px] font-medium text-slate-900 hover:bg-slate-50"
-          >
-            Open Engine Drill-down
-          </button>
-          <button
-            onClick={() => navigateTo("/council")}
-            title="Jump to the Council Deliberation where all agent findings are synthesised"
-            className="rounded bg-[#111827] px-3 py-2 text-[12px] font-semibold text-white hover:bg-slate-800"
-          >
-            Go to Council →
-          </button>
-        </div>
+        ))}
       </div>
-
-      <div className="hidden">
-        <SummaryMetric label="Active Agents" value="4 / 5" icon={Activity} />
-        <SummaryMetric label="Critical Findings" value="1" icon={ShieldAlert} tone="red" />
-        <SummaryMetric label="Probe Coverage" value="111" icon={SearchCheck} tone="blue" />
-        <SummaryMetric label="Avg Confidence" value="78%" icon={Gauge} tone="green" />
+      <div className="bg-white dark:bg-slate-900 p-4">
+        <ExpandedTab agent={agent} tab={activeTab} runId={runId} />
       </div>
-
-      <div className="space-y-3">
-        {agents.map((agent) => {
-          const expanded = expandedAgent === agent.id;
-          const activeTab = activeTabs[agent.id] ?? "Overview";
-
-          return (
-            <Card key={agent.id} className={clsx("overflow-hidden transition-shadow", expanded && "shadow-md", agent.severity === "Critical" && "border-l-2 border-l-red-500")}>
-              <button
-                onClick={() => setExpandedAgent(expanded ? "" : agent.id)}
-                className="grid w-full grid-cols-[minmax(0,1fr)_120px_120px_120px_32px] items-center gap-4 px-4 py-4 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60"
-              >
-                <div className="flex min-w-0 items-start gap-3">
-                  <AgentGlyph agent={agent} />
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-[14px] font-semibold text-slate-950 dark:text-white">{agent.name}</p>
-                      <SeverityBadge severity={agent.severity} />
-                    </div>
-                    <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-slate-600 dark:text-slate-400">{agent.purpose}</p>
-                  </div>
-                </div>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Status</p>
-                  <StatusBadge status={agent.status} />
-                </div>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Probes</p>
-                  <p className="mt-1 text-[12px] font-semibold text-slate-950 dark:text-white">{agent.probes}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Confidence</p>
-                  <p className="mt-1 text-[12px] font-semibold text-slate-950 dark:text-white">{agent.confidence ? `${agent.confidence}%` : "Pending"}</p>
-                </div>
-                {expanded ? <ChevronDown className="h-4 w-4 text-slate-500" /> : <ChevronRight className="h-4 w-4 text-slate-500" />}
-              </button>
-
-              {expanded && (
-                <div className="border-t border-slate-200 dark:border-white/10 bg-slate-50/60 dark:bg-slate-800/40">
-                  <PhaseStepperBar phases={agent.timeline} />
-                  <div className="flex gap-1 border-b border-slate-200 dark:border-white/10 px-4 pt-3">
-                    {tabs.map((tab) => (
-                      <button
-                        key={tab}
-                        onClick={() => setTab(agent.id, tab)}
-                        className={clsx(
-                          "rounded-t border border-b-0 px-3 py-2 text-[12px] font-medium",
-                          activeTab === tab
-                            ? "border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-950 dark:text-white"
-                            : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                        )}
-                      >
-                        {tab}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="bg-white dark:bg-slate-900 p-4">
-                    <ExpandedTab agent={agent} tab={activeTab} runId={backend.latestRun?.id ?? null} />
-                  </div>
-                </div>
-              )}
-            </Card>
-          );
-        })}
-      </div>
-        </>
-      )}
     </div>
   );
 }
@@ -486,6 +375,12 @@ function ExpandedTab({
           <MiniMetric label="Probe Set" value={agent.probes} />
           <MiniMetric label="Confidence" value={agent.confidence ? `${agent.confidence}%` : "Pending"} />
         </div>
+        {agent.toolCalls.length > 0 && (
+          <div>
+            <SectionTitle icon={Wrench} title="Tools Used" />
+            <ToolCallList toolCalls={agent.toolCalls} />
+          </div>
+        )}
         <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-4">
           <Timeline items={agent.timeline} />
         </div>
@@ -1075,7 +970,7 @@ function DriftMetric({ label, v40, v42, delta }: { label: string; v40: string; v
   );
 }
 
-function AgentGlyph({ agent }: { agent: IntelligenceAgent }) {
+export function AgentGlyph({ agent }: { agent: IntelligenceAgent }) {
   return (
     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-900 text-[11px] font-bold text-white">
       {agent.name
@@ -1087,42 +982,65 @@ function AgentGlyph({ agent }: { agent: IntelligenceAgent }) {
   );
 }
 
-function StatusDot({ status }: { status: IntelligenceAgent["status"] }) {
-  const color = status === "Complete" ? "bg-emerald-500" : status === "Running" ? "bg-brand-500" : "bg-slate-300";
-  return (
-    <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-      <span className={clsx("h-2 w-2 rounded-full", color, status === "Running" && "animate-pulse")} />
-      {status}
-    </span>
-  );
-}
+const TOOL_LABELS: Record<string, string> = {
+  garak: "Garak",
+  presidio: "Presidio",
+  ragas: "Ragas",
+  deepeval: "DeepEval",
+};
 
-function SummaryMetric({
-  label,
-  value,
-  icon: Icon,
-  tone = "slate",
-}: {
-  label: string;
-  value: string;
-  icon: React.ComponentType<{ className?: string }>;
-  tone?: "slate" | "red" | "blue" | "green";
-}) {
-  const iconColor = {
-    slate: "text-slate-300 dark:text-slate-600",
-    red: "text-red-400",
-    blue: "text-slate-300 dark:text-slate-600",
-    green: "text-emerald-400",
-  }[tone];
-
+/** Real evidence-tool invocations this agent made while forming its findings —
+ * e.g. DeepEval's BiasMetric scoring a fairness metric, Garak probing for
+ * jailbreak resistance. Distinct from LLM probes: these are actual scoring
+ * library calls, not prompts sent to the target/governance model. */
+function ToolCallList({ toolCalls }: { toolCalls: FindingToolCall[] }) {
   return (
-    <Card className="px-4 py-3 transition-shadow hover:shadow-md">
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">{label}</p>
-        <Icon className={clsx("h-4 w-4 shrink-0", iconColor)} />
-      </div>
-      <p className="mt-1.5 text-3xl font-bold tracking-tight text-slate-900 dark:text-white tabular-nums">{value}</p>
-    </Card>
+    <div className="space-y-2">
+      {toolCalls.map((call) => {
+        const skipped = call.status === "skipped";
+        return (
+          <div
+            key={`${call.tool_name}-${call.metric_id}`}
+            className={clsx(
+              "flex items-center justify-between gap-3 rounded border px-3 py-2.5",
+              skipped
+                ? "border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40"
+                : call.passed === false
+                ? "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/20"
+                : "border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/20"
+            )}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Wrench className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500" />
+              <div className="min-w-0">
+                <p className="text-[12px] font-semibold text-slate-900 dark:text-white">
+                  {TOOL_LABELS[call.tool_name] ?? call.tool_name}
+                  <span className="ml-1.5 font-normal text-slate-500 dark:text-slate-400">
+                    · {call.formula} ({call.metric_id})
+                  </span>
+                </p>
+              </div>
+            </div>
+            <div className="shrink-0 text-right">
+              {skipped ? (
+                <span className="text-[11px] text-slate-400 dark:text-slate-500">skipped</span>
+              ) : (
+                <span
+                  className={clsx(
+                    "text-[12px] font-semibold",
+                    call.passed === false
+                      ? "text-red-700 dark:text-red-400"
+                      : "text-emerald-700 dark:text-emerald-400"
+                  )}
+                >
+                  {call.normalized_score != null ? `${Math.round(call.normalized_score * 100)}%` : "—"}
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1225,27 +1143,6 @@ function SectionTitle({ icon: Icon, title }: { icon: React.ComponentType<{ class
       <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{title}</p>
     </div>
   );
-}
-
-function SeverityBadge({ severity }: { severity: IntelligenceAgent["severity"] }) {
-  const colors = {
-    Critical: "red",
-    High: "red",
-    Medium: "amber",
-    Low: "green",
-  } as const;
-
-  return <Badge tone={colors[severity]}>{severity}</Badge>;
-}
-
-function StatusBadge({ status }: { status: IntelligenceAgent["status"] }) {
-  const colors = {
-    Running: "amber",
-    Complete: "green",
-    Waiting: "slate",
-  } as const;
-
-  return <Badge tone={colors[status]}>{status}</Badge>;
 }
 
 function PhaseStepperBar({ phases }: { phases: IntelligenceAgent["timeline"] }) {

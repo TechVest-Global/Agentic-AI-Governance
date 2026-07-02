@@ -3,21 +3,27 @@ import { useSelectionStore } from "@/store/useSelectionStore";
 import {
   getAgentExecutions,
   getAuditLedger,
+  getContextAssembly,
+  getEvaluationPlan,
   getEvaluationRun,
   getFindings,
   getFrameworkMap,
   getGovernanceReport,
   getLatestEvaluationRun,
+  getLlmCalls,
   runCouncilDeliberation,
   verifyAuditLedger,
   type AgentExecution,
   type AuditLedgerEntry,
   type AuditLedgerVerification,
   type BackendFinding,
+  type ContextAssemblyRead,
   type CouncilDeliberation,
+  type EvaluationPlanRead,
   type EvaluationRun,
   type FrameworkComplianceMap,
   type GovernanceReport,
+  type LlmCall,
 } from "@/api/governanceApi";
 
 type BackendState = {
@@ -31,6 +37,9 @@ type BackendState = {
   ledgerEntries: AuditLedgerEntry[];
   ledgerVerification: AuditLedgerVerification | null;
   councilResult: CouncilDeliberation | null;
+  evaluationPlan: EvaluationPlanRead | null;
+  contextAssembly: ContextAssemblyRead | null;
+  llmCalls: LlmCall[];
 };
 
 const initialState: BackendState = {
@@ -44,7 +53,25 @@ const initialState: BackendState = {
   ledgerEntries: [],
   ledgerVerification: null,
   councilResult: null,
+  evaluationPlan: null,
+  contextAssembly: null,
+  llmCalls: [],
 };
+
+// A run that has reached one of these states will not change again, so we stop
+// polling it. Keep US/UK spellings and the report_ready interim state.
+const TERMINAL_RUN_STATUSES = new Set([
+  "completed",
+  "report_ready",
+  "failed",
+  "cancelled",
+  "canceled",
+]);
+
+// While a run is in flight, refresh the REST snapshot on this cadence so tiles
+// (findings, agent executions, counts) update even when the SSE stream is
+// unavailable — the SSE hook is best-effort, this is the reliable floor.
+const POLL_INTERVAL_MS = 4000;
 
 export function useGovernanceBackend() {
   const [state, setState] = useState<BackendState>(initialState);
@@ -74,15 +101,27 @@ export function useGovernanceBackend() {
           return;
         }
 
-        const [report, frameworkMap, agentExecutions, findings, ledgerEntries, ledgerVerification] =
-          await Promise.all([
-            getGovernanceReport(latestRun.id),
-            getFrameworkMap(latestRun.id),
-            getAgentExecutions(latestRun.id),
-            getFindings(latestRun.id),
-            getAuditLedger(latestRun.id),
-            verifyAuditLedger(latestRun.id),
-          ]);
+        const [
+          report,
+          frameworkMap,
+          agentExecutions,
+          findings,
+          ledgerEntries,
+          ledgerVerification,
+          evaluationPlan,
+          contextAssembly,
+          llmCallLog,
+        ] = await Promise.all([
+          getGovernanceReport(latestRun.id),
+          getFrameworkMap(latestRun.id),
+          getAgentExecutions(latestRun.id),
+          getFindings(latestRun.id),
+          getAuditLedger(latestRun.id),
+          verifyAuditLedger(latestRun.id),
+          getEvaluationPlan(latestRun.id),
+          getContextAssembly(latestRun.id),
+          getLlmCalls(latestRun.id).catch(() => null),
+        ]);
 
         if (!cancelled) {
           setState({
@@ -96,6 +135,9 @@ export function useGovernanceBackend() {
             ledgerEntries,
             ledgerVerification,
             councilResult: null,
+            evaluationPlan,
+            contextAssembly,
+            llmCalls: llmCallLog?.calls ?? [],
           });
         }
       } catch (error) {
@@ -115,6 +157,16 @@ export function useGovernanceBackend() {
       cancelled = true;
     };
   }, [refreshToken, selectedRunId]);
+
+  // Poll while the run is in flight so counts stay live even without SSE.
+  // Stops automatically once the run reaches a terminal state or errors.
+  const runStatus = state.latestRun?.status;
+  useEffect(() => {
+    if (state.error) return;
+    if (runStatus && TERMINAL_RUN_STATUSES.has(runStatus)) return;
+    const timer = setInterval(refresh, POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [runStatus, state.error, refresh]);
 
   const deliberate = useCallback(async () => {
     if (!state.latestRun) return null;

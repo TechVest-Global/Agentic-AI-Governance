@@ -251,14 +251,17 @@ def test_orchestrate_runs_context_assembly_first_when_logs_supplied(client: Test
     system = create_system(client)
     run = create_run(client, system["id"])
 
+    # Orchestration is fire-and-forget (202); the pipeline runs as a background
+    # task (executed synchronously by TestClient) and persists its results.
     response = client.post(
         f"/api/v1/evaluation-runs/{run['id']}/orchestrate",
         json={"mock_score": 0.95, "logs": _well_covered_logs(), "requested_by": "tester"},
     )
-    assert response.status_code == 200
-    body = response.json()
-    assert body["context_assembly"] is not None
-    assert body["context_assembly"]["log_analysis"]["total_requests"] == 4
+    assert response.status_code == 202
+
+    context = client.get(f"/api/v1/evaluation-runs/{run['id']}/context-assembly").json()
+    assert context is not None
+    assert context["log_analysis"]["total_requests"] == 4
 
     # Context assembly is the first link in the hash-chained state sequence.
     state = client.get(

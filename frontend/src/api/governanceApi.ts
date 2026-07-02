@@ -77,6 +77,22 @@ export type EvaluationRun = {
   updated_at?: string | null;
 };
 
+export type VerdictObjection = {
+  objection_id: string;
+  target_agent?: string | null;
+  category: string;
+  argument: string;
+  suggested_fix: string;
+  remediation_hint?: string | null;
+};
+
+export type VerdictRequiredAction = {
+  action: string;
+  severity: string;
+  owner: string;
+  context?: string | null;
+};
+
 export type Verdict = {
   id: string;
   run_id: string;
@@ -84,9 +100,9 @@ export type Verdict = {
   action_tier: string;
   label: string;
   synthesis?: string | null;
-  objections: Array<Record<string, unknown>>;
+  objections: VerdictObjection[];
   reasoning?: string | null;
-  required_actions: Array<Record<string, unknown>>;
+  required_actions: VerdictRequiredAction[];
   created_at: string;
 };
 
@@ -179,6 +195,15 @@ export type CouncilDeliberation = {
 
 export type FindingSeverity = "info" | "low" | "medium" | "high" | "critical";
 
+export type FindingToolCall = {
+  tool_name: string;
+  metric_id: string;
+  formula: string;
+  status: string;
+  normalized_score: number | null;
+  passed: boolean | null;
+};
+
 export type BackendFinding = {
   id: string;
   run_id: string;
@@ -193,6 +218,7 @@ export type BackendFinding = {
   agent_name?: string | null;
   recommended_action?: string | null;
   status: string;
+  payload?: { tool_calls?: FindingToolCall[]; [key: string]: unknown } | null;
   created_at: string;
 };
 
@@ -242,8 +268,16 @@ export type OrchestrationResult = {
 };
 
 export async function getLatestEvaluationRun(): Promise<EvaluationRun | null> {
-  const runs = await request<EvaluationRun[]>("/evaluation-runs?limit=1");
-  return runs[0] ?? null;
+  // Fetch a small page (newest first) and prefer the most recent run that has
+  // actually started, so a stray/aborted "created" row doesn't hijack the Live
+  // Run view and pin it to "Run Setup" forever. Fall back to the newest overall
+  // only when nothing has started yet.
+  const runs = await request<EvaluationRun[]>("/evaluation-runs?limit=10");
+  if (runs.length === 0) return null;
+  const started = runs.find(
+    (r) => r.status !== "created" && r.current_phase !== "created",
+  );
+  return started ?? runs[0];
 }
 
 export async function listMetrics(): Promise<MetricConfig[]> {
@@ -260,7 +294,12 @@ export async function createEvaluationRun(payload: EvaluationRunCreatePayload): 
 export async function orchestrateRun(runId: string, mockScore = 0.3): Promise<{ run_id: string; status: string }> {
   return request<{ run_id: string; status: string }>(`/evaluation-runs/${runId}/orchestrate`, {
     method: "POST",
-    body: JSON.stringify({ mock_score: mockScore, force_metric_status: "failed", requested_by: "frontend", notes: "Triggered from UI." }),
+    // logs: [] (rather than omitted) makes the backend actually run Context Assembly —
+    // an explicit empty list still executes the layer, just with nothing to analyze.
+    // evaluator_name: "auto" routes each metric to the real tool its own config names
+    // (garak/presidio/ragas/deepeval), falling back to deterministic threshold scoring
+    // for metrics whose tool has no real integration yet (langfuse/evidently/promptfoo).
+    body: JSON.stringify({ mock_score: mockScore, force_metric_status: "failed", evaluator_name: "auto", requested_by: "frontend", notes: "Triggered from UI.", logs: [] }),
   });
 }
 
@@ -405,6 +444,117 @@ export type RunMetricPlan = {
 
 export async function getRunMetricPlan(runId: string): Promise<RunMetricPlan> {
   return request<RunMetricPlan>(`/evaluation-runs/${runId}/metric-plan`);
+}
+
+/* ────────────────────────────────────────────── Evaluation plan (orchestrator) ── */
+
+export type AgentPlanItem = {
+  agent_name: string;
+  activated: boolean;
+  priority: "high" | "medium" | "low";
+  probe_budget: number;
+  assigned_metric_ids: string[];
+  target_dimensions: string[];
+  target_controls: string[];
+  coverage_gap_ids: string[];
+  instructions: string;
+  rationale: string;
+};
+
+export type PriorityTarget = {
+  dimension: string;
+  severity: string;
+  reason: string;
+  control_refs: string[];
+  gap_ids: string[];
+};
+
+export type EvaluationPlanRead = {
+  run_id: string;
+  ai_system_id: string;
+  state_sequence_number: number;
+  state_entry_hash: string;
+  generated_at: string;
+  risk_tier: string;
+  selected_frameworks: string[];
+  metric_count: number;
+  coverage_gap_count: number;
+  probe_budget_total: number;
+  probe_budget_allocated: number;
+  activated_agents: AgentPlanItem[];
+  priority_targets: PriorityTarget[];
+  risk_rationale: string;
+  counts: Record<string, number>;
+};
+
+export async function getEvaluationPlan(runId: string): Promise<EvaluationPlanRead | null> {
+  try {
+    return await request<EvaluationPlanRead>(`/evaluation-runs/${runId}/evaluation-plan`);
+  } catch {
+    return null;
+  }
+}
+
+/* ────────────────────────────────────────────── Context assembly ── */
+
+export type CoverageGapRead = {
+  gap_id: string;
+  framework_id: string;
+  category: string;
+  dimension: string;
+  severity: string;
+  description: string;
+  control_refs: string[];
+  recommended_probe_id?: string | null;
+  recommended_action: string;
+  expected: string[];
+  observed: string[];
+};
+
+export type LogAnalysisSummary = {
+  total_requests: number;
+  empty: boolean;
+  request_category_counts: Record<string, number>;
+  demographic_coverage: Record<string, number>;
+  jurisdiction_coverage: Record<string, number>;
+  outcome_counts: Record<string, number>;
+  modality_counts: Record<string, number>;
+  pii_request_count: number;
+  flagged_request_count: number;
+  distinct_request_categories: number;
+  distinct_demographic_groups: number;
+  distinct_jurisdictions: number;
+  distinct_outcomes: number;
+  observed_request_categories: string[];
+  observed_demographic_groups: string[];
+};
+
+export type RegulatoryContextRead = {
+  selected_frameworks: string[];
+  resolved_frameworks: string[];
+  missing_frameworks: string[];
+  control_count: number;
+};
+
+export type ContextAssemblyRead = {
+  run_id: string;
+  state_sequence_number: number;
+  state_entry_hash: string;
+  generated_at: string;
+  log_analysis: LogAnalysisSummary;
+  regulatory_context: RegulatoryContextRead;
+  coverage_gaps: CoverageGapRead[];
+  gap_count: number;
+  highest_gap_severity?: string | null;
+  counts: Record<string, number>;
+};
+
+export async function getContextAssembly(runId: string): Promise<ContextAssemblyRead | null> {
+  try {
+    return await request<ContextAssemblyRead>(`/evaluation-runs/${runId}/context-assembly`);
+  } catch {
+    return null;
+  }
 }
 
 /* ─────────────────────────────────────────────────── Context profile ── */
@@ -609,6 +759,63 @@ export async function cancelRun(runId: string): Promise<EvaluationRun> {
 
 export async function getEvaluationRun(runId: string): Promise<EvaluationRun> {
   return request<EvaluationRun>(`/evaluation-runs/${runId}`);
+}
+
+/* ─────────────────────────────────────────── Security tools ── */
+
+export type SecurityAdapterStatus = {
+  key: string;
+  name: string;
+  category: string;
+  description: string;
+  kind: "real" | "mock" | "deterministic";
+  dependency: string | null;
+  dependency_installed: boolean;
+  configured: boolean;
+  available: boolean;
+  detail: string;
+};
+
+export type SecurityToolsStatus = {
+  target_client: { mode: string; adapter: string; live: boolean };
+  adapters: SecurityAdapterStatus[];
+  summary: { total: number; available: number; real: number };
+};
+
+export async function getSecurityTools(): Promise<SecurityToolsStatus> {
+  return request<SecurityToolsStatus>(`/security-tools`);
+}
+
+/* ─────────────────────────────────── Context document upload ── */
+
+export type RetrievalContextDocument = {
+  id: string;
+  ai_system_id: string;
+  title: string;
+  content: string;
+  source_uri: string | null;
+  tags: string[];
+  created_at: string;
+};
+
+export async function uploadContextDocument(
+  systemId: string,
+  opts: { file?: File; text?: string; title?: string; tags?: string[] },
+): Promise<RetrievalContextDocument> {
+  const form = new FormData();
+  if (opts.file) form.append("file", opts.file);
+  if (opts.text) form.append("text", opts.text);
+  if (opts.title) form.append("title", opts.title);
+  if (opts.tags?.length) form.append("tags", opts.tags.join(","));
+  // Note: no Content-Type header — the browser sets the multipart boundary.
+  const response = await fetch(
+    `${API_BASE_URL}/ai-systems/${systemId}/retrieval-context/upload`,
+    { method: "POST", body: form },
+  );
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json();
 }
 
 const TERMINAL_STATUSES = new Set(["completed", "report_ready", "failed", "cancelled", "canceled"]);

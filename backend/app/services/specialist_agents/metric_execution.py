@@ -1,7 +1,11 @@
+import logging
+import os
+from concurrent.futures import ThreadPoolExecutor
 from uuid import UUID
 
 from sqlmodel import Session
 
+from app.db import session as db_session
 from app.models.ai_system import AISystem
 from app.models.base import utc_now
 from app.models.enums import RunPhase, RunStatus
@@ -12,6 +16,14 @@ from app.services.evaluators.registry import get_evaluator
 from app.services.model_clients.registry import get_target_model_client
 from app.services.run_validation import get_run_or_raise
 from app.services.specialist_agents.metric_plans import build_metric_plan
+
+logger = logging.getLogger(__name__)
+
+# Metrics are evaluated concurrently because each is dominated by blocking
+# network I/O (target-model probes + LLM-as-judge calls, each up to a 30s
+# timeout with retry backoff). Running them sequentially made a multi-metric
+# run take minutes. Bounded so we don't hammer the target/judge endpoints.
+_MAX_METRIC_WORKERS = int(os.getenv("METRIC_EXECUTION_MAX_WORKERS", "6"))
 
 
 def run_metrics(
@@ -26,22 +38,50 @@ def run_metrics(
     ai_system = session.get(AISystem, run.ai_system_id)
     target_client = get_target_model_client()
 
+    # Enter the metric-execution phase up front and commit, so live watchers see
+    # this layer become active while the (potentially slow) evaluators run,
+    # rather than the phase flipping only after all metrics finish.
+    run.status = RunStatus.metrics_running
+    run.current_phase = RunPhase.metric_execution
+    run.started_at = run.started_at or utc_now()
+    run.updated_at = utc_now()
+    session.add(run)
+    session.commit()
+
     evidence_records: list[EvidenceRecord] = []
     metric_results: list[MetricResult] = []
 
-    for metric in plan.metrics:
-        evaluation = evaluator.evaluate(
-            MetricEvaluationInput(
-                metric=metric,
-                mock_score=payload.mock_score,
-                force_status=payload.force_status,
-                source_name=payload.source_name,
-                session=session,
-                ai_system=ai_system,
-                target_client=target_client,
-            )
-        )
+    # Evaluate all metrics concurrently. Each worker uses its own short-lived DB
+    # session (SQLModel sessions are not thread-safe) for any reads its evaluator
+    # does; all writes below happen back on the main session, in plan order, so
+    # persistence stays single-threaded and deterministic.
+    def _evaluate(metric):
+        with Session(db_session.engine) as worker_session:
+            try:
+                return evaluator.evaluate(
+                    MetricEvaluationInput(
+                        metric=metric,
+                        mock_score=payload.mock_score,
+                        force_status=payload.force_status,
+                        source_name=payload.source_name,
+                        session=worker_session,
+                        ai_system=ai_system,
+                        target_client=target_client,
+                    )
+                )
+            except Exception:
+                logger.exception("Metric evaluation failed for %s", metric.metric_id)
+                raise
 
+    metrics = list(plan.metrics)
+    if metrics:
+        worker_count = max(1, min(_MAX_METRIC_WORKERS, len(metrics)))
+        with ThreadPoolExecutor(max_workers=worker_count) as pool:
+            evaluations = list(pool.map(_evaluate, metrics))
+    else:
+        evaluations = []
+
+    for metric, evaluation in zip(metrics, evaluations, strict=True):
         evidence = EvidenceRecord(
             run_id=run_id,
             source_type=evaluation.source_type,

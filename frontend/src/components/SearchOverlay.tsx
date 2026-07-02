@@ -17,7 +17,7 @@ type SearchResult = {
 };
 
 const allResults: SearchResult[] = [
-  ...navigation.map((item) => ({
+  ...navigation.filter((item) => !item.hidden).map((item) => ({
     id: `nav-${item.id}`,
     title: item.label,
     description: `${item.section} workspace`,
@@ -48,10 +48,10 @@ const allResults: SearchResult[] = [
     id: `agent-${agent.name}`,
     title: agent.name,
     description: `${agent.role} - ${agent.status} - ${agent.findings} findings`,
-    path: "/agents",
+    path: "/runs",
     group: "Agents",
     icon: Bot,
-    page: "agents" as PageId,
+    page: "runs" as PageId,
   })),
   ...findings.map((finding) => ({
     id: `finding-${finding.id}`,

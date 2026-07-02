@@ -145,3 +145,9 @@ html.dark .skeleton::after {
   to   { opacity: 1; transform: none; }
 }
 .animate-fade-in { animation: fadeIn 0.3s cubic-bezier(0.2,0.7,0.2,1) both; }
+
+@keyframes slideIn {
+  from { transform: translateX(100%); }
+  to   { transform: none; }
+}
+.animate-slide-in { animation: slideIn 0.25s cubic-bezier(0.2,0.7,0.2,1) both; }

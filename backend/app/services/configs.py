@@ -316,6 +316,8 @@ def _metric_file_config_to_create(
         tool_name=metric_config.tool,
         framework_ids=framework_ids,
         modality="text",
+        applicable_capability_types=list(metric_config.applicable_capability_types),
+        applicable_modalities=list(metric_config.applicable_modalities),
         threshold_rules=threshold_rules,
         scoring_config={
             "formula": metric_config.formula,

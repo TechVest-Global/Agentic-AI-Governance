@@ -5,6 +5,8 @@ import { useSelectionStore } from "@/store/useSelectionStore";
 export type ActiveRun = {
   /** All runs (newest first), for the run switcher. */
   runs: EvaluationRun[];
+  /** Registered AI systems — audit targets. */
+  systems: BackendAISystem[];
   /** System id → name, for labelling runs. */
   systemNameById: Map<string, string>;
   /** The effective run id: the explicitly selected run, or the latest. */
@@ -75,5 +77,5 @@ export function useActiveRun(): ActiveRun {
     [runs, setSelectedRunId, setSelectedSystemId],
   );
 
-  return { runs, systemNameById, runId: effectiveRunId, run, loading, error, setRunId, refresh };
+  return { runs, systems, systemNameById, runId: effectiveRunId, run, loading, error, setRunId, refresh };
 }

@@ -82,6 +82,7 @@ def get_target_model_client(settings: Settings | None = None) -> TargetModelClie
             api_key=resolved.judge_api_key,
             deployment_name=resolved.judge_deployment_name,
             api_version=resolved.judge_api_version,
+            timeout=resolved.llm_call_timeout_seconds,
         )
         return GatewayTargetModelClient(inner)
 
@@ -130,6 +131,7 @@ def get_governance_model_client(settings: Settings | None = None) -> GovernanceM
             api_key=resolved.judge_api_key,
             deployment_name=resolved.judge_deployment_name,
             api_version=resolved.judge_api_version,
+            timeout=resolved.llm_call_timeout_seconds,
         )
         return GatewayGovernanceModelClient(inner)
 
