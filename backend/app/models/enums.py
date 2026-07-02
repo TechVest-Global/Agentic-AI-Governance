@@ -23,6 +23,13 @@ class CapabilityType(StrEnum):
     other = "other"
 
 
+class Modality(StrEnum):
+    text = "text"
+    audio = "audio"
+    video = "video"
+    image = "image"
+
+
 class SideEffectLevel(StrEnum):
     none = "none"
     read = "read"

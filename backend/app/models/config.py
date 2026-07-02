@@ -21,6 +21,17 @@ class MetricConfig(TimestampMixin, UUIDPrimaryKey, table=True):
         sa_column=Column(JSON, nullable=False),
     )
     modality: str | None = Field(default=None, index=True, max_length=100)
+    # Empty means universally applicable. Non-empty restricts this metric to
+    # AI systems that have at least one capability of that type / that
+    # modality — see services.specialist_agents.metric_plans for the filter.
+    applicable_capability_types: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False),
+    )
+    applicable_modalities: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False),
+    )
     threshold_rules: dict[str, Any] = Field(
         default_factory=dict,
         sa_column=Column(JSON, nullable=False),

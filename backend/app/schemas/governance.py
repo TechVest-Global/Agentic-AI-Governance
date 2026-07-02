@@ -12,6 +12,7 @@ from app.models.enums import (
     FindingStatus,
     LedgerActorType,
     MetricResultStatus,
+    Modality,
     RiskTier,
     RunPhase,
     RunStatus,
@@ -30,6 +31,7 @@ class AISystemCreate(APIModel):
     owner: str = Field(min_length=1, max_length=200)
     system_type: str = Field(min_length=1, max_length=100)
     risk_tier: RiskTier = RiskTier.medium
+    modality: Modality = Modality.text
     deployment_environment: str = Field(default="local", max_length=100)
     selected_frameworks: list[str] = Field(default_factory=list)
     model_provider: str = Field(default="azure_foundry", max_length=100)
@@ -45,6 +47,7 @@ class AISystemUpdate(APIModel):
     owner: str | None = Field(default=None, min_length=1, max_length=200)
     system_type: str | None = Field(default=None, min_length=1, max_length=100)
     risk_tier: RiskTier | None = None
+    modality: Modality | None = None
     deployment_environment: str | None = Field(default=None, max_length=100)
     selected_frameworks: list[str] | None = None
     model_provider: str | None = Field(default=None, max_length=100)
@@ -215,6 +218,8 @@ class MetricConfigCreate(APIModel):
     tool_name: str | None = Field(default=None, max_length=100)
     framework_ids: list[str] = Field(default_factory=list)
     modality: str | None = Field(default=None, max_length=100)
+    applicable_capability_types: list[str] = Field(default_factory=list)
+    applicable_modalities: list[str] = Field(default_factory=list)
     threshold_rules: dict[str, Any] = Field(default_factory=dict)
     scoring_config: dict[str, Any] = Field(default_factory=dict)
     version: str = Field(default="v1", max_length=50)
