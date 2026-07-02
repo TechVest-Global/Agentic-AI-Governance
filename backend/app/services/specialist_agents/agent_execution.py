@@ -25,10 +25,22 @@ def run_agents(
     run_id: UUID,
     payload: AgentRunCreate,
     evaluation_plan: EvaluationPlanRead | None = None,
+    probe_budget_override: int | None = None,
 ) -> AgentRunRead:
     run = get_run_or_raise(session, run_id)
     start_log_capture()
     ai_system = session.get(AISystem, run.ai_system_id)
+    if probe_budget_override is not None:
+        # Mid-council re_probe remediation needs a *bit* more sample size, not
+        # a full plan-scaled re-run (which could be up to 100 probes/agent) —
+        # cap it explicitly regardless of what the evaluation plan allocated.
+        probe_budgets = {name: probe_budget_override for name in (payload.agent_names or [])}
+    elif evaluation_plan is not None:
+        probe_budgets = {
+            item.agent_name: item.probe_budget for item in evaluation_plan.activated_agents
+        }
+    else:
+        probe_budgets = {}
     context = AgentContext(
         ai_system=ai_system,
         context_profile=_get_context_profile(session, ai_system_id=run.ai_system_id),
@@ -39,9 +51,7 @@ def run_agents(
         prior_metric_scores=_get_prior_metric_scores(
             session, ai_system_id=run.ai_system_id, current_run_id=run_id
         ),
-        probe_budgets={
-            item.agent_name: item.probe_budget for item in evaluation_plan.activated_agents
-        } if evaluation_plan is not None else {},
+        probe_budgets=probe_budgets,
         metric_plan_items=build_metric_plan(session, run_id=run_id).metrics,
         session=session,
         target_client=get_target_model_client(),

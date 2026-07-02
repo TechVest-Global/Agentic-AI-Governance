@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     litellm_master_key: str | None = None
     litellm_model: str = "judge-model"
 
+    # Per-call timeout for LLM requests (target + governance). Without this a
+    # slow-but-not-erroring Azure response has nothing forcing it to fail fast,
+    # so the Gateway's retry/backoff never engages and a single call can block
+    # the whole council/agent pipeline far longer than the SDK's own default.
+    llm_call_timeout_seconds: float = 30.0
+
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore"
     )

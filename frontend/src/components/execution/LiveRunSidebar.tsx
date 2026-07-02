@@ -24,6 +24,9 @@ export const COUNCIL_MEMBERS: Array<{ id: CouncilMemberId; name: string; color: 
   { id: "verdict", name: "Verdict Agent", color: "#0d9488" },
 ];
 
+// The council loop caps at 3 iterations (backend: remediation_router.MAX_ITERATIONS).
+const COUNCIL_MAX_ITERATIONS = 3;
+
 export function LiveRunSidebar({
   currentPhase,
   runStatus,
@@ -34,6 +37,7 @@ export function LiveRunSidebar({
   onSelectAgent,
   selectedCouncilMemberId,
   onSelectCouncilMember,
+  resultSummary,
 }: {
   currentPhase: string;
   runStatus: string;
@@ -44,6 +48,7 @@ export function LiveRunSidebar({
   onSelectAgent: (id: string) => void;
   selectedCouncilMemberId: CouncilMemberId | null;
   onSelectCouncilMember: (id: CouncilMemberId) => void;
+  resultSummary?: Record<string, unknown>;
 }) {
   const { systems, runId, setRunId, refresh } = useActiveRun();
   const runner = useEvaluationRunner();
@@ -233,7 +238,16 @@ export function LiveRunSidebar({
                 )}>
                   {step.label}
                 </span>
-                {status === "active" && <Loader2 className="ml-auto h-3.5 w-3.5 shrink-0 animate-spin text-blue-600" />}
+                {isCouncil && status === "active" && (
+                  <span className="ml-auto shrink-0 rounded-full bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 text-[10px] font-bold text-blue-700 dark:text-blue-400">
+                    iteration {Math.min(
+                      Number(resultSummary?.["_council_iteration_count"] ?? 0) + 1,
+                      COUNCIL_MAX_ITERATIONS
+                    )}/{COUNCIL_MAX_ITERATIONS}
+                  </span>
+                )}
+                {status === "active" && !isCouncil && <Loader2 className="ml-auto h-3.5 w-3.5 shrink-0 animate-spin text-blue-600" />}
+                {isCouncil && status === "active" && <Loader2 className="ml-2 h-3.5 w-3.5 shrink-0 animate-spin text-blue-600" />}
                 {hasNestedItems && (
                   isSelected && isExpanded
                     ? <ChevronDown className="ml-auto h-3.5 w-3.5 shrink-0 text-slate-400" />

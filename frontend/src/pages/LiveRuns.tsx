@@ -195,6 +195,19 @@ function PipelineStepContent({
   if (step.id === "action_reporting") {
     return (
       <div className="space-y-4">
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-brand-200 dark:border-brand-800 bg-brand-50 dark:bg-brand-950/20 px-4 py-3">
+          <p className="text-[12px] text-slate-600 dark:text-slate-400">
+            This panel shows this run's findings inline. For the full compliance report — framework
+            mapping, evidence package, and export — open the dedicated Reports page.
+          </p>
+          <button
+            onClick={() => navigateTo("/reports")}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-[12px] font-semibold text-white hover:bg-brand-700"
+          >
+            <FileText className="h-3.5 w-3.5" />
+            View Full Compliance Report
+          </button>
+        </div>
         {displayedFindings.length === 0 ? (
           <p className="text-[12px] text-slate-500 dark:text-slate-400">No findings recorded for this run yet.</p>
         ) : (
@@ -305,6 +318,7 @@ export function LiveRuns() {
   const liveProgress = progress?.progress ?? (backend.latestRun ? Math.round(((phaseIndex(livePhase) + 1) / 8) * 100) : 0);
   const liveProbes   = progress?.probe_count ?? backend.report?.counts?.metric_results ?? liveRuns[0].probes;
   const liveFindings = progress?.finding_count ?? backend.report?.counts?.findings ?? liveRuns[0].findings;
+  const liveResultSummary = progress?.result_summary ?? backend.latestRun?.result_summary ?? undefined;
 
   const run = {
     id: backend.latestRun?.id ?? liveRuns[0].id,
@@ -387,6 +401,7 @@ export function LiveRuns() {
           onSelectAgent={handleSelectAgent}
           selectedCouncilMemberId={selectedCouncilMemberId}
           onSelectCouncilMember={handleSelectCouncilMember}
+          resultSummary={liveResultSummary}
         />
       )}
 
@@ -442,6 +457,7 @@ export function LiveRuns() {
             onSelectAgent={handleSelectAgent}
             selectedCouncilMemberId={selectedCouncilMemberId}
             onSelectCouncilMember={handleSelectCouncilMember}
+            resultSummary={liveResultSummary}
           />
         </div>
 
