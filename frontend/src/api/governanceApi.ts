@@ -278,9 +278,10 @@ export async function orchestrateRun(runId: string, mockScore = 0.3): Promise<{ 
     method: "POST",
     // logs: [] (rather than omitted) makes the backend actually run Context Assembly —
     // an explicit empty list still executes the layer, just with nothing to analyze.
-    // evaluator_name: "threshold" scores metrics deterministically from each metric's
-    // real threshold_rules instead of the "mock" default, which never computes a real score.
-    body: JSON.stringify({ mock_score: mockScore, force_metric_status: "failed", evaluator_name: "threshold", requested_by: "frontend", notes: "Triggered from UI.", logs: [] }),
+    // evaluator_name: "auto" routes each metric to the real tool its own config names
+    // (garak/presidio/ragas/deepeval), falling back to deterministic threshold scoring
+    // for metrics whose tool has no real integration yet (langfuse/evidently/promptfoo).
+    body: JSON.stringify({ mock_score: mockScore, force_metric_status: "failed", evaluator_name: "auto", requested_by: "frontend", notes: "Triggered from UI.", logs: [] }),
   });
 }
 
