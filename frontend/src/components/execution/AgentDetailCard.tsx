@@ -15,6 +15,7 @@ import {
   MessageSquare,
   SearchCheck,
   Terminal,
+  Wrench,
 } from "lucide-react";
 import clsx from "clsx";
 import { useAppStore } from "@/store/useAppStore";
@@ -24,6 +25,7 @@ import {
   type AgentPlanItem,
   type BackendFinding,
   type ContextAssemblyRead,
+  type FindingToolCall,
   type LlmCall,
 } from "@/api/governanceApi";
 import {
@@ -50,6 +52,7 @@ export type IntelligenceAgent = {
   frameworks: string[];
   remediation: string[];
   timeline: Array<{ label: string; status: "complete" | "running" | "waiting"; detail: string }>;
+  toolCalls: FindingToolCall[];
 };
 
 export const AGENT_TABS: AgentTab[] = ["Overview", "Probes", "Evidence", "Frameworks", "Remediation", "Runtime"];
@@ -234,6 +237,19 @@ function mapStatus(status: string): IntelligenceAgent["status"] {
   return "Waiting";
 }
 
+/** Findings carry the same tool_calls payload repeated across every finding from one
+ * evaluate() call — dedupe by tool+metric so each real tool invocation shows once. */
+function dedupeToolCalls(agentFindings: BackendFinding[]): FindingToolCall[] {
+  const byKey = new Map<string, FindingToolCall>();
+  for (const f of agentFindings) {
+    const calls = f.payload?.tool_calls ?? [];
+    for (const call of calls) {
+      byKey.set(`${call.tool_name}:${call.metric_id}`, call);
+    }
+  }
+  return Array.from(byKey.values());
+}
+
 /** A run can contain multiple execution rows for the same agent (re-probes) — keep only the latest. */
 function latestExecutionPerAgent(executions: AgentExecution[]): AgentExecution[] {
   const latestByCanon = new Map<string, AgentExecution>();
@@ -260,6 +276,7 @@ export function buildAgentsFromBackend(
     const meta = AGENT_META[canon] ?? fallbackMeta(execution.agent_name);
     const agentFindings = findings.filter((f) => canonicalAgent(f.agent_name ?? "") === canon);
     const realActions = agentFindings.map((f) => f.recommended_action).filter((a): a is string => Boolean(a));
+    const toolCalls = dedupeToolCalls(agentFindings);
     const completed = execution.status === "completed";
     const plan = plans.find((p) => canonicalAgent(p.agent_name) === canon) ?? null;
     const namedCalls = llmCalls.filter((c) => c.agent_name && canonicalAgent(c.agent_name) === canon);
@@ -283,6 +300,7 @@ export function buildAgentsFromBackend(
       frameworks: meta.frameworks,
       remediation: realActions.length ? realActions : meta.remediation,
       timeline: buildTimeline(execution.status, plan, contextAssembly, agentCalls, agentFindings),
+      toolCalls,
     };
   });
 }
@@ -357,6 +375,12 @@ function ExpandedTab({
           <MiniMetric label="Probe Set" value={agent.probes} />
           <MiniMetric label="Confidence" value={agent.confidence ? `${agent.confidence}%` : "Pending"} />
         </div>
+        {agent.toolCalls.length > 0 && (
+          <div>
+            <SectionTitle icon={Wrench} title="Tools Used" />
+            <ToolCallList toolCalls={agent.toolCalls} />
+          </div>
+        )}
         <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-4">
           <Timeline items={agent.timeline} />
         </div>
@@ -955,6 +979,68 @@ export function AgentGlyph({ agent }: { agent: IntelligenceAgent }) {
         .join("")
         .slice(0, 2)}
     </span>
+  );
+}
+
+const TOOL_LABELS: Record<string, string> = {
+  garak: "Garak",
+  presidio: "Presidio",
+  ragas: "Ragas",
+  deepeval: "DeepEval",
+};
+
+/** Real evidence-tool invocations this agent made while forming its findings —
+ * e.g. DeepEval's BiasMetric scoring a fairness metric, Garak probing for
+ * jailbreak resistance. Distinct from LLM probes: these are actual scoring
+ * library calls, not prompts sent to the target/governance model. */
+function ToolCallList({ toolCalls }: { toolCalls: FindingToolCall[] }) {
+  return (
+    <div className="space-y-2">
+      {toolCalls.map((call) => {
+        const skipped = call.status === "skipped";
+        return (
+          <div
+            key={`${call.tool_name}-${call.metric_id}`}
+            className={clsx(
+              "flex items-center justify-between gap-3 rounded border px-3 py-2.5",
+              skipped
+                ? "border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40"
+                : call.passed === false
+                ? "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/20"
+                : "border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/20"
+            )}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Wrench className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500" />
+              <div className="min-w-0">
+                <p className="text-[12px] font-semibold text-slate-900 dark:text-white">
+                  {TOOL_LABELS[call.tool_name] ?? call.tool_name}
+                  <span className="ml-1.5 font-normal text-slate-500 dark:text-slate-400">
+                    · {call.formula} ({call.metric_id})
+                  </span>
+                </p>
+              </div>
+            </div>
+            <div className="shrink-0 text-right">
+              {skipped ? (
+                <span className="text-[11px] text-slate-400 dark:text-slate-500">skipped</span>
+              ) : (
+                <span
+                  className={clsx(
+                    "text-[12px] font-semibold",
+                    call.passed === false
+                      ? "text-red-700 dark:text-red-400"
+                      : "text-emerald-700 dark:text-emerald-400"
+                  )}
+                >
+                  {call.normalized_score != null ? `${Math.round(call.normalized_score * 100)}%` : "—"}
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

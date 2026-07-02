@@ -14,7 +14,9 @@ from app.schemas.governance import AgentRunCreate, AgentRunRead, AgentRunSummary
 from app.services.agents.base import AgentContext
 from app.services.agents.registry import select_agents
 from app.services.model_clients.gateway import drain_log_capture, start_log_capture
+from app.services.model_clients.registry import get_target_model_client
 from app.services.run_validation import get_run_or_raise
+from app.services.specialist_agents.metric_plans import build_metric_plan
 
 
 def run_agents(
@@ -40,6 +42,9 @@ def run_agents(
         probe_budgets={
             item.agent_name: item.probe_budget for item in evaluation_plan.activated_agents
         } if evaluation_plan is not None else {},
+        metric_plan_items=build_metric_plan(session, run_id=run_id).metrics,
+        session=session,
+        target_client=get_target_model_client(),
     )
 
     created_findings: list[Finding] = []

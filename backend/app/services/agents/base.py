@@ -1,10 +1,15 @@
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+from sqlmodel import Session
 
 from app.models.ai_system import AISystem, AISystemCapability, ApplicationContextProfile
 from app.models.evidence import EvidenceRecord, MetricResult
 from app.models.finding import Finding
-from app.schemas.governance import FindingCreate
+from app.schemas.governance import FindingCreate, MetricPlanItem
+
+if TYPE_CHECKING:
+    from app.services.model_clients.base import TargetModelClient
 
 
 @dataclass(frozen=True)
@@ -20,6 +25,12 @@ class AgentContext:
     # agent_name -> probes allocated by the Layer 2 evaluation plan (adaptive_orchestrator).
     # Model-backed agents scale their probe count to this budget instead of a fixed count.
     probe_budgets: dict[str, int] = None  # type: ignore[assignment]
+    # Full metric plan items (real threshold_rules/scoring_config), so agents can
+    # invoke a real evidence-tool evaluator (garak/presidio/ragas/deepeval) directly
+    # instead of only reasoning over pre-computed metric_results.
+    metric_plan_items: list[MetricPlanItem] = None  # type: ignore[assignment]
+    session: Session | None = None
+    target_client: "TargetModelClient | None" = None
 
     def __post_init__(self) -> None:
         # default to empty dict so agents can always do .get() safely
@@ -27,6 +38,8 @@ class AgentContext:
             object.__setattr__(self, "prior_metric_scores", {})
         if self.probe_budgets is None:
             object.__setattr__(self, "probe_budgets", {})
+        if self.metric_plan_items is None:
+            object.__setattr__(self, "metric_plan_items", [])
 
 
 class GovernanceAgent(Protocol):

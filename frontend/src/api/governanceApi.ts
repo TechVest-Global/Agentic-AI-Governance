@@ -195,6 +195,15 @@ export type CouncilDeliberation = {
 
 export type FindingSeverity = "info" | "low" | "medium" | "high" | "critical";
 
+export type FindingToolCall = {
+  tool_name: string;
+  metric_id: string;
+  formula: string;
+  status: string;
+  normalized_score: number | null;
+  passed: boolean | null;
+};
+
 export type BackendFinding = {
   id: string;
   run_id: string;
@@ -209,6 +218,7 @@ export type BackendFinding = {
   agent_name?: string | null;
   recommended_action?: string | null;
   status: string;
+  payload?: { tool_calls?: FindingToolCall[]; [key: string]: unknown } | null;
   created_at: string;
 };
 
