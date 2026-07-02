@@ -1,8 +1,14 @@
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
+from sqlmodel import Session
+
+from app.models.ai_system import AISystem
 from app.models.enums import MetricResultStatus
 from app.schemas.governance import MetricPlanItem
+
+if TYPE_CHECKING:
+    from app.services.model_clients.base import TargetModelClient
 
 
 @dataclass(frozen=True)
@@ -11,6 +17,11 @@ class MetricEvaluationInput:
     mock_score: float
     force_status: MetricResultStatus | None
     source_name: str
+    # Real-tool evaluators (garak, presidio, ragas, deepeval) need these to
+    # produce genuine evidence instead of a derived/placeholder score.
+    session: Session
+    ai_system: AISystem
+    target_client: "TargetModelClient"
 
 
 @dataclass(frozen=True)
