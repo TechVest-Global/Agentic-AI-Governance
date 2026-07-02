@@ -443,8 +443,8 @@ export function AgentIntelligence() {
                   <StatusBadge status={agent.status} />
                 </div>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Probes</p>
-                  <p className="mt-1 text-[12px] font-semibold text-slate-950 dark:text-white">{agent.probes}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Findings</p>
+                  <p className="mt-1 text-[12px] font-semibold text-slate-950 dark:text-white">{agent.findings}</p>
                 </div>
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Confidence</p>

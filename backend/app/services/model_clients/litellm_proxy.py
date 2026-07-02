@@ -41,10 +41,12 @@ class LiteLLMGovernanceModelClient:
         proxy_url: str,
         master_key: str,
         model: str = "judge-model",
+        cheap_model: str = "judge-model-cheap",
     ) -> None:
         self.deployment_name = model
         self.credential_ref = "LITELLM_MASTER_KEY"
         self._model = model
+        self._cheap_model = cheap_model
         self._client = OpenAI(
             base_url=f"{proxy_url.rstrip('/')}/v1",
             api_key=master_key,
@@ -53,10 +55,13 @@ class LiteLLMGovernanceModelClient:
     def complete(self, request: GovernanceModelRequest) -> GovernanceModelResponse:
         trace_id = f"litellm-gov-{uuid4()}"
         start = time.monotonic()
+        # Premium → main judge model; cheap → the cheaper proxy model. All
+        # current callers default to premium.
+        model = self._cheap_model if request.tier == "cheap" else self._model
 
         try:
             response = self._client.chat.completions.create(
-                model=self._model,
+                model=model,
                 messages=[{"role": "user", "content": request.prompt}],
                 temperature=0.2,
             )
@@ -69,14 +74,15 @@ class LiteLLMGovernanceModelClient:
         usage = response.usage
         return GovernanceModelResponse(
             provider=self.provider,
-            deployment_name=self._model,
+            deployment_name=model,
             content=content,
             trace_id=trace_id,
             latency_ms=latency_ms,
             metadata={
                 "task": request.task,
+                "tier": request.tier,
                 "client_mode": "live",
-                "model": self._model,
+                "model": model,
                 "routed_via": "litellm_proxy",
                 "prompt_tokens": usage.prompt_tokens if usage else None,
                 "completion_tokens": usage.completion_tokens if usage else None,

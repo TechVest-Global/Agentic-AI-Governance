@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { Check, ChevronDown, ChevronRight, Copy, Hash, Search, Shield } from "lucide-react";
 import clsx from "clsx";
-import { auditEvents } from "@/data/mockData";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
@@ -45,7 +44,7 @@ export function AuditLedger() {
       })),
     [backend.ledgerEntries],
   );
-  const events = backendEvents.length ? backendEvents : auditEvents;
+  const events = backendEvents;
   const typeOptions = ["All", ...Array.from(new Set(events.map((event) => event.type)))];
 
   const filteredEvents = events.filter((event) => {
@@ -82,7 +81,7 @@ export function AuditLedger() {
               : "Chain Invalid"
             : backend.loading
               ? "Checking Chain"
-              : "Prototype Ledger"}
+              : "No Ledger Yet"}
         </Badge>
       </div>
 
@@ -125,12 +124,16 @@ export function AuditLedger() {
         <CardHeader
           title="Hash-Chained Audit Ledger"
           eyebrow={`Append-only reasoning history · ${filteredEvents.length} events`}
-          action={<Badge tone={backend.ledgerVerification?.valid === false ? "red" : "green"}>{backend.usingBackend ? "Backend" : "Mock"}</Badge>}
+          action={backend.usingBackend ? <Badge tone={backend.ledgerVerification?.valid === false ? "red" : "green"}>Backend</Badge> : undefined}
         />
 
         {filteredEvents.length === 0 && (
-          <div className="px-4 py-8 text-center text-[13px] text-slate-400 dark:text-slate-500">
-            No events match the current filter. Try changing the type or search query.
+          <div className="px-4 py-10 text-center text-[13px] text-slate-400 dark:text-slate-500">
+            {events.length === 0
+              ? backend.loading
+                ? "Loading audit ledger…"
+                : "No ledger entries yet. Run a governance evaluation to populate the hash-chained audit trail."
+              : "No events match the current filter. Try changing the type or search query."}
           </div>
         )}
 

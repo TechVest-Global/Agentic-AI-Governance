@@ -27,8 +27,51 @@ TARGET_MODEL_CREDENTIAL_REF = "TARGET_MODEL_API_KEY"
 GOVERNANCE_MODEL_CREDENTIAL_REF = "AZURE_AI_FOUNDRY_API_KEY"
 
 
+def build_http_target_client(settings: Settings | None = None) -> TargetModelClient:
+    """Build a gateway-wrapped HTTP target client unconditionally.
+
+    Used for runs that resolved a registered target endpoint: the per-request
+    auth (URL, credentials, field mapping) travels with each probe, so this
+    works even when no global TARGET_* environment credentials are configured.
+    """
+    resolved = settings or get_settings()
+    from app.services.model_clients.http_target import HttpTargetModelClient
+
+    inner = HttpTargetModelClient(
+        api_key=resolved.target_api_key,
+        auth_header=resolved.target_auth_header,
+        auth_scheme=resolved.target_auth_scheme,
+        request_field=resolved.target_request_field,
+        response_field=resolved.target_response_field,
+        endpoint_override=resolved.target_endpoint,
+        timeout=float(resolved.target_timeout_seconds),
+    )
+    return GatewayTargetModelClient(inner)
+
+
 def get_target_model_client(settings: Settings | None = None) -> TargetModelClient:
     resolved = settings or get_settings()
+
+    # Priority 0: real HTTP target application (the audited chatbot). Enabled
+    # when a target endpoint or API key is configured; the per-system
+    # target_endpoint_ref supplies the URL unless target_endpoint overrides it.
+    if resolved.target_endpoint or resolved.target_api_key:
+        from app.services.model_clients.http_target import HttpTargetModelClient
+
+        logger.info(
+            "Target client: live HTTP target (endpoint=%s)",
+            resolved.target_endpoint or "<per-system target_endpoint_ref>",
+        )
+        inner = HttpTargetModelClient(
+            api_key=resolved.target_api_key,
+            auth_header=resolved.target_auth_header,
+            auth_scheme=resolved.target_auth_scheme,
+            request_field=resolved.target_request_field,
+            response_field=resolved.target_response_field,
+            endpoint_override=resolved.target_endpoint,
+            timeout=float(resolved.target_timeout_seconds),
+        )
+        return GatewayTargetModelClient(inner)
 
     # Priority 1: LiteLLM proxy
     if resolved.litellm_proxy_url and resolved.litellm_master_key:
@@ -91,6 +134,7 @@ def get_governance_model_client(settings: Settings | None = None) -> GovernanceM
             proxy_url=resolved.litellm_proxy_url,
             master_key=resolved.litellm_master_key,
             model=resolved.litellm_model,
+            cheap_model=f"{resolved.litellm_model}-cheap",
         )
         return GatewayGovernanceModelClient(inner)
 
@@ -111,6 +155,7 @@ def get_governance_model_client(settings: Settings | None = None) -> GovernanceM
             api_key=resolved.judge_api_key,
             deployment_name=resolved.judge_deployment_name,
             api_version=resolved.judge_api_version,
+            cheap_deployment_name=resolved.judge_cheap_deployment_name,
         )
         return GatewayGovernanceModelClient(inner)
 

@@ -37,6 +37,39 @@ class AISystem(TimestampMixin, UUIDPrimaryKey, table=True):
     )
 
 
+class TargetEndpoint(TimestampMixin, UUIDPrimaryKey, table=True):
+    """A callable HTTP endpoint an application is reachable at.
+
+    An application typically exposes several (prod, staging, regional instances);
+    a run probes one of them (the default, or an explicit per-run override). The
+    API key is encrypted at rest in ``secret_ciphertext`` and never serialized.
+    """
+
+    __tablename__ = "target_endpoints"
+    __table_args__ = (UniqueConstraint("ai_system_id", "name"),)
+
+    ai_system_id: UUID = Field(foreign_key="ai_systems.id", index=True)
+    name: str = Field(index=True, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+    environment: str = Field(default="production", index=True, max_length=100)
+    url: str = Field(min_length=1, max_length=1000)
+    http_method: str = Field(default="POST", max_length=10)
+    auth_header: str = Field(default="Authorization", max_length=200)
+    auth_scheme: str = Field(default="Bearer", max_length=100)
+    request_field: str = Field(default="message", max_length=200)
+    response_field: str = Field(default="response", max_length=200)
+    timeout_seconds: int = Field(default=60, ge=1, le=600)
+    # Fernet-encrypted API key; never returned by the API. None = no stored secret
+    # (the endpoint falls back to environment credentials when probed).
+    secret_ciphertext: str | None = Field(default=None, max_length=2000)
+    enabled: bool = Field(default=True, index=True)
+    is_default: bool = Field(default=False, index=True)
+    metadata_json: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column("metadata_json", JSON, nullable=False),
+    )
+
+
 class ApplicationContextProfile(TimestampMixin, UUIDPrimaryKey, table=True):
     __tablename__ = "application_context_profiles"
 

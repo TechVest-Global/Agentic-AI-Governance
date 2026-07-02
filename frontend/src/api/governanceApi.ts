@@ -62,6 +62,48 @@ export type BackendAISystemCapabilityCreate = Omit<
   "id" | "ai_system_id" | "created_at" | "updated_at"
 >;
 
+export type BackendTargetEndpoint = {
+  id: string;
+  ai_system_id: string;
+  name: string;
+  description?: string | null;
+  environment: string;
+  url: string;
+  http_method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  auth_header: string;
+  auth_scheme: string;
+  request_field: string;
+  response_field: string;
+  timeout_seconds: number;
+  enabled: boolean;
+  is_default: boolean;
+  metadata_json: Record<string, unknown>;
+  // The API never returns the secret itself, only whether one is stored.
+  has_secret: boolean;
+  created_at: string;
+  updated_at?: string | null;
+};
+
+export type BackendTargetEndpointCreate = {
+  name: string;
+  description?: string | null;
+  environment?: string;
+  url: string;
+  http_method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  auth_header?: string;
+  auth_scheme?: string;
+  request_field?: string;
+  response_field?: string;
+  timeout_seconds?: number;
+  enabled?: boolean;
+  is_default?: boolean;
+  metadata_json?: Record<string, unknown>;
+  // Plaintext API key (write-only). Encrypted at rest; never returned by reads.
+  secret?: string | null;
+};
+
+export type BackendTargetEndpointUpdate = Partial<BackendTargetEndpointCreate>;
+
 export type EvaluationRun = {
   id: string;
   ai_system_id: string;
@@ -231,6 +273,8 @@ export type EvaluationRunCreatePayload = {
   ai_system_id: string;
   selected_frameworks: string[];
   selected_metrics: string[];
+  // Optional: probe a specific registered target endpoint instead of the default.
+  target_endpoint_id?: string | null;
 };
 
 export type OrchestrationResult = {
@@ -257,10 +301,10 @@ export async function createEvaluationRun(payload: EvaluationRunCreatePayload): 
   });
 }
 
-export async function orchestrateRun(runId: string, mockScore = 0.9): Promise<OrchestrationResult> {
+export async function orchestrateRun(runId: string): Promise<OrchestrationResult> {
   return request<OrchestrationResult>(`/evaluation-runs/${runId}/orchestrate`, {
     method: "POST",
-    body: JSON.stringify({ mock_score: mockScore, requested_by: "frontend", notes: "Triggered from UI." }),
+    body: JSON.stringify({ requested_by: "frontend", notes: "Triggered from UI." }),
   });
 }
 
@@ -333,6 +377,42 @@ export async function createAISystemCapability(
   return request<BackendAISystemCapability>(`/ai-systems/${systemId}/capabilities`, {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+/* ─────────────────────────────────────────────────── Target endpoints ── */
+
+export async function listTargetEndpoints(systemId: string): Promise<BackendTargetEndpoint[]> {
+  return request<BackendTargetEndpoint[]>(`/ai-systems/${systemId}/target-endpoints`);
+}
+
+export async function createTargetEndpoint(
+  systemId: string,
+  payload: BackendTargetEndpointCreate,
+): Promise<BackendTargetEndpoint> {
+  return request<BackendTargetEndpoint>(`/ai-systems/${systemId}/target-endpoints`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateTargetEndpoint(
+  systemId: string,
+  endpointId: string,
+  payload: BackendTargetEndpointUpdate,
+): Promise<BackendTargetEndpoint> {
+  return request<BackendTargetEndpoint>(
+    `/ai-systems/${systemId}/target-endpoints/${endpointId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export async function deleteTargetEndpoint(systemId: string, endpointId: string): Promise<void> {
+  await request<void>(`/ai-systems/${systemId}/target-endpoints/${endpointId}`, {
+    method: "DELETE",
   });
 }
 

@@ -61,6 +61,7 @@ class MockGovernanceModelClient:
             latency_ms=0,
             metadata={
                 "client_mode": "mock",
+                "tier": request.tier,
                 "credential_ref": self.credential_ref,
                 "context_keys": sorted(request.context),
             },

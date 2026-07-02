@@ -30,8 +30,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { theme, toggleTheme } = useThemeStore();
 
   const persona    = personaForRole(user?.role);
-  const navItems   = navigation.filter((item) => item.personas.includes(persona));
-  const current    = navItems.find((item) => item.id === activePage);
+  // Sidebar shows persona-visible, non-hidden items. Hidden pages (folded into
+  // the Governance Workflow) stay routable via drawers + deep links.
+  const navItems   = navigation.filter((item) => item.personas.includes(persona) && !item.hidden && !item.hiddenFor?.includes(persona));
+  // Resolve the active item from the full nav (hidden pages still render via deep link).
+  const current    = navigation.find((item) => item.id === activePage);
   const isEngine    = activePage === "engine";
   // Both personas can start a run. Developers get the engine walkthrough;
   // auditors land on the registry to pick a target and run an evaluation.
@@ -39,7 +42,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen,  setSearchOpen]  = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return window.innerWidth >= 1024;
+  });
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const userMenuRef    = useRef<HTMLDivElement>(null);
@@ -154,7 +160,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* ── Main area ────────────────────────────────────────────── */}
-      <div className={clsx("flex min-h-screen flex-col transition-[padding] duration-300", sidebarOpen ? "pl-60" : "pl-0")}>
+      <div className={clsx("flex min-h-screen flex-col transition-[padding] duration-300", sidebarOpen ? "lg:pl-60" : "pl-0")}>
 
         {/* ── Header ───────────────────────────────────────────── */}
         <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-[#e7e9f0] dark:border-white/10 bg-white/90 dark:bg-[#0f1626]/90 px-4 backdrop-blur-md transition-colors duration-200">
@@ -168,7 +174,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
 
             {/* search */}
-            <div className="relative w-full max-w-xl">
+            <div className="relative hidden w-full max-w-xl sm:block">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
               <input
                 ref={searchInputRef}
@@ -177,7 +183,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 onFocus={() => setSearchOpen(true)}
                 onBlur={() => window.setTimeout(() => setSearchOpen(false), 120)}
                 className="h-9 w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 pl-9 pr-12 text-[13px] text-slate-900 dark:text-slate-100 outline-none placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-brand-500 focus:bg-white dark:focus:bg-slate-700 focus:ring-2 focus:ring-brand-100 dark:focus:ring-brand-700/40 transition-colors"
-                placeholder="Search runs, models, evidence, controls…"
+                placeholder="Jump to a page…"
               />
               {searchQuery ? (
                 <button
@@ -198,7 +204,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="ml-4 flex items-center gap-2">
-            {/* global run switcher — connects every run-scoped tab */}
             {RUN_SCOPED.has(activePage) && <RunSwitcher />}
 
             {/* theme toggle */}
@@ -211,7 +216,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
 
             {/* notifications */}
-            <button className="relative flex h-9 w-9 items-center justify-center rounded text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10 hover:text-slate-700 dark:hover:text-white transition-colors">
+            <button className="relative hidden h-9 w-9 items-center justify-center rounded text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10 hover:text-slate-700 dark:hover:text-white transition-colors sm:flex">
               <Bell className="h-4 w-4" />
               <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-orange-500" />
             </button>
@@ -220,7 +225,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {!isEngine && (
               <button
                 onClick={() => navigateTo(startRunPath)}
-                className="flex items-center gap-2 rounded-lg bg-brand-600 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
+                className="hidden items-center gap-2 rounded-lg bg-brand-600 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900 sm:flex"
               >
                 <Play className="h-3.5 w-3.5" />
                 Start Governance Run
@@ -318,9 +323,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
 const pageDescriptions: Record<PageId, string> = {
   dashboard:      "Real-time governance overview — KPIs, risk trends, compliance posture, and agent performance at a glance.",
-  systems:        "All registered AI systems bound to owners, risk tiers, and frameworks. Click any row to inspect the current governance posture.",
+  systems:        "Registered AI systems with edit, run, and delete — plus end-to-end registration across identity, context, ownership, frameworks, models, endpoints, data, risk, metrics, monitoring, and alerts.",
   engine:         "End-to-end walkthrough of the governance engine — five layers from context assembly through specialist findings, council deliberation, confidence-bounded action, and sealed ledger evidence.",
-  runs:           "Live pipeline execution for active governance runs. Shows agent status, findings, and the full 5-stage evaluation flow.",
+  runs:           "End-to-end governance flow for the selected run — expand each pipeline layer and open any agent, the council, verdict, evidence, or ledger entry in place.",
   agents:         "Specialist agents currently probing, testing, and mapping evidence. Expand each agent to see checks, methods, findings, and remediation.",
   "metric-plan":  "Orchestrator-selected metric plan for the current run — tools, owner agents, framework clauses, probe budgets, and thresholds.",
   council:        "Multi-step deliberation that synthesises agent findings into a verdict. Each step is expandable with full reasoning and confidence impacts.",

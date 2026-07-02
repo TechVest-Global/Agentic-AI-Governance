@@ -214,18 +214,40 @@ export function useDashboardData(): DashboardData {
           confidences.length > 0 ? confidences.reduce((a, b) => a + b, 0) / confidences.length : null;
 
         // --- Confidence trend (oldest → newest) -------------------------------
-        const confidenceTrend: ConfidencePoint[] = [...runs]
+        // Each point is one adjudicated run. Runs are often created the same day
+        // (e.g. a demo session), so a date-only label collapses to "Jun 30" on
+        // every tick. Detect a single-day series and switch to a time label, then
+        // guarantee uniqueness so adjacent ticks never render identical text.
+        const adjudicated = [...runs]
           .reverse()
           .map((run) => {
             const verdict = reportByRunId.get(run.id)?.verdict;
             if (!verdict) return null;
-            const date = new Date(run.created_at);
-            const label = Number.isNaN(date.getTime())
-              ? run.id.slice(0, 4)
-              : date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-            return { label, score: Math.round(verdict.confidence_score * 100), runId: run.id };
+            return { run, score: Math.round(verdict.confidence_score * 100) };
           })
-          .filter((p): p is ConfidencePoint => p !== null);
+          .filter((p): p is { run: EvaluationRun; score: number } => p !== null);
+
+        const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+        const dates = adjudicated.map((p) => new Date(p.run.created_at)).filter((d) => !Number.isNaN(d.getTime()));
+        const singleDay = dates.length > 0 && dates.every((d) => dayKey(d) === dayKey(dates[0]));
+
+        const labelCounts = new Map<string, number>();
+        const confidenceTrend: ConfidencePoint[] = adjudicated.map(({ run, score }) => {
+          const date = new Date(run.created_at);
+          let label: string;
+          if (Number.isNaN(date.getTime())) {
+            label = run.id.slice(0, 4);
+          } else if (singleDay) {
+            label = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+          } else {
+            label = date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+          }
+          // Disambiguate any remaining collisions (same minute / same day).
+          const seen = labelCounts.get(label) ?? 0;
+          labelCounts.set(label, seen + 1);
+          if (seen > 0) label = `${label} (${seen + 1})`;
+          return { label, score, runId: run.id };
+        });
 
         // --- Outcome mix ------------------------------------------------------
         const outcomeTally = { approved: 0, conditional: 0, blocked: 0 };

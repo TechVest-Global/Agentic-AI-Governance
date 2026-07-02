@@ -8,6 +8,7 @@ import {
   getFrameworkMap,
   getGovernanceReport,
   getLatestEvaluationRun,
+  listGovernanceState,
   runCouncilDeliberation,
   verifyAuditLedger,
   type AgentExecution,
@@ -18,6 +19,7 @@ import {
   type EvaluationRun,
   type FrameworkComplianceMap,
   type GovernanceReport,
+  type GovernanceStateEntry,
 } from "@/api/governanceApi";
 
 type BackendState = {
@@ -29,6 +31,7 @@ type BackendState = {
   agentExecutions: AgentExecution[];
   findings: BackendFinding[];
   ledgerEntries: AuditLedgerEntry[];
+  stateEntries: GovernanceStateEntry[];
   ledgerVerification: AuditLedgerVerification | null;
   councilResult: CouncilDeliberation | null;
 };
@@ -42,6 +45,7 @@ const initialState: BackendState = {
   agentExecutions: [],
   findings: [],
   ledgerEntries: [],
+  stateEntries: [],
   ledgerVerification: null,
   councilResult: null,
 };
@@ -74,13 +78,14 @@ export function useGovernanceBackend() {
           return;
         }
 
-        const [report, frameworkMap, agentExecutions, findings, ledgerEntries, ledgerVerification] =
+        const [report, frameworkMap, agentExecutions, findings, ledgerEntries, stateEntries, ledgerVerification] =
           await Promise.all([
             getGovernanceReport(latestRun.id),
             getFrameworkMap(latestRun.id),
             getAgentExecutions(latestRun.id),
             getFindings(latestRun.id),
             getAuditLedger(latestRun.id),
+            listGovernanceState(latestRun.id).catch(() => []),
             verifyAuditLedger(latestRun.id),
           ]);
 
@@ -94,6 +99,7 @@ export function useGovernanceBackend() {
             agentExecutions,
             findings,
             ledgerEntries,
+            stateEntries,
             ledgerVerification,
             councilResult: null,
           });
@@ -131,4 +137,3 @@ export function useGovernanceBackend() {
     usingBackend: Boolean(state.latestRun && !state.error),
   };
 }
-

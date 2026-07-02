@@ -19,15 +19,19 @@ model_list:
       description: "Primary governance judge — Azure OpenAI GPT-4.1"
       max_tokens: 8096
 
-  # Uncomment and configure to enable automatic fallback to a second deployment:
-  # - model_name: judge-model
-  #   litellm_params:
-  #     model: azure/gpt-4o
-  #     api_base: os.environ/FALLBACK_ENDPOINT
-  #     api_key: os.environ/FALLBACK_API_KEY
-  #     api_version: "2024-10-21"
-  #   model_info:
-  #     description: "Fallback governance judge — Azure OpenAI GPT-4o"
+  # Cheaper judge for cost routing. Reuses the same Azure resource (JUDGE_*) but a
+  # cheaper deployment via CHEAP_MODEL (e.g. azure/gpt-4o-mini). Used as the
+  # judge-model fallback today; point the backend's cheap tasks here for default
+  # cost routing. Defaults to gpt-4.1 until a cheaper deployment is provisioned.
+  - model_name: judge-model-cheap
+    litellm_params:
+      model: os.environ/CHEAP_MODEL
+      api_base: os.environ/JUDGE_ENDPOINT
+      api_key: os.environ/JUDGE_API_KEY
+      api_version: "2025-01-01-preview"
+    model_info:
+      description: "Cheaper governance judge — cost-optimized deployment"
+      max_tokens: 8096
 
 router_settings:
   routing_strategy: simple-shuffle
@@ -35,12 +39,27 @@ router_settings:
   retry_after: 5
   allowed_fails: 1
   cooldown_time: 30
+  # On failure/rate-limit, fall back from the primary judge to the cheaper model.
+  fallbacks: [{"judge-model": ["judge-model-cheap"]}]
 
 litellm_settings:
   request_timeout: 120
   drop_params: true
   set_verbose: false
   json_logs: true
+  # Exact-match response cache (Redis) — cuts cost/latency on repeated identical
+  # calls. Exact-match only (NOT semantic), so different probes never collide.
+  #
+  # GOVERNANCE CAVEAT: cached responses are NOT fresh. For production audit runs
+  # where agents must observe LIVE target behaviour (drift, regressions), disable
+  # this (cache: false) or keep the TTL short. It is safe/most valuable for
+  # dev-iteration cost. TTL is intentionally short (10 min) for that reason.
+  cache: true
+  cache_params:
+    type: redis
+    host: os.environ/REDIS_HOST
+    port: os.environ/REDIS_PORT
+    ttl: 600
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

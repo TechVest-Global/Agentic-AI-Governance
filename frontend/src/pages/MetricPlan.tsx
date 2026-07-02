@@ -6,7 +6,7 @@ import { MetricCard } from "@/components/ui/MetricCard";
 import { Badge } from "@/components/ui/Badge";
 import { ProgressBar } from "@/components/ui/RunStatus";
 import { useAppStore } from "@/store/useAppStore";
-import { metricPlan, dimensionTone, type MetricDimension, type MetricPlan as MetricPlanShape, type MetricStatus, type PlannedMetric } from "@/data/metricPlan";
+import { toneForDimension, type MetricDimension, type MetricPlan as MetricPlanShape, type MetricStatus, type PlannedMetric } from "@/data/metricPlan";
 import { getRunMetricPlan, listAISystems, type EvaluationRun } from "@/api/governanceApi";
 import { useActiveRun } from "@/hooks/useActiveRun";
 
@@ -18,11 +18,21 @@ const statusTone: Record<MetricStatus, "green" | "amber" | "red" | "slate" | "bl
   Skipped: "slate",
 };
 
-const VALID_DIMENSIONS: MetricDimension[] = ["Bias", "Drift", "Misuse", "Compliance", "Explainability"];
+const SMALL_WORDS = new Set(["and", "or", "of", "the", "for", "to"]);
 
-function normalizeDimension(raw: string): MetricDimension {
-  const titled = raw.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-  return (VALID_DIMENSIONS as string[]).includes(titled) ? (titled as MetricDimension) : "Compliance";
+// Humanise a backend dimension for display without collapsing it: "task_fulfilment"
+// → "Task Fulfilment", "Bias and Fairness" stays as-is. Preserving the real value
+// is what lets the page show every dimension the orchestrator actually selected.
+function humanizeDimension(raw: string): MetricDimension {
+  return raw
+    .replace(/_/g, " ")
+    .split(" ")
+    .map((word, i) =>
+      i > 0 && SMALL_WORDS.has(word.toLowerCase())
+        ? word.toLowerCase()
+        : word.charAt(0).toUpperCase() + word.slice(1),
+    )
+    .join(" ");
 }
 
 /** Build the page's plan shape from the live backend metric-plan for the active run. */
@@ -44,7 +54,7 @@ async function loadLivePlan(run: EvaluationRun): Promise<MetricPlanShape | null>
     metrics: plan.metrics.map((m) => ({
       id: m.metric_id,
       name: m.name,
-      dimension: normalizeDimension(m.dimension),
+      dimension: humanizeDimension(m.dimension),
       description: `Owned by ${m.primary_agent ?? "specialist agent"} · framework refs: ${m.framework_ids.join(", ") || "—"}.`,
       tool: m.tool_name ?? "—",
       toolMode: "live",
@@ -62,35 +72,60 @@ export function MetricPlan() {
   const { run } = useActiveRun();
   const [dimensionFilter, setDimensionFilter] = useState<MetricDimension | "All">("All");
   const [approved, setApproved] = useState(false);
-  const [plan, setPlan] = useState<MetricPlanShape>(metricPlan);
-  const [source, setSource] = useState<"live" | "sample">("sample");
+  const [plan, setPlan] = useState<MetricPlanShape | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     if (!run) {
-      // No active run — fall back to the bundled sample plan.
-      setPlan(metricPlan);
-      setSource("sample");
+      setPlan(null);
+      setLoading(false);
       return;
     }
+    setLoading(true);
     loadLivePlan(run)
       .then((live) => {
         if (cancelled) return;
-        if (live && live.metrics.length > 0) {
-          setPlan(live);
-          setSource("live");
-        } else {
-          setPlan(metricPlan);
-          setSource("sample");
-        }
+        setPlan(live && live.metrics.length > 0 ? live : null);
       })
       .catch(() => {
-        /* keep sample plan on any failure */
+        if (!cancelled) setPlan(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
   }, [run]);
+
+  if (!plan) {
+    return (
+      <div className="flex min-h-[55vh] flex-col items-center justify-center gap-4 text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800">
+          <ClipboardList className="h-7 w-7 text-slate-400 dark:text-slate-500" />
+        </div>
+        <div>
+          <p className="text-[16px] font-semibold text-slate-900 dark:text-white">
+            {loading ? "Loading metric plan…" : "No metric plan yet"}
+          </p>
+          {!loading && (
+            <p className="mt-1 max-w-md text-[13px] leading-5 text-slate-500 dark:text-slate-400">
+              The orchestrator builds the metric plan when a governance run starts. Run an evaluation to see the metrics, probe budgets, and thresholds selected for the active run.
+            </p>
+          )}
+        </div>
+        {!loading && (
+          <button
+            onClick={() => navigateTo("/systems")}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-brand-700"
+          >
+            Go to AI Systems
+          </button>
+        )}
+      </div>
+    );
+  }
 
   const metrics = dimensionFilter === "All" ? plan.metrics : plan.metrics.filter((m) => m.dimension === dimensionFilter);
 
@@ -117,9 +152,7 @@ export function MetricPlan() {
                 and {plan.selectedFrameworks.length} selected frameworks. Review the plan before the run executes.
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <Badge tone={source === "live" ? "green" : "amber"}>
-                  {source === "live" ? "Live data" : "Sample data"}
-                </Badge>
+                <Badge tone="green">Live data</Badge>
                 <Badge tone="slate">Run mode: {plan.runMode}</Badge>
                 {plan.selectedFrameworks.map((fw) => (
                   <Badge key={fw} tone="blue">{fw}</Badge>
@@ -156,12 +189,15 @@ export function MetricPlan() {
           {dimensions.map((dim) => {
             const dimProbes = plan.metrics.filter((m) => m.dimension === dim).reduce((s, m) => s + m.probeBudget, 0);
             const pct = totalProbes > 0 ? Math.round((dimProbes / totalProbes) * 100) : 0;
+            const tone = toneForDimension(dim);
+            // ProgressBar has no violet tone — fold it into slate.
+            const barTone = tone === "violet" ? "slate" : tone;
             return (
               <div key={dim} className="flex items-center gap-3">
                 <div className="w-28 shrink-0">
-                  <Badge tone={dimensionTone[dim]}>{dim}</Badge>
+                  <Badge tone={tone}>{dim}</Badge>
                 </div>
-                <ProgressBar value={pct} tone={dimensionTone[dim] === "violet" ? "slate" : dimensionTone[dim]} className="flex-1" />
+                <ProgressBar value={pct} tone={barTone} className="flex-1" />
                 <span className="w-24 text-right text-[11px] tabular-nums text-slate-600">{dimProbes} probes ({pct}%)</span>
               </div>
             );
@@ -240,7 +276,7 @@ function MetricRow({ metric }: { metric: PlannedMetric }) {
           <p className="font-mono text-[11px] font-semibold text-slate-950 dark:text-white">{metric.id}</p>
           <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">{metric.name}</p>
         </td>
-        <td className="px-4 py-3"><Badge tone={dimensionTone[metric.dimension]}>{metric.dimension}</Badge></td>
+        <td className="px-4 py-3"><Badge tone={toneForDimension(metric.dimension)}>{metric.dimension}</Badge></td>
         <td className="px-4 py-3">
           <span className="font-mono text-[11px] text-slate-800 dark:text-slate-200">{metric.tool}</span>
           <span className="ml-1.5 rounded bg-slate-100 dark:bg-slate-700 px-1 py-0.5 text-[9px] font-medium uppercase text-slate-500 dark:text-slate-400">{metric.toolMode}</span>

@@ -55,7 +55,10 @@ export function useActiveRun(): ActiveRun {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+    // Re-fetch when the workspace selects a different run (e.g. a run just
+    // started from the AI registry) so the freshly-created run shows up in the
+    // switcher instead of silently falling back to the previous "Latest".
+  }, [token, selectedRunId]);
 
   // If the selected run is gone (or none chosen), fall back to the latest.
   const effectiveRunId =

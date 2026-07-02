@@ -13,7 +13,12 @@ from app.schemas.governance import AgentRunCreate, AgentRunRead, AgentRunSummary
 from app.services.agents.base import AgentContext
 from app.services.agents.registry import select_agents
 from app.services.model_clients.gateway import drain_log_capture, start_log_capture
+from app.services.model_clients.registry import (
+    build_http_target_client,
+    get_target_model_client,
+)
 from app.services.run_validation import get_run_or_raise
+from app.services.target_endpoints import resolve_target_endpoint
 
 
 def run_agents(
@@ -25,6 +30,22 @@ def run_agents(
     run = get_run_or_raise(session, run_id)
     start_log_capture()
     ai_system = session.get(AISystem, run.ai_system_id)
+
+    # Resolve which target endpoint this run probes: the per-run override if the
+    # run specified one, else the application's default (or legacy endpoint ref).
+    target_endpoint = resolve_target_endpoint(
+        session,
+        run.ai_system_id,
+        endpoint_id=run.target_endpoint_id,
+    )
+    # A resolved endpoint carries its own URL + credentials on each request, so
+    # use the HTTP target client; otherwise fall back to the configured client.
+    target_client = (
+        build_http_target_client()
+        if target_endpoint is not None
+        else get_target_model_client()
+    )
+
     context = AgentContext(
         ai_system=ai_system,
         context_profile=_get_context_profile(session, ai_system_id=run.ai_system_id),
@@ -32,13 +53,14 @@ def run_agents(
         evidence=_list_evidence(session, run_id=run_id),
         metric_results=_list_metric_results(session, run_id=run_id),
         existing_findings=_list_findings(session, run_id=run_id),
+        target_endpoint=target_endpoint,
     )
 
     created_findings: list[Finding] = []
     summaries: list[AgentRunSummary] = []
     executions: list[AgentExecution] = []
     failed_execution_count = 0
-    for agent in select_agents(payload.agent_names):
+    for agent in select_agents(payload.agent_names, target_client=target_client):
         execution = AgentExecution(
             run_id=run_id,
             agent_name=agent.name,

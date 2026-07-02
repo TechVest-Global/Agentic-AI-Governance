@@ -58,6 +58,14 @@ export type NavigationItem = {
   badge?: string;
   /** Which personas may see this nav item. */
   personas: Persona[];
+  /**
+   * When true the page stays routable (deep links + in-workflow drawers keep
+   * working and the persona route-guard still grants access) but it is hidden
+   * from the sidebar. Used to fold deep pages into the Governance Workflow.
+   */
+  hidden?: boolean;
+  /** Hide this item from one persona's sidebar while keeping the route allowed. */
+  hiddenFor?: Persona[];
 };
 
 export type AiSystem = {

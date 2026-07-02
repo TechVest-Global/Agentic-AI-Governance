@@ -5,7 +5,7 @@ import { useAuthStore } from "@/store/useAuthStore";
 import { useThemeStore } from "@/store/useThemeStore";
 import { canAccess, defaultPageFor, personaForRole } from "@/lib/persona";
 import { Dashboard } from "@/pages/Dashboard";
-import { AISystems } from "@/pages/AISystems";
+import { AISystemsWorkspace } from "@/pages/RegisterAISystem";
 import { AgentIntelligence } from "@/pages/AgentIntelligence";
 import { AuditLedger } from "@/pages/AuditLedger";
 import { CouncilDeliberation } from "@/pages/CouncilDeliberation";
@@ -33,7 +33,7 @@ import type { PageId } from "@/types";
 
 const pages = {
   dashboard: Dashboard,
-  systems: AISystems,
+  systems: AISystemsWorkspace,
   "eval-runs": EvaluationRuns,
   engine: GovernanceEngine,
   runs: LiveRuns,
@@ -83,6 +83,16 @@ export default function App() {
   useEffect(() => {
     if (isAuthenticated && !canAccess(persona, activePage)) {
       navigateTo(`/${defaultPageFor(persona)}`);
+    }
+  }, [isAuthenticated, persona, activePage, navigateTo]);
+
+  // Dedup the two pipeline pages: developers use the Developer Workspace
+  // (/engine) as their single run page. The auditor-oriented Governance Workflow
+  // (/runs) is redirected for them, so deep links ("Open Live Run", etc.) land on
+  // one consistent page instead of a confusing second one.
+  useEffect(() => {
+    if (isAuthenticated && persona === "developer" && activePage === "runs") {
+      navigateTo("/engine");
     }
   }, [isAuthenticated, persona, activePage, navigateTo]);
 

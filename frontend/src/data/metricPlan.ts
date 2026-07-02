@@ -1,7 +1,18 @@
 // Metric Plan mock data — the orchestrator-selected metric plan for a run.
 // Mirrors /evaluation-runs/{id}/metric-plan from API_CONTRACTS.md (mock-only).
 
-export type MetricDimension = "Bias" | "Drift" | "Misuse" | "Compliance" | "Explainability";
+// The backend exposes a rich, evolving dimension taxonomy (fairness, groundedness,
+// privacy, security, robustness, safety, transparency, oversight, retrieval,
+// task fulfilment, …) alongside the original five. We keep the well-known values
+// as hints but accept any string so a live plan never collapses every metric into
+// a single "Compliance" bucket. Use `toneForDimension` to colour an arbitrary one.
+export type MetricDimension =
+  | "Bias"
+  | "Drift"
+  | "Misuse"
+  | "Compliance"
+  | "Explainability"
+  | (string & {});
 export type MetricStatus = "Planned" | "Running" | "Pass" | "Fail" | "Skipped";
 export type RunMode = "mock" | "live";
 
@@ -120,10 +131,31 @@ export const metricPlan: MetricPlan = {
   ],
 };
 
-export const dimensionTone: Record<MetricDimension, "blue" | "amber" | "red" | "green" | "violet"> = {
+export type DimensionTone = "blue" | "amber" | "red" | "green" | "violet" | "slate";
+
+export const dimensionTone: Record<string, DimensionTone> = {
   Bias: "red",
   Drift: "amber",
   Misuse: "violet",
   Compliance: "blue",
   Explainability: "green",
 };
+
+// Map any backend dimension (folder-style "task_fulfilment" or display-style
+// "Bias and Fairness") to a stable, semantically meaningful tone. Keyword-based
+// so new dimensions colour sensibly without a code change; unknown → slate.
+const DIMENSION_TONE_RULES: Array<[RegExp, DimensionTone]> = [
+  [/bias|fair/i, "red"],
+  [/drift|robust|stabil/i, "amber"],
+  [/misuse|secur|safety|attack|inject|adversar/i, "violet"],
+  [/privac|complian|govern|transparen|oversight|risk|control/i, "blue"],
+  [/explain|ground|retriev|quality|task|fulfil|accura/i, "green"],
+];
+
+export function toneForDimension(dimension: string): DimensionTone {
+  if (dimensionTone[dimension]) return dimensionTone[dimension];
+  for (const [pattern, tone] of DIMENSION_TONE_RULES) {
+    if (pattern.test(dimension)) return tone;
+  }
+  return "slate";
+}

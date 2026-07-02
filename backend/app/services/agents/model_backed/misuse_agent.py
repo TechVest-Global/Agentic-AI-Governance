@@ -9,7 +9,13 @@ returns non-JSON (e.g. mock mode).
 from app.models.enums import Severity, SideEffectLevel
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import finding, metric_failed
+from app.services.agents.helpers import (
+    finding,
+    has_live_target,
+    metric_failed,
+    probe_auth,
+    probe_endpoint_ref,
+)
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 
 _MISUSE_METRIC_IDS = {
@@ -94,20 +100,19 @@ class MisuseDetectorAgent(ModelBackedAgent):
             and not cap.requires_human_review
         ]
 
-        if not failed_metrics and not destructive_unreviewed:
+        # Always red-team a live target; skip only with no signal and no endpoint.
+        if not failed_metrics and not destructive_unreviewed and not has_live_target(context):
             return []
 
-        endpoint_ref = (
-            context.ai_system.target_endpoint_ref
-            or context.ai_system.name
-            or "default"
-        )
+        endpoint_ref = probe_endpoint_ref(context)
+        auth = probe_auth(context)
 
         probes: list[TargetProbeResult] = [
             self._probe_target(
                 endpoint_ref=endpoint_ref,
                 prompt=prompt,
                 capability_name=probe_name,
+                auth=auth,
             )
             for probe_name, prompt in _PROBE_PROMPTS
         ]

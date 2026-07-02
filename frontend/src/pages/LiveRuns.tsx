@@ -2,26 +2,30 @@ import { useEffect, useState } from "react";
 import {
   Activity,
   AlertTriangle,
+  ArrowLeft,
+  BookOpen,
   Bot,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
   Circle,
-  Clock,
+  ClipboardList,
   Copy,
   Download,
   FileJson,
+  FileSearch,
   FileText,
+  GitBranch,
   Layers,
   Loader2,
+  Scale,
   Send,
   ShieldAlert,
   XCircle,
-  Zap,
 } from "lucide-react";
 import clsx from "clsx";
-import { agents as mockAgents, auditEvents, findings as mockFindings, liveRuns, systems as mockSystems, applicationContextProfiles, type ApplicationContextProfile } from "@/data/mockData";
-import { Badge, toneForStatus } from "@/components/ui/Badge";
+import type { ApplicationContextProfile } from "@/data/mockData";
+import { Badge } from "@/components/ui/Badge";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { useAppStore } from "@/store/useAppStore";
@@ -31,6 +35,7 @@ import { ExecutionLayerTrace } from "@/components/execution/ExecutionLayerTrace"
 import { RuntimeEventStream } from "@/components/execution/RuntimeEventStream";
 import { ArtifactDrawer } from "@/components/execution/ArtifactDrawer";
 import { RuntimeArchitecture } from "@/components/execution/RuntimeArchitecture";
+import { WorkflowDrawer, type WorkflowDrawerTarget } from "@/components/execution/WorkflowDrawers";
 import { exportJSON, exportCSV, exportPDF, exportLedger, exportEvidenceBundle } from "@/utils/exports";
 import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
 import { useRunProgress, phaseIndex, type AgentProgress } from "@/hooks/useRunProgress";
@@ -62,6 +67,8 @@ const SEVERITY_BG: Record<string, string> = {
   Medium: "bg-amber-50 dark:bg-amber-950/20",
   Low: "bg-blue-50 dark:bg-blue-950/20",
 };
+
+const RUN_HISTORY_RETURN_KEY = "governai-run-history-return";
 
 
 // ---------------------------------------------------------------------------
@@ -198,10 +205,13 @@ export function LiveRuns() {
   // the runtime traces, probe internals, or links into engine-only pages.
   const isDev = personaForRole(role) === "developer";
   const backend = useGovernanceBackend();
-  const [expandedAgent, setExpandedAgent]     = useState<string | null>(null);
   const [expandedEvent, setExpandedEvent]     = useState<string | null>(null);
   const [expandedFinding, setExpandedFinding] = useState<string | null>(null);
   const [copiedHash, setCopiedHash]           = useState<string | null>(null);
+  // The side-drawer that lets a developer inspect any layer/agent/council/verdict
+  // in place instead of navigating away to a separate tab.
+  const [drawer, setDrawer]                   = useState<WorkflowDrawerTarget | null>(null);
+  const [hasRunHistoryReturn]                 = useState(() => Boolean(sessionStorage.getItem(RUN_HISTORY_RETURN_KEY)));
 
   // SSE live progress — uses latest run ID from polling hook
   const runId = backend.latestRun?.id ?? null;
@@ -211,23 +221,28 @@ export function LiveRuns() {
   const liveStatus   = progress?.status ?? backend.latestRun?.status ?? "created";
   const livePhase    = progress?.current_phase ?? backend.latestRun?.current_phase ?? "created";
   const liveProgress = progress?.progress ?? (backend.latestRun ? Math.round(((phaseIndex(livePhase) + 1) / 8) * 100) : 0);
-  const liveProbes   = progress?.probe_count ?? backend.report?.counts?.metric_results ?? liveRuns[0].probes;
-  const liveFindings = progress?.finding_count ?? backend.report?.counts?.findings ?? liveRuns[0].findings;
+  const liveProbes   = progress?.probe_count ?? backend.report?.counts?.metric_results ?? 0;
+  const liveFindings = progress?.finding_count ?? backend.report?.counts?.findings ?? 0;
 
   const run = {
-    id: backend.latestRun?.id ?? liveRuns[0].id,
-    system: backend.report?.ai_system?.name ?? liveRuns[0].system,
-    framework: backend.latestRun?.selected_frameworks?.join(" + ") || liveRuns[0].framework,
+    id: backend.latestRun?.id ?? "",
+    system: backend.report?.ai_system?.name ?? "—",
+    framework: backend.latestRun?.selected_frameworks?.join(" + ") || "—",
     status: formatRunStatus(liveStatus),
     progress: liveProgress,
-    startedAt: backend.latestRun?.started_at ?? liveRuns[0].startedAt,
+    startedAt: backend.latestRun?.started_at ?? null,
     probes: liveProbes,
     findings: liveFindings,
   };
 
-  // Agent list: prefer SSE agents, else REST executions, else mock
+  // Agent list: prefer SSE agents, else REST executions. No mock fallback —
+  // an empty list renders a "no agents yet" state.
   const liveAgents: AgentProgress[] = progress?.agents ?? [];
   const restAgents = backend.agentExecutions;
+  const agentRows: Array<{ name: string; status: string; finding_count: number }> = liveAgents.length
+    ? liveAgents.map((a) => ({ name: a.name, status: a.status, finding_count: a.finding_count }))
+    : restAgents.map((e) => ({ name: e.agent_name, status: e.status, finding_count: e.finding_count ?? 0 }));
+  const runningAgentCount = agentRows.filter((a) => a.status === "running").length;
 
   function copyHash(hash: string) {
     navigator.clipboard.writeText(hash).catch(() => {});
@@ -235,15 +250,54 @@ export function LiveRuns() {
     setTimeout(() => setCopiedHash(null), 1500);
   }
 
-  const activityEvents: UiAuditEvent[] = backend.ledgerEntries.length
-    ? backend.ledgerEntries.map(mapLedgerEvent)
-    : auditEvents;
-  const displayedFindings: UiFinding[] = backend.findings.length
-    ? backend.findings.map(mapBackendFinding)
-    : mockFindings;
+  const activityEvents: UiAuditEvent[] = backend.ledgerEntries.map(mapLedgerEvent);
+  const displayedFindings: UiFinding[] = backend.findings.map(mapBackendFinding);
+
+  // No run anywhere in the backend yet — show a clean empty state instead of a
+  // dashboard full of zeros.
+  if (!backend.loading && !backend.latestRun) {
+    return (
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800">
+          <Activity className="h-7 w-7 text-slate-400 dark:text-slate-500" />
+        </div>
+        <div>
+          <p className="text-[16px] font-semibold text-slate-900 dark:text-white">No governance run yet</p>
+          <p className="mt-1 max-w-md text-[13px] leading-5 text-slate-500 dark:text-slate-400">
+            Register an AI application and run a governance evaluation. The live pipeline, agent status, findings, and audit trail will stream here in real time.
+          </p>
+        </div>
+        <button
+          onClick={() => navigateTo("/systems")}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-brand-700"
+        >
+          Go to AI Systems <ChevronRight className="h-4 w-4" />
+        </button>
+        {backend.error && (
+          <p className="max-w-md rounded border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+            Backend: {backend.error}
+          </p>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
+      {hasRunHistoryReturn && (
+        <div className="flex items-center gap-2 text-[12px]">
+          <button
+            type="button"
+            onClick={() => navigateTo("/eval-runs")}
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 font-medium text-slate-700 transition-colors hover:border-brand-300 hover:text-brand-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-brand-700 dark:hover:text-brand-400"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" /> Run History
+          </button>
+          <span className="text-slate-300 dark:text-slate-600">/</span>
+          <span className="font-medium text-slate-500 dark:text-slate-400">Live Run</span>
+        </div>
+      )}
+
       {/* Connection indicator */}
       {runId && (
         <div className={clsx(
@@ -267,13 +321,7 @@ export function LiveRuns() {
         <div title="Agents active vs total">
           <MetricCard
             label="Agents Active"
-            value={
-              liveAgents.length
-                ? `${liveAgents.filter(a => a.status === "running").length} / ${liveAgents.length}`
-                : restAgents.length
-                  ? `${restAgents.filter(a => a.status === "running").length} / ${restAgents.length}`
-                  : `0 / 7`
-            }
+            value={`${runningAgentCount} / ${agentRows.length}`}
             icon={Bot}
             tone="amber"
           />
@@ -288,6 +336,13 @@ export function LiveRuns() {
 
       {/* System selector + Application Context Profile */}
       <AuditTargetSelector navigateTo={navigateTo} report={backend.report} />
+
+      {/* Pipeline inspector — open any stage in place without leaving the flow */}
+      <PipelineInspector
+        report={backend.report}
+        isDev={isDev}
+        onOpen={(t) => setDrawer(t)}
+      />
 
       {/* Export buttons + Execution Layer Trace — developer altitude only */}
       {isDev && (<>
@@ -328,7 +383,7 @@ export function LiveRuns() {
       {/* Agents + Activity log */}
       <div className="grid gap-5 xl:grid-cols-[1fr_1.1fr]">
 
-        {/* Agent status — real data or mock */}
+        {/* Specialist agent status — backend only */}
         <Card>
           <CardHeader
             title="Specialist Agent Status"
@@ -337,39 +392,33 @@ export function LiveRuns() {
                 ? `Live — ${liveAgents.length} agents tracked`
                 : restAgents.length
                   ? `Backend — ${restAgents.length} executions`
-                  : "Mock data — no run yet"
+                  : "No agents have run yet"
             }
             action={
-              isDev ? (
-                <button onClick={() => navigateTo("/agents")} className="text-[11px] font-medium text-blue-700 underline-offset-2 hover:underline">
-                  Full intelligence view →
-                </button>
+              isDev && agentRows.length ? (
+                <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500">Click an agent to inspect →</span>
               ) : undefined
             }
           />
+          {agentRows.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
+              <Bot className="h-7 w-7 text-slate-300 dark:text-slate-600" />
+              <p className="text-[13px] font-semibold text-slate-600 dark:text-slate-300">No agent executions yet</p>
+              <p className="max-w-xs text-[11px] text-slate-500 dark:text-slate-400">
+                Specialist agents appear here once a governance run reaches the agent phase.
+              </p>
+            </div>
+          ) : (
           <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
-            {(liveAgents.length ? liveAgents : restAgents.length ? restAgents.map(e => ({
-              name: e.agent_name,
-              status: e.status,
-              finding_count: e.finding_count ?? 0,
-              started_at: e.started_at ?? null,
-              completed_at: e.completed_at ?? null,
-            })) : mockAgents.map(a => ({
-              name: a.name,
-              status: a.status === "Running" ? "running" : a.status === "Complete" ? "completed" : "pending",
-              finding_count: a.findings,
-              started_at: null,
-              completed_at: null,
-            }))).map((agent) => {
-              const key = "name" in agent ? agent.name : (agent as AgentProgress).name;
-              const isExpanded = expandedAgent === key;
+            {agentRows.map((agent) => {
+              const key = agent.name;
               const displayName = agentDisplayName(key);
               const role = agentRoleFor(key);
               const st = agent.status;
               return (
                 <div key={key}>
                   <button
-                    onClick={() => setExpandedAgent(isExpanded ? null : key)}
+                    onClick={() => isDev ? setDrawer({ kind: "agent", agentKey: key }) : undefined}
                     className="grid w-full grid-cols-[1fr_90px_90px_20px] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60"
                   >
                     <div>
@@ -392,33 +441,13 @@ export function LiveRuns() {
                         />
                       </div>
                     </div>
-                    {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" /> : <ChevronRight className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />}
+                    {isDev ? <ChevronRight className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" /> : <span className="h-3.5 w-3.5" />}
                   </button>
-                  {isExpanded && (
-                    <div className="grid grid-cols-3 gap-3 border-t border-slate-100 dark:border-slate-700/50 bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
-                      <Stat label="Status" value={st} />
-                      <Stat label="Findings" value={String(agent.finding_count)} />
-                      <Stat
-                        label="Duration"
-                        value={
-                          agent.started_at && agent.completed_at
-                            ? `${Math.round((new Date(agent.completed_at).getTime() - new Date(agent.started_at).getTime()) / 1000)}s`
-                            : agent.started_at ? "Running…" : "—"
-                        }
-                      />
-                      {isDev && (
-                        <div className="col-span-3 flex gap-2">
-                          <button onClick={() => navigateTo("/agents")} className="flex items-center gap-1.5 rounded border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[11px] font-medium text-blue-800 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30">
-                            <Zap className="h-3 w-3" /> Full agent detail
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
               );
             })}
           </div>
+          )}
         </Card>
 
         {/* Activity log */}
@@ -453,7 +482,12 @@ export function LiveRuns() {
             </div>
           )}
 
-          {/* Audit events (backend or demo fallback) */}
+          {/* Audit events — backend ledger only */}
+          {activityEvents.length === 0 && !progress ? (
+            <div className="px-4 py-10 text-center text-[12px] text-slate-500 dark:text-slate-400">
+              No ledger events yet. Run a governance evaluation to populate the audit trail.
+            </div>
+          ) : (
           <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
             {activityEvents.map((event) => {
               const isExpanded = expandedEvent === event.id;
@@ -492,6 +526,7 @@ export function LiveRuns() {
               );
             })}
           </div>
+          )}
         </Card>
       </div>
 
@@ -501,17 +536,20 @@ export function LiveRuns() {
           title="Findings Logged This Run"
           eyebrow={`${run.findings} total — click to expand evidence`}
           action={
-            isDev ? (
-              <button onClick={() => navigateTo("/council")} className="text-[11px] font-medium text-blue-700 underline-offset-2 hover:underline">
-                Council deliberation →
-              </button>
-            ) : (
-              <button onClick={() => navigateTo("/evidence")} className="text-[11px] font-medium text-blue-700 underline-offset-2 hover:underline">
-                View evidence →
-              </button>
-            )
+            <button onClick={() => setDrawer({ kind: "council" })} className="text-[11px] font-medium text-blue-700 underline-offset-2 hover:underline">
+              Council deliberation →
+            </button>
           }
         />
+        {displayedFindings.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
+            <ShieldAlert className="h-7 w-7 text-slate-300 dark:text-slate-600" />
+            <p className="text-[13px] font-semibold text-slate-600 dark:text-slate-300">No findings logged for this run</p>
+            <p className="max-w-sm text-[11px] text-slate-500 dark:text-slate-400">
+              Findings appear here once specialist agents complete their probes and raise issues.
+            </p>
+          </div>
+        ) : (
         <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
           {displayedFindings.map((finding) => {
             const isExpanded = expandedFinding === finding.id;
@@ -546,18 +584,12 @@ export function LiveRuns() {
                     <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Evidence</p>
                     <p className="text-[12px] leading-5 text-slate-700 dark:text-slate-300">{finding.evidence}</p>
                     <div className="mt-3 flex gap-2">
-                      {isDev ? (
-                        <>
-                          <button onClick={() => navigateTo("/agents")} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[11px] font-medium text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
-                            <Clock className="h-3 w-3" /> Agent timeline
-                          </button>
-                          <button onClick={() => navigateTo("/council")} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[11px] font-medium text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
-                            Council deliberation →
-                          </button>
-                        </>
-                      ) : (
-                        <button onClick={() => navigateTo("/evidence")} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[11px] font-medium text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
-                          View evidence →
+                      <button onClick={() => setDrawer({ kind: "evidence", findingId: finding.id })} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[11px] font-medium text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+                        <FileSearch className="h-3 w-3" /> View evidence
+                      </button>
+                      {isDev && (
+                        <button onClick={() => setDrawer({ kind: "council" })} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-[11px] font-medium text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+                          Council deliberation →
                         </button>
                       )}
                     </div>
@@ -567,6 +599,7 @@ export function LiveRuns() {
             );
           })}
         </div>
+        )}
       </Card>
 
       {/* Result summary when run is complete */}
@@ -580,6 +613,9 @@ export function LiveRuns() {
           </div>
         </Card>
       )}
+
+      {/* In-place inspector — agent / metric plan / council / verdict / evidence */}
+      <WorkflowDrawer target={drawer} backend={backend} onClose={() => setDrawer(null)} />
     </div>
   );
 }
@@ -613,6 +649,97 @@ function Stat({ label, value }: { label: string; value: string }) {
       <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</p>
       <p className="mt-0.5 text-[13px] font-semibold text-slate-950 dark:text-white">{value}</p>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline inspector — the end-to-end spine. Each stage is a step in the flow;
+// stages with deeper detail open it in a side-drawer instead of a separate tab.
+// ---------------------------------------------------------------------------
+
+function PipelineInspector({
+  report,
+  isDev,
+  onOpen,
+}: {
+  report: GovernanceReport | null;
+  isDev: boolean;
+  onOpen: (target: WorkflowDrawerTarget) => void;
+}) {
+  const verdict = report?.verdict ?? null;
+  const confidence = verdict ? Math.round(verdict.confidence_score * 100) : null;
+  const metricCount = report?.metric_plan?.metrics.length ?? 0;
+  const agentCount = report?.agent_executions?.length ?? 0;
+  const verdictLabel = verdict ? verdict.label.replace(/_/g, " ") : null;
+
+  const stages: Array<{
+    label: string;
+    sub: string;
+    icon: typeof Layers;
+    target?: WorkflowDrawerTarget;
+    devOnly?: boolean;
+  }> = [
+    { label: "Context", sub: "Profile & frameworks", icon: Layers, target: { kind: "context" } },
+    { label: "Metric Plan", sub: metricCount ? `${metricCount} metrics` : "Planned", icon: ClipboardList, target: { kind: "metric-plan" }, devOnly: true },
+    { label: "Specialist Agents", sub: agentCount ? `${agentCount} agents` : "Parallel probes", icon: Bot, target: { kind: "agents" }, devOnly: true },
+    { label: "Council", sub: "Synthesis · dissent", icon: Scale, target: { kind: "council" }, devOnly: true },
+    { label: "Verdict", sub: confidence != null ? `${confidence}% confidence` : "Pending", icon: GitBranch, target: { kind: "verdict" } },
+    { label: "Action & Ledger", sub: "Hash-chained trail", icon: BookOpen, target: { kind: "ledger" }, devOnly: true },
+  ];
+
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader
+        title="Governance Pipeline"
+        eyebrow="Five layers · one run — click a stage to inspect in place"
+        action={
+          verdictLabel ? (
+            <button
+              onClick={() => onOpen({ kind: "verdict" })}
+              className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-brand-700"
+            >
+              <GitBranch className="h-3.5 w-3.5" />
+              {confidence}% · <span className="capitalize">{verdictLabel}</span>
+            </button>
+          ) : undefined
+        }
+      />
+      <div className="flex flex-wrap items-stretch gap-1.5 p-4">
+        {stages.map((stage, i) => {
+          const clickable = !!stage.target && (!stage.devOnly || isDev);
+          const Icon = stage.icon;
+          return (
+            <div key={stage.label} className="flex items-stretch gap-1.5">
+              <button
+                disabled={!clickable}
+                onClick={() => clickable && stage.target && onOpen(stage.target)}
+                className={clsx(
+                  "flex min-w-[128px] flex-1 flex-col gap-1 rounded-lg border px-3 py-2.5 text-left transition-all",
+                  clickable
+                    ? "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-brand-300 dark:hover:border-brand-700 hover:bg-brand-50/50 dark:hover:bg-brand-950/20 cursor-pointer"
+                    : "border-slate-200/70 dark:border-slate-700/60 bg-slate-50 dark:bg-slate-800/50 cursor-default",
+                )}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="flex h-5 w-5 items-center justify-center rounded bg-slate-100 dark:bg-slate-700 text-[9px] font-bold text-slate-500 dark:text-slate-400">{i + 1}</span>
+                  <Icon className={clsx("h-3.5 w-3.5", clickable ? "text-brand-600 dark:text-brand-400" : "text-slate-400 dark:text-slate-500")} />
+                </div>
+                <p className="text-[12px] font-semibold text-slate-900 dark:text-white">{stage.label}</p>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400">{stage.sub}</p>
+                {clickable && (
+                  <span className="mt-1 inline-flex items-center gap-0.5 text-[10px] font-semibold text-brand-600 dark:text-brand-400">
+                    View details <ChevronRight className="h-3 w-3" />
+                  </span>
+                )}
+              </button>
+              {i < stages.length - 1 && (
+                <ChevronRight className="h-4 w-4 shrink-0 self-center text-slate-300 dark:text-slate-600" />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Card>
   );
 }
 
@@ -685,7 +812,7 @@ function buildBackendContextProfile(report: GovernanceReport | null): Applicatio
 function AuditTargetSelector({ navigateTo, report }: { navigateTo: (path: string) => void; report: GovernanceReport | null }) {
   const backendSystem = report?.ai_system ?? null;
   const backendProfile = buildBackendContextProfile(report);
-  const [selectedId, setSelectedId] = useState<string>(backendSystem?.id ?? mockSystems[0]?.id ?? "");
+  const [selectedId, setSelectedId] = useState<string>(backendSystem?.id ?? "");
   const [expanded, setExpanded]     = useState(false);
   const [activeSection, setActiveSection] = useState<string>("A");
 
@@ -696,12 +823,12 @@ function AuditTargetSelector({ navigateTo, report }: { navigateTo: (path: string
     }
   }, [backendSystem?.id]);
 
+  // Backend-only: the audit target is the registered system on the active run.
   const systemOptions = backendSystem
     ? [{ id: backendSystem.id, name: backendSystem.name, version: backendSystem.model_version ?? "v1" }]
-    : mockSystems.map((s) => ({ id: s.id, name: s.name, version: s.version }));
+    : [];
 
-  const fallbackSystem = mockSystems.find((s) => s.id === selectedId) ?? mockSystems[0];
-  const system = backendSystem && selectedId === backendSystem.id
+  const system = backendSystem
     ? {
         id: backendSystem.id,
         name: backendSystem.name,
@@ -710,11 +837,9 @@ function AuditTargetSelector({ navigateTo, report }: { navigateTo: (path: string
         environment: titleCase(backendSystem.deployment_environment),
         applicationType: titleCase(backendSystem.system_type),
       }
-    : fallbackSystem;
+    : null;
   const acp: ApplicationContextProfile | undefined =
-    backendProfile && selectedId === backendProfile.systemId
-      ? backendProfile
-      : applicationContextProfiles.find((p) => p.systemId === selectedId);
+    backendProfile && selectedId === backendProfile.systemId ? backendProfile : undefined;
 
   return (
     <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">

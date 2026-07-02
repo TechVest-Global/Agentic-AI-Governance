@@ -62,8 +62,12 @@ def _append_log(entry: dict) -> None:
 # Cost estimation (approximate 2025 Azure OpenAI pricing)
 # ---------------------------------------------------------------------------
 
+# $/1M input, $/1M output. More specific (cheaper "-mini") keys are listed
+# first so substring matching resolves them before the broader family key.
 _COST_TABLE = {
-    "gpt-4.1":   (2.00, 8.00),   # $/1M input, $/1M output
+    "gpt-4.1-mini": (0.40, 1.60),
+    "gpt-4o-mini":  (0.15, 0.60),
+    "gpt-4.1":   (2.00, 8.00),
     "gpt-4o":    (2.50, 10.00),
     "gpt-4":     (30.00, 60.00),
     "gpt-3.5":   (0.50, 1.50),
@@ -140,6 +144,7 @@ class GatewayGovernanceModelClient:
                 _append_log({
                     "task": request.task,
                     "call_type": "governance",
+                    "tier": meta.get("tier", request.tier),
                     "model": model,
                     "deployment_name": response.deployment_name,
                     "client_mode": meta.get("client_mode", "unknown"),
@@ -174,6 +179,7 @@ class GatewayGovernanceModelClient:
         _append_log({
             "task": request.task,
             "call_type": "governance",
+            "tier": request.tier,
             "model": getattr(self._inner, "deployment_name", self.provider),
             "deployment_name": getattr(self._inner, "deployment_name", None),
             "client_mode": "live",

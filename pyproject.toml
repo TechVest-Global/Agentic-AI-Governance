@@ -5,6 +5,7 @@ description = "Backend foundation for a GenAI governance engine with append-only
 requires-python = ">=3.11"
 dependencies = [
     "alembic>=1.13.0",
+    "cryptography>=42.0.0",
     "fastapi>=0.111.0",
     "jsonschema>=4.22.0",
     "openai>=1.30.0",

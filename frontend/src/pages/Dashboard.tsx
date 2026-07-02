@@ -233,9 +233,11 @@ function OverviewTab({ data }: { data: DashboardData }) {
             <ResponsiveContainer width="100%" height={220}>
               <PieChart>
                 <Pie data={data.riskDistribution.filter((r) => r.value > 0)} dataKey="value" innerRadius={62} outerRadius={92} paddingAngle={2}>
-                  {data.riskDistribution.map((entry) => (
-                    <Cell key={entry.name} fill={entry.color} />
-                  ))}
+                  {data.riskDistribution
+                    .filter((entry) => entry.value > 0)
+                    .map((entry) => (
+                      <Cell key={entry.name} fill={entry.color} />
+                    ))}
                 </Pie>
                 <Tooltip {...tooltipProps} />
               </PieChart>

@@ -13,6 +13,10 @@ for _credential_var in (
     "JUDGE_DEPLOYMENT_NAME",
     "LITELLM_PROXY_URL",
     "LITELLM_MASTER_KEY",
+    # Real target (audited chatbot) credentials — keep the suite off the live
+    # HTTP target so it resolves the mock target client deterministically.
+    "TARGET_API_KEY",
+    "TARGET_ENDPOINT",
 ):
     os.environ[_credential_var] = ""
 

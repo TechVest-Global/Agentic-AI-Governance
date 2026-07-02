@@ -90,6 +90,94 @@ class AISystemCapabilityRead(AISystemCapabilityCreate):
     updated_at: datetime | None = None
 
 
+def _validate_http_url(value: str) -> str:
+    if not value.lower().startswith(("http://", "https://")):
+        raise ValueError("Target endpoint URL must start with http:// or https://")
+    return value
+
+
+class TargetEndpointCreate(APIModel):
+    name: str = Field(min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+    environment: str = Field(default="production", max_length=100)
+    url: str = Field(min_length=1, max_length=1000)
+    http_method: str = Field(default="POST", pattern="^(GET|POST|PUT|PATCH|DELETE)$")
+    auth_header: str = Field(default="Authorization", max_length=200)
+    auth_scheme: str = Field(default="Bearer", max_length=100)
+    request_field: str = Field(default="message", max_length=200)
+    response_field: str = Field(default="response", max_length=200)
+    timeout_seconds: int = Field(default=60, ge=1, le=600)
+    enabled: bool = True
+    is_default: bool = False
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+    # Plaintext API key, write-only. Encrypted at rest; never returned by reads.
+    secret: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("url")
+    @classmethod
+    def url_must_be_http(cls, value: str) -> str:
+        return _validate_http_url(value)
+
+    @field_validator("http_method", mode="before")
+    @classmethod
+    def normalize_http_method(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().upper()
+        return value
+
+
+class TargetEndpointUpdate(APIModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+    environment: str | None = Field(default=None, max_length=100)
+    url: str | None = Field(default=None, min_length=1, max_length=1000)
+    http_method: str | None = Field(default=None, pattern="^(GET|POST|PUT|PATCH|DELETE)$")
+    auth_header: str | None = Field(default=None, max_length=200)
+    auth_scheme: str | None = Field(default=None, max_length=100)
+    request_field: str | None = Field(default=None, max_length=200)
+    response_field: str | None = Field(default=None, max_length=200)
+    timeout_seconds: int | None = Field(default=None, ge=1, le=600)
+    enabled: bool | None = None
+    is_default: bool | None = None
+    metadata_json: dict[str, Any] | None = None
+    # Write-only. Omit to leave the stored secret unchanged; send "" to clear it.
+    secret: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("url")
+    @classmethod
+    def url_must_be_http(cls, value: str | None) -> str | None:
+        return _validate_http_url(value) if value is not None else value
+
+    @field_validator("http_method", mode="before")
+    @classmethod
+    def normalize_http_method(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().upper()
+        return value
+
+
+class TargetEndpointRead(APIModel):
+    id: UUID
+    ai_system_id: UUID
+    name: str
+    description: str | None = None
+    environment: str
+    url: str
+    http_method: str
+    auth_header: str
+    auth_scheme: str
+    request_field: str
+    response_field: str
+    timeout_seconds: int
+    enabled: bool
+    is_default: bool
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+    # Whether an encrypted secret is stored. The secret itself is never returned.
+    has_secret: bool = False
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
 class ApplicationContextProfileCreate(APIModel):
     identity_purpose: dict[str, Any]
     pre_model_controls: dict[str, Any]
@@ -107,6 +195,9 @@ class ApplicationContextProfileRead(ApplicationContextProfileCreate):
 
 class EvaluationRunCreate(APIModel):
     ai_system_id: UUID
+    # Optional: probe a specific registered target endpoint instead of the
+    # application's default one. Null uses the default (or legacy endpoint ref).
+    target_endpoint_id: UUID | None = None
     selected_frameworks: list[str] = Field(default_factory=list)
     selected_metrics: list[str] = Field(default_factory=list)
     created_by: str | None = Field(default=None, max_length=200)
@@ -688,6 +779,7 @@ class LLMCallLogRead(APIModel):
     agent_name: str | None = None
     task: str
     call_type: str
+    tier: str | None = None
     model: str
     deployment_name: str | None = None
     client_mode: str

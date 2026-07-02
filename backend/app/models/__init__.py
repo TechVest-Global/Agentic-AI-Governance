@@ -1,7 +1,12 @@
 """SQLModel entities for the governance backend."""
 
 from app.models.agent import AgentExecution
-from app.models.ai_system import AISystem, AISystemCapability, ApplicationContextProfile
+from app.models.ai_system import (
+    AISystem,
+    AISystemCapability,
+    ApplicationContextProfile,
+    TargetEndpoint,
+)
 from app.models.config import FrameworkMapping, MetricConfig
 from app.models.evaluation import EvaluationRun
 from app.models.evidence import EvidenceRecord, MetricResult
@@ -16,6 +21,7 @@ __all__ = [
     "AISystem",
     "AISystemCapability",
     "ApplicationContextProfile",
+    "TargetEndpoint",
     "MetricConfig",
     "FrameworkMapping",
     "EvaluationRun",

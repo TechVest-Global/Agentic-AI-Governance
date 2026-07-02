@@ -1,10 +1,13 @@
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from app.models.ai_system import AISystem, AISystemCapability, ApplicationContextProfile
 from app.models.evidence import EvidenceRecord, MetricResult
 from app.models.finding import Finding
 from app.schemas.governance import FindingCreate
+
+if TYPE_CHECKING:
+    from app.services.target_endpoints import ResolvedTargetEndpoint
 
 
 @dataclass(frozen=True)
@@ -15,6 +18,9 @@ class AgentContext:
     evidence: list[EvidenceRecord]
     metric_results: list[MetricResult]
     existing_findings: list[Finding]
+    # The endpoint this run probes (default or per-run override), with its
+    # decrypted credentials. None when the application has no callable target.
+    target_endpoint: "ResolvedTargetEndpoint | None" = None
 
 
 class GovernanceAgent(Protocol):

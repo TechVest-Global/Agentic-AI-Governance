@@ -195,7 +195,7 @@ def test_agent_failure_is_stored_as_degraded_execution(
     run = create_run(client, system["id"], [])
     monkeypatch.setattr(
         "app.services.specialist_agents.agent_execution.select_agents",
-        lambda agent_names=None: [FailingAgent()],
+        lambda agent_names=None, target_client=None: [FailingAgent()],
     )
 
     response = client.post(

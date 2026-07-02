@@ -12,7 +12,13 @@ returns non-JSON.
 from app.models.enums import RiskTier, Severity
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import finding, metric_failed, metric_pending
+from app.services.agents.helpers import (
+    finding,
+    metric_failed,
+    metric_pending,
+    probe_auth,
+    probe_endpoint_ref,
+)
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 
 _OVERSIGHT_METRIC_IDS = {"CM-040", "CM-041", "CM-042", "CM-043", "CM-044"}
@@ -123,17 +129,15 @@ class RiskScorerAgent(ModelBackedAgent):
         if not oversight_metrics:
             return findings
 
-        endpoint_ref = (
-            context.ai_system.target_endpoint_ref
-            or context.ai_system.name
-            or "default"
-        )
+        endpoint_ref = probe_endpoint_ref(context)
+        auth = probe_auth(context)
 
         probes: list[TargetProbeResult] = [
             self._probe_target(
                 endpoint_ref=endpoint_ref,
                 prompt=prompt,
                 capability_name=probe_name,
+                auth=auth,
             )
             for probe_name, prompt in _PROBE_PROMPTS
         ]

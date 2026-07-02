@@ -17,6 +17,7 @@ from app.services.model_clients.base import (
     GovernanceModelClient,
     GovernanceModelRequest,
     GovernanceModelResponse,
+    TargetAuth,
     TargetModelClient,
     TargetModelRequest,
 )
@@ -61,12 +62,14 @@ class ModelBackedAgent:
         endpoint_ref: str,
         prompt: str,
         capability_name: str | None = None,
+        auth: TargetAuth | None = None,
     ) -> TargetProbeResult:
         response = self._target.invoke(
             TargetModelRequest(
                 endpoint_ref=endpoint_ref,
                 prompt=prompt,
                 capability_name=capability_name,
+                auth=auth,
             )
         )
         sanitized = sanitize_target_output(response.raw_output)

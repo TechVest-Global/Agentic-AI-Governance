@@ -2,7 +2,8 @@ from uuid import UUID
 
 from sqlmodel import Session
 
-from app.models.enums import LedgerActorType, RunPhase
+from app.models.base import utc_now
+from app.models.enums import LedgerActorType, RunPhase, RunStatus
 from app.schemas.governance import (
     AgentRunCreate,
     AuditLedgerEntryCreate,
@@ -35,20 +36,19 @@ def run_governance_pipeline(
 ) -> GovernancePipelineRunRead:
     get_run_or_raise(session, run_id)
 
-    context_result: ContextAssemblyRead | None = None
-    if payload.logs:
-        # Layer 1 runs first so the state chain captures context assembly and the
-        # run progresses through phases in the spec-mandated order. The assembler
-        # records its own GovernanceState and audit-ledger entries.
-        context_result = context_assembly.assemble_context(
-            session,
-            run_id=run_id,
-            payload=ContextAssemblyCreate(
-                logs=payload.logs,
-                requested_by=payload.requested_by,
-                notes=payload.notes,
-            ),
-        )
+    # Layer 1 always runs so the state chain captures context assembly and the
+    # regulatory ingester + coverage-gap detector populate for the run — even
+    # when no request logs are supplied (the log analyzer handles empty logs).
+    # The assembler records its own GovernanceState and audit-ledger entries.
+    context_result: ContextAssemblyRead = context_assembly.assemble_context(
+        session,
+        run_id=run_id,
+        payload=ContextAssemblyCreate(
+            logs=payload.logs or [],
+            requested_by=payload.requested_by,
+            notes=payload.notes,
+        ),
+    )
 
     # Layer 2: build and persist the evaluation plan before any execution so the
     # state chain records the plan and the run passes through the 'planned' phase.
@@ -157,6 +157,20 @@ def run_governance_pipeline(
             "state_chain_valid": report.state_chain.valid,
         },
     )
+
+    # Finalize the run. The automated pipeline is done once the report is built;
+    # without this the run stays stuck at `council_running` forever (the last
+    # status the council set), so status, verdict, and the UI never show the run
+    # as finished. Preserve a degraded outcome if any agent execution failed.
+    run = get_run_or_raise(session, run_id)
+    agents_failed = bool((run.result_summary or {}).get("agent_executions_failed"))
+    run.status = RunStatus.degraded if agents_failed else RunStatus.report_ready
+    run.current_phase = RunPhase.action_reporting
+    run.completed_at = run.completed_at or utc_now()
+    run.result_summary = {**(run.result_summary or {}), "report_ready": True}
+    run.updated_at = utc_now()
+    session.add(run)
+    session.commit()
 
     return GovernancePipelineRunRead(
         run_id=run_id,

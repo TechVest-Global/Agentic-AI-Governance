@@ -17,6 +17,20 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: agentic-ai-governance-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   litellm-proxy:
     image: ghcr.io/berriai/litellm:main-latest
     container_name: agentic-ai-governance-litellm
@@ -31,9 +45,18 @@ services:
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-litellm-governance-local}
       - LITELLM_DATABASE_URL=${LITELLM_DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/agentic_ai_governance}
       - STORE_MODEL_IN_DB=True
+      # Cheaper deployment for cost routing / fallback (same Azure resource as
+      # JUDGE_*, just a different deployment). Defaults to gpt-4.1 until a cheaper
+      # model is provisioned; set CHEAP_MODEL=azure/<cheap-deployment> in .env.
+      - CHEAP_MODEL=${CHEAP_MODEL:-azure/gpt-4.1}
+      # Response cache backend — container talks to the redis service internally.
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:4000/health/readiness || exit 1"]
@@ -44,3 +67,4 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:

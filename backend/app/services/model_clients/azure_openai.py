@@ -39,8 +39,12 @@ class AzureOpenAIGovernanceModelClient:
         api_key: str,
         deployment_name: str,
         api_version: str = "2025-01-01-preview",
+        cheap_deployment_name: str | None = None,
     ) -> None:
         self.deployment_name = deployment_name
+        # Optional cheaper deployment for the "cheap" tier when calling Azure
+        # directly (no proxy). Falls back to the premium deployment if unset.
+        self._cheap_deployment_name = cheap_deployment_name
         self.credential_ref = "JUDGE_API_KEY"
         self._client = AzureOpenAI(
             azure_endpoint=endpoint,
@@ -51,10 +55,17 @@ class AzureOpenAIGovernanceModelClient:
     def complete(self, request: GovernanceModelRequest) -> GovernanceModelResponse:
         trace_id = f"judge-{uuid4()}"
         start = time.monotonic()
+        # Premium (all current callers) → main judge deployment. Cheap → the
+        # cheaper deployment if one is configured, else premium.
+        deployment = (
+            self._cheap_deployment_name
+            if request.tier == "cheap" and self._cheap_deployment_name
+            else self.deployment_name
+        )
 
         try:
             response = self._client.chat.completions.create(
-                model=self.deployment_name,
+                model=deployment,
                 messages=[{"role": "user", "content": request.prompt}],
                 temperature=0.2,
             )
@@ -67,14 +78,15 @@ class AzureOpenAIGovernanceModelClient:
         usage = response.usage
         return GovernanceModelResponse(
             provider=self.provider,
-            deployment_name=self.deployment_name,
+            deployment_name=deployment,
             content=content,
             trace_id=trace_id,
             latency_ms=latency_ms,
             metadata={
                 "task": request.task,
+                "tier": request.tier,
                 "client_mode": "live",
-                "model": self.deployment_name,
+                "model": deployment,
                 "prompt_tokens": usage.prompt_tokens if usage else None,
                 "completion_tokens": usage.completion_tokens if usage else None,
                 "total_tokens": usage.total_tokens if usage else None,

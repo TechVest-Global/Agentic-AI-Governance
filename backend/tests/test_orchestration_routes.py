@@ -58,7 +58,7 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
     assert result["report"]["run"]["id"] == run["id"]
     assert result["report"]["counts"]["metric_results"] == 2
     assert result["report"]["counts"]["agent_executions"] == 1
-    assert result["report"]["counts"]["state_entries"] == 5
+    assert result["report"]["counts"]["state_entries"] == 6
     assert result["report"]["verdict"]["label"] == "approved"
     assert result["report"]["state_chain"]["valid"] is True
 
@@ -68,7 +68,9 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
     state_response = client.get(f"/api/v1/evaluation-runs/{run['id']}/state")
     assert state_response.status_code == 200
     state_entries = state_response.json()
+    # Context assembly always runs first (Layer 1), even with no request logs.
     assert [entry["entry_type"] for entry in state_entries] == [
+        "context_assembled",
         "evaluation_plan_prepared",
         "metric_execution_completed",
         "agent_execution_completed",
@@ -76,12 +78,13 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
         "council_deliberation_completed",
         "governance_report_generated",
     ]
-    assert [entry["sequence_number"] for entry in state_entries] == [1, 2, 3, 4, 5, 6]
+    assert [entry["sequence_number"] for entry in state_entries] == [1, 2, 3, 4, 5, 6, 7]
 
     ledger_response = client.get(f"/api/v1/evaluation-runs/{run['id']}/ledger")
     assert ledger_response.status_code == 200
     ledger_entries = ledger_response.json()
     assert [entry["event_type"] for entry in ledger_entries] == [
+        "context_assembly.completed",
         "evaluation_plan.prepared",
         "metric_execution.completed",
         "agent_execution.completed",
@@ -91,13 +94,13 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
 
     assert client.get(f"/api/v1/evaluation-runs/{run['id']}/state/verify").json() == {
         "valid": True,
-        "entry_count": 6,
+        "entry_count": 7,
         "failed_sequence": None,
         "reason": None,
     }
     assert client.get(f"/api/v1/evaluation-runs/{run['id']}/ledger/verify").json() == {
         "valid": True,
-        "entry_count": 5,
+        "entry_count": 6,
         "failed_entry_id": None,
         "reason": None,
     }
@@ -105,7 +108,11 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
     run_response = client.get(f"/api/v1/evaluation-runs/{run['id']}")
     assert run_response.status_code == 200
     updated_run = run_response.json()
-    assert updated_run["current_phase"] == "deliberation_council"
+    # The orchestration pipeline finalizes the run once the report is built:
+    # phase advances to action_reporting and status becomes report_ready.
+    assert updated_run["current_phase"] == "action_reporting"
+    assert updated_run["status"] == "report_ready"
+    assert updated_run["completed_at"] is not None
     assert updated_run["result_summary"]["council_label"] == "approved"
 
 

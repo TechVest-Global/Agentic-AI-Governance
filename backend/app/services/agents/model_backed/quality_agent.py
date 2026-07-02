@@ -10,7 +10,14 @@ metric-failure detection when the governance model returns non-JSON.
 from app.models.enums import Severity
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import finding, metric_failed, metric_pending
+from app.services.agents.helpers import (
+    finding,
+    has_live_target,
+    metric_failed,
+    metric_pending,
+    probe_auth,
+    probe_endpoint_ref,
+)
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 
 _QUALITY_METRIC_IDS = {"CM-001", "CM-002", "CM-003", "CM-004"}
@@ -86,20 +93,19 @@ class QualityEvaluatorAgent(ModelBackedAgent):
             and (metric_failed(m) or metric_pending(m))
         ]
 
-        if not quality_metrics:
+        # Probe the live target's answer quality on every run.
+        if not quality_metrics and not has_live_target(context):
             return []
 
-        endpoint_ref = (
-            context.ai_system.target_endpoint_ref
-            or context.ai_system.name
-            or "default"
-        )
+        endpoint_ref = probe_endpoint_ref(context)
+        auth = probe_auth(context)
 
         probes: list[TargetProbeResult] = [
             self._probe_target(
                 endpoint_ref=endpoint_ref,
                 prompt=prompt,
                 capability_name=probe_name,
+                auth=auth,
             )
             for probe_name, prompt in _PROBE_PROMPTS
         ]

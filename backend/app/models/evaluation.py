@@ -13,6 +13,11 @@ class EvaluationRun(TimestampMixin, UUIDPrimaryKey, table=True):
     __tablename__ = "evaluation_runs"
 
     ai_system_id: UUID = Field(foreign_key="ai_systems.id", index=True)
+    # Optional per-run override of which target endpoint to probe. When null the
+    # run uses the application's default endpoint (or legacy target_endpoint_ref).
+    target_endpoint_id: UUID | None = Field(
+        default=None, foreign_key="target_endpoints.id", index=True
+    )
     status: RunStatus = Field(default=RunStatus.created, index=True)
     current_phase: RunPhase = Field(default=RunPhase.created, index=True)
     selected_frameworks: list[str] = Field(

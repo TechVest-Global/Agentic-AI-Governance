@@ -13,8 +13,12 @@ from app.schemas.governance import (
     AISystemUpdate,
     ApplicationContextProfileCreate,
     ApplicationContextProfileRead,
+    TargetEndpointCreate,
+    TargetEndpointRead,
+    TargetEndpointUpdate,
 )
 from app.services import ai_systems as service
+from app.services import target_endpoints as endpoint_service
 
 router = APIRouter(prefix="/ai-systems")
 SessionDependency = Annotated[Session, Depends(get_session)]
@@ -99,6 +103,74 @@ def get_capability(
     session: SessionDependency,
 ) -> AISystemCapabilityRead:
     return service.get_capability(session, system_id, capability_id)
+
+
+@router.post(
+    "/{system_id}/target-endpoints",
+    response_model=TargetEndpointRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_target_endpoint(
+    system_id: UUID,
+    payload: TargetEndpointCreate,
+    session: SessionDependency,
+) -> TargetEndpointRead:
+    endpoint = endpoint_service.create_target_endpoint(session, system_id, payload)
+    return endpoint_service.to_read(endpoint)
+
+
+@router.get(
+    "/{system_id}/target-endpoints",
+    response_model=list[TargetEndpointRead],
+)
+def list_target_endpoints(
+    system_id: UUID,
+    session: SessionDependency,
+    enabled: bool | None = None,
+) -> list[TargetEndpointRead]:
+    endpoints = endpoint_service.list_target_endpoints(session, system_id, enabled=enabled)
+    return [endpoint_service.to_read(endpoint) for endpoint in endpoints]
+
+
+@router.get(
+    "/{system_id}/target-endpoints/{endpoint_id}",
+    response_model=TargetEndpointRead,
+)
+def get_target_endpoint(
+    system_id: UUID,
+    endpoint_id: UUID,
+    session: SessionDependency,
+) -> TargetEndpointRead:
+    endpoint = endpoint_service.get_target_endpoint(session, system_id, endpoint_id)
+    return endpoint_service.to_read(endpoint)
+
+
+@router.patch(
+    "/{system_id}/target-endpoints/{endpoint_id}",
+    response_model=TargetEndpointRead,
+)
+def update_target_endpoint(
+    system_id: UUID,
+    endpoint_id: UUID,
+    payload: TargetEndpointUpdate,
+    session: SessionDependency,
+) -> TargetEndpointRead:
+    endpoint = endpoint_service.update_target_endpoint(
+        session, system_id, endpoint_id, payload
+    )
+    return endpoint_service.to_read(endpoint)
+
+
+@router.delete(
+    "/{system_id}/target-endpoints/{endpoint_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_target_endpoint(
+    system_id: UUID,
+    endpoint_id: UUID,
+    session: SessionDependency,
+) -> None:
+    endpoint_service.delete_target_endpoint(session, system_id, endpoint_id)
 
 
 @router.get(

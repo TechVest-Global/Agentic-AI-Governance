@@ -11,7 +11,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import clsx from "clsx";
-import { Card, CardHeader } from "@/components/ui/Card";
+import { Card } from "@/components/ui/Card";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { Badge } from "@/components/ui/Badge";
 import { useAppStore } from "@/store/useAppStore";
@@ -82,7 +82,7 @@ export function FindingsReview() {
   const role = useAuthStore((s) => s.user?.role);
   const canReview = roleCan(role, "canReviewFindings");
 
-  const { runId, loading: runsLoading } = useActiveRun();
+  const { runId, runs, systemNameById, loading: runsLoading } = useActiveRun();
   const [findings, setFindings] = useState<BackendFinding[]>([]);
   const [findingsLoading, setFindingsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,7 +95,10 @@ export function FindingsReview() {
   const [reviews, setReviews] = useState<Record<string, LocalReview>>({});
 
   useEffect(() => {
-    if (!runId) return;
+    if (!runId) {
+      setFindings([]);
+      return;
+    }
     let cancelled = false;
     setFindingsLoading(true);
     setError(null);
@@ -152,7 +155,6 @@ export function FindingsReview() {
       if (statusFilter !== "all" && effectiveStatus(f).toLowerCase() !== statusFilter) return false;
       return true;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [findings, severityFilter, statusFilter, dimensionFilter, reviews]);
 
   const severityPills: Array<{ key: SeverityFilter; label: string }> = [
@@ -178,16 +180,21 @@ export function FindingsReview() {
     }));
   }
 
+  const hasSystems = systemNameById.size > 0;
+  const hasRuns = runs.length > 0;
+  const hasFindings = findings.length > 0;
+  const loading = runsLoading || findingsLoading;
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-700 dark:text-blue-400">
-            Findings Review
+            Developer Workspace
           </p>
           <h1 className="mt-1 flex items-center gap-2 text-[20px] font-semibold tracking-tight text-slate-950 dark:text-white">
             <ShieldAlert className="h-5 w-5 text-slate-400" />
-            Auditor review workspace
+            Findings Review
           </h1>
           <p className="mt-1 max-w-3xl text-[13px] leading-5 text-slate-600 dark:text-slate-400">
             Triage findings produced by specialist agents. Review decisions are recorded locally in this prototype.
@@ -244,7 +251,7 @@ export function FindingsReview() {
         </div>
       )}
 
-      {runsLoading || findingsLoading ? (
+      {loading ? (
         <Card className="flex items-center gap-2 px-5 py-12 text-[13px] text-slate-500 dark:text-slate-400">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading findings…
@@ -257,9 +264,17 @@ export function FindingsReview() {
             <p className="mt-0.5 break-all">{error}</p>
           </div>
         </Card>
-      ) : !runId ? (
+      ) : !hasSystems ? (
         <Card className="px-5 py-12 text-center text-[13px] text-slate-500 dark:text-slate-400">
-          No evaluation runs available yet.
+          No AI system registered. Register an AI system to begin governance testing.
+        </Card>
+      ) : !hasRuns ? (
+        <Card className="px-5 py-12 text-center text-[13px] text-slate-500 dark:text-slate-400">
+          No governance runs yet. Start a run from Developer Workspace.
+        </Card>
+      ) : !hasFindings ? (
+        <Card className="px-5 py-12 text-center text-[13px] text-slate-500 dark:text-slate-400">
+          No findings produced yet. Specialist agent and metric findings will appear here after execution.
         </Card>
       ) : filtered.length === 0 ? (
         <Card className="px-5 py-12 text-center text-[13px] text-slate-500 dark:text-slate-400">

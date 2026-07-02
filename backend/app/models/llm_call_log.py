@@ -20,6 +20,9 @@ class LLMCallLog(TimestampMixin, UUIDPrimaryKey, table=True):
     agent_name: str | None = Field(default=None, index=True, max_length=100)
     task: str = Field(max_length=200)
     call_type: str = Field(default="governance", max_length=20)  # "governance" or "target"
+    # Model tier for governance calls: "premium" (main judge) or "cheap".
+    # Null for target calls, which are not tiered.
+    tier: str | None = Field(default=None, max_length=20, index=True)
 
     model: str = Field(max_length=100)
     deployment_name: str | None = Field(default=None, max_length=100)
