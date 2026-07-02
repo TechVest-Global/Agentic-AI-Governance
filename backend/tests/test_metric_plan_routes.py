@@ -149,3 +149,122 @@ def test_metric_plan_requires_existing_run(client: TestClient) -> None:
         "resource": "Evaluation run",
         "id": str(run_id),
     }
+
+
+def add_capability(
+    client: TestClient,
+    system_id: str,
+    *,
+    capability_type: str,
+) -> dict[str, object]:
+    response = client.post(
+        f"/api/v1/ai-systems/{system_id}/capabilities",
+        json={
+            "name": f"{capability_type} capability",
+            "capability_type": capability_type,
+            "endpoint_ref": "/invoke",
+        },
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+def test_metric_plan_excludes_capability_gated_metric_when_system_lacks_it(
+    client: TestClient,
+) -> None:
+    system = create_system(client, "Non-Retrieval System")
+    universal = create_metric(client, "M40")
+    gated = client.post(
+        "/api/v1/metrics",
+        json={
+            "metric_id": "M41",
+            "name": "Retrieval only metric",
+            "dimension": "Retrieval",
+            "primary_agent": "orchestrator",
+            "tool_name": "ragas",
+            "framework_ids": ["nist_ai_rmf"],
+            "threshold_rules": {"minimum": 0.9},
+            "scoring_config": {"direction": "higher_is_better"},
+            "applicable_capability_types": ["retrieval"],
+            "enabled": True,
+        },
+    )
+    assert gated.status_code == 201
+    create_mapping(client, "MAP-40", metric_ids=["M40"])
+    create_mapping(client, "MAP-41", metric_ids=["M41"])
+    run = create_run(client, system["id"], selected_frameworks=["nist_ai_rmf"])
+
+    response = client.get(f"/api/v1/evaluation-runs/{run['id']}/metric-plan")
+
+    assert response.status_code == 200
+    plan = response.json()
+    metric_ids = [metric["metric_id"] for metric in plan["metrics"]]
+    assert universal["metric_id"] in metric_ids
+    assert "M41" not in metric_ids
+
+
+def test_metric_plan_includes_capability_gated_metric_when_system_has_it(
+    client: TestClient,
+) -> None:
+    system = create_system(client, "Retrieval System")
+    add_capability(client, system["id"], capability_type="retrieval")
+    gated = client.post(
+        "/api/v1/metrics",
+        json={
+            "metric_id": "M42",
+            "name": "Retrieval only metric",
+            "dimension": "Retrieval",
+            "primary_agent": "orchestrator",
+            "tool_name": "ragas",
+            "framework_ids": ["nist_ai_rmf"],
+            "threshold_rules": {"minimum": 0.9},
+            "scoring_config": {"direction": "higher_is_better"},
+            "applicable_capability_types": ["retrieval"],
+            "enabled": True,
+        },
+    )
+    assert gated.status_code == 201
+    create_mapping(client, "MAP-42", metric_ids=["M42"])
+    run = create_run(client, system["id"], selected_frameworks=["nist_ai_rmf"])
+
+    response = client.get(f"/api/v1/evaluation-runs/{run['id']}/metric-plan")
+
+    assert response.status_code == 200
+    plan = response.json()
+    metric_ids = [metric["metric_id"] for metric in plan["metrics"]]
+    assert "M42" in metric_ids
+
+
+def test_metric_plan_explicit_selected_metrics_bypasses_capability_filter(
+    client: TestClient,
+) -> None:
+    system = create_system(client, "Explicit Override System")
+    gated = client.post(
+        "/api/v1/metrics",
+        json={
+            "metric_id": "M43",
+            "name": "Retrieval only metric",
+            "dimension": "Retrieval",
+            "primary_agent": "orchestrator",
+            "tool_name": "ragas",
+            "framework_ids": ["nist_ai_rmf"],
+            "threshold_rules": {"minimum": 0.9},
+            "scoring_config": {"direction": "higher_is_better"},
+            "applicable_capability_types": ["retrieval"],
+            "enabled": True,
+        },
+    )
+    assert gated.status_code == 201
+    create_mapping(client, "MAP-43", metric_ids=["M43"])
+    run = create_run(
+        client,
+        system["id"],
+        selected_frameworks=["nist_ai_rmf"],
+        selected_metrics=["M43"],
+    )
+
+    response = client.get(f"/api/v1/evaluation-runs/{run['id']}/metric-plan")
+
+    assert response.status_code == 200
+    plan = response.json()
+    assert [metric["metric_id"] for metric in plan["metrics"]] == ["M43"]

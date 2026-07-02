@@ -30,3 +30,5 @@ critical_blockers:
 - condition_key: data_provenance_unverifiable
   description: Missing provenance metadata blocks release where synthetic media disclosure
     is required.
+applicable_capability_types:
+- generation

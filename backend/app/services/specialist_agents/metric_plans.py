@@ -2,6 +2,7 @@ from uuid import UUID
 
 from sqlmodel import Session, select
 
+from app.models.ai_system import AISystem, AISystemCapability
 from app.models.config import FrameworkMapping, MetricConfig
 from app.schemas.governance import MetricPlanControl, MetricPlanItem, MetricPlanRead
 from app.services.run_validation import get_run_or_raise
@@ -9,6 +10,15 @@ from app.services.run_validation import get_run_or_raise
 
 def build_metric_plan(session: Session, *, run_id: UUID) -> MetricPlanRead:
     run = get_run_or_raise(session, run_id)
+    ai_system = session.get(AISystem, run.ai_system_id)
+    capability_types = set(
+        session.exec(
+            select(AISystemCapability.capability_type).where(
+                AISystemCapability.ai_system_id == run.ai_system_id,
+                AISystemCapability.enabled == True,  # noqa: E712
+            )
+        ).all()
+    )
     enabled_metrics = list(
         session.exec(
             select(MetricConfig)
@@ -38,6 +48,19 @@ def build_metric_plan(session: Session, *, run_id: UUID) -> MetricPlanRead:
         selected_metrics=run.selected_metrics,
         selected_frameworks=run.selected_frameworks,
     )
+    # System-context hard floor: a metric that declares applicability
+    # requirements only applies to systems whose capabilities/modality
+    # actually satisfy them. Explicit selected_metrics always bypasses this —
+    # the user asked for it by name, so we respect that intent even if the
+    # system's declared capabilities don't (yet) reflect it.
+    if not run.selected_metrics:
+        metrics = [
+            metric
+            for metric in metrics
+            if _metric_applies_to_system(
+                metric, ai_system=ai_system, capability_types=capability_types
+            )
+        ]
     metric_items = [
         _build_metric_plan_item(metric=metric, mappings=mappings) for metric in metrics
     ]
@@ -102,6 +125,25 @@ def _filter_metrics_for_run(
             if set(metric.framework_ids).intersection(selected_frameworks)
         ]
     return filtered_metrics
+
+
+def _metric_applies_to_system(
+    metric: MetricConfig,
+    *,
+    ai_system: AISystem | None,
+    capability_types: set[str],
+) -> bool:
+    if metric.applicable_capability_types and not capability_types.intersection(
+        metric.applicable_capability_types
+    ):
+        return False
+    if (
+        metric.applicable_modalities
+        and ai_system is not None
+        and ai_system.modality not in metric.applicable_modalities
+    ):
+        return False
+    return True
 
 
 def _build_metric_plan_item(

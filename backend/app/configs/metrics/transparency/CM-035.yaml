@@ -29,3 +29,5 @@ evidence_required:
 critical_blockers:
 - condition_key: audit_trail_integrity_failure
   description: Zero fabricated citations — all material claims must be correctly supported.
+applicable_capability_types:
+- retrieval

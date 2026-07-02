@@ -26,3 +26,5 @@ framework_mapping:
 evidence_required:
 - wer_cer_segmented_report
 - accent_language_breakdown
+applicable_modalities:
+- audio

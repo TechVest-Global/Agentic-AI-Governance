@@ -26,3 +26,5 @@ framework_mapping:
 evidence_required:
 - frame_continuity_report
 - video_segment_evaluation
+applicable_modalities:
+- video
