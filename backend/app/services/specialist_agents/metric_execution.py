@@ -2,12 +2,14 @@ from uuid import UUID
 
 from sqlmodel import Session
 
+from app.models.ai_system import AISystem
 from app.models.base import utc_now
 from app.models.enums import RunPhase, RunStatus
 from app.models.evidence import EvidenceRecord, MetricResult
 from app.schemas.governance import MetricExecutionCreate, MetricExecutionRead
 from app.services.evaluators.base import MetricEvaluationInput
 from app.services.evaluators.registry import get_evaluator
+from app.services.model_clients.registry import get_target_model_client
 from app.services.run_validation import get_run_or_raise
 from app.services.specialist_agents.metric_plans import build_metric_plan
 
@@ -21,6 +23,8 @@ def run_metrics(
     run = get_run_or_raise(session, run_id)
     plan = build_metric_plan(session, run_id=run_id)
     evaluator = get_evaluator(payload.evaluator_name)
+    ai_system = session.get(AISystem, run.ai_system_id)
+    target_client = get_target_model_client()
 
     evidence_records: list[EvidenceRecord] = []
     metric_results: list[MetricResult] = []
@@ -32,6 +36,9 @@ def run_metrics(
                 mock_score=payload.mock_score,
                 force_status=payload.force_status,
                 source_name=payload.source_name,
+                session=session,
+                ai_system=ai_system,
+                target_client=target_client,
             )
         )
 

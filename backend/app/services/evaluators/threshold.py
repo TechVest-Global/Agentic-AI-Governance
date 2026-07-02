@@ -25,7 +25,10 @@ class ThresholdMetricEvaluator:
 
     def evaluate(self, evaluation_input: MetricEvaluationInput) -> MetricEvaluationResult:
         metric = evaluation_input.metric
-        threshold = _minimum_threshold(metric.threshold_rules)
+        threshold = _minimum_threshold(
+            metric.threshold_rules,
+            selected_frameworks=evaluation_input.ai_system.selected_frameworks,
+        )
 
         # If caller supplied a real score use it; otherwise derive conservatively.
         if evaluation_input.mock_score != _DEFAULT_SENTINEL:
@@ -60,12 +63,38 @@ class ThresholdMetricEvaluator:
         )
 
 
-def _minimum_threshold(threshold_rules: dict[str, object]) -> float | None:
-    for key in ("minimum", "medium_risk_minimum", "high_risk_minimum"):
+_FLAT_KEYS = ("minimum", "medium_risk_minimum", "high_risk_minimum", "minimum_normalized_score")
+# Pass bar within a framework's per-band thresholds: a score below "critical"
+# is an outright critical failure, so it is the applicable minimum to pass at all.
+_BAND_KEY = "critical"
+
+
+def _minimum_threshold(
+    threshold_rules: dict[str, object],
+    *,
+    selected_frameworks: list[str] | None = None,
+) -> float | None:
+    # Flat shape (test fixtures, seeded defaults): {"minimum": 0.8, ...}
+    for key in _FLAT_KEYS:
         value = threshold_rules.get(key)
         if isinstance(value, int | float):
             return float(value)
-    return None
+
+    # Real per-framework shape from YAML-loaded metric configs:
+    # {"nist_ai_rmf": {"critical": 0.9, "high": 0.95, ...}, "iso_42001": {...}}
+    frameworks = selected_frameworks or list(threshold_rules)
+    bands = [
+        threshold_rules[fw]
+        for fw in frameworks
+        if isinstance(threshold_rules.get(fw), dict)
+    ]
+    if not bands:
+        return None
+    # Strictest (highest) critical-band threshold across the applicable frameworks.
+    critical_values = [
+        float(band[_BAND_KEY]) for band in bands if isinstance(band.get(_BAND_KEY), int | float)
+    ]
+    return max(critical_values) if critical_values else None
 
 
 def _resolve_passed(*, score: float, threshold: float | None) -> bool | None:

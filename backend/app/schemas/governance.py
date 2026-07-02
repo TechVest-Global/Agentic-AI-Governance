@@ -105,6 +105,20 @@ class ApplicationContextProfileRead(ApplicationContextProfileCreate):
     updated_at: datetime | None = None
 
 
+class RetrievalContextDocumentCreate(APIModel):
+    title: str = Field(min_length=1, max_length=300)
+    content: str = Field(min_length=1)
+    source_uri: str | None = Field(default=None, max_length=500)
+    tags: list[str] = Field(default_factory=list)
+
+
+class RetrievalContextDocumentRead(RetrievalContextDocumentCreate):
+    id: UUID
+    ai_system_id: UUID
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
 class EvaluationRunCreate(APIModel):
     ai_system_id: UUID
     selected_frameworks: list[str] = Field(default_factory=list)

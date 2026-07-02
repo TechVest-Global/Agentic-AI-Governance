@@ -13,6 +13,8 @@ from app.schemas.governance import (
     AISystemUpdate,
     ApplicationContextProfileCreate,
     ApplicationContextProfileRead,
+    RetrievalContextDocumentCreate,
+    RetrievalContextDocumentRead,
 )
 from app.services import ai_systems as service
 
@@ -122,3 +124,43 @@ def upsert_context_profile(
     session: SessionDependency,
 ) -> ApplicationContextProfileRead:
     return service.upsert_context_profile(session, system_id, payload)
+
+
+@router.post(
+    "/{system_id}/retrieval-context",
+    response_model=RetrievalContextDocumentRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_retrieval_context_document(
+    system_id: UUID,
+    payload: RetrievalContextDocumentCreate,
+    session: SessionDependency,
+) -> RetrievalContextDocumentRead:
+    return service.create_retrieval_context_document(session, system_id, payload)
+
+
+@router.get(
+    "/{system_id}/retrieval-context",
+    response_model=list[RetrievalContextDocumentRead],
+)
+def list_retrieval_context_documents(
+    system_id: UUID,
+    session: SessionDependency,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> list[RetrievalContextDocumentRead]:
+    return service.list_retrieval_context_documents(
+        session, system_id, offset=offset, limit=limit
+    )
+
+
+@router.delete(
+    "/{system_id}/retrieval-context/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_retrieval_context_document(
+    system_id: UUID,
+    document_id: UUID,
+    session: SessionDependency,
+) -> None:
+    service.delete_retrieval_context_document(session, system_id, document_id)
