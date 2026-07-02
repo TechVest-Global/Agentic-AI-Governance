@@ -167,7 +167,14 @@ def test_metric_execution_rejects_unknown_evaluator(client: TestClient) -> None:
     )
 
     assert response.status_code == 422
-    assert response.json()["error"]["details"] == {
-        "unknown_evaluator": "not_registered",
-        "available_evaluators": ["mock", "threshold"],
+    details = response.json()["error"]["details"]
+    assert details["unknown_evaluator"] == "not_registered"
+    assert set(details["available_evaluators"]) == {
+        "mock",
+        "threshold",
+        "garak",
+        "presidio",
+        "ragas",
+        "deepeval",
+        "auto",
     }
