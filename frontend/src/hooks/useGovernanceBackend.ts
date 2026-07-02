@@ -58,6 +58,21 @@ const initialState: BackendState = {
   llmCalls: [],
 };
 
+// A run that has reached one of these states will not change again, so we stop
+// polling it. Keep US/UK spellings and the report_ready interim state.
+const TERMINAL_RUN_STATUSES = new Set([
+  "completed",
+  "report_ready",
+  "failed",
+  "cancelled",
+  "canceled",
+]);
+
+// While a run is in flight, refresh the REST snapshot on this cadence so tiles
+// (findings, agent executions, counts) update even when the SSE stream is
+// unavailable — the SSE hook is best-effort, this is the reliable floor.
+const POLL_INTERVAL_MS = 4000;
+
 export function useGovernanceBackend() {
   const [state, setState] = useState<BackendState>(initialState);
   const [refreshToken, setRefreshToken] = useState(0);
@@ -142,6 +157,16 @@ export function useGovernanceBackend() {
       cancelled = true;
     };
   }, [refreshToken, selectedRunId]);
+
+  // Poll while the run is in flight so counts stay live even without SSE.
+  // Stops automatically once the run reaches a terminal state or errors.
+  const runStatus = state.latestRun?.status;
+  useEffect(() => {
+    if (state.error) return;
+    if (runStatus && TERMINAL_RUN_STATUSES.has(runStatus)) return;
+    const timer = setInterval(refresh, POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [runStatus, state.error, refresh]);
 
   const deliberate = useCallback(async () => {
     if (!state.latestRun) return null;

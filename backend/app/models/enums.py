@@ -59,6 +59,7 @@ class RunPhase(StrEnum):
     specialist_agents = "specialist_agents"
     deliberation_council = "deliberation_council"
     action_reporting = "action_reporting"
+    completed = "completed"
 
 
 class Severity(StrEnum):

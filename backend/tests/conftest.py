@@ -31,6 +31,8 @@ from sqlmodel import Session, SQLModel, create_engine
 
 @pytest.fixture
 def client() -> Generator[TestClient, None, None]:
+    import app.db.session as db_session
+
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -42,9 +44,17 @@ def client() -> Generator[TestClient, None, None]:
         with Session(engine) as session:
             yield session
 
+    # Services that open their OWN session (metric_execution worker pool,
+    # orchestration background job) reference db_session.engine at call time.
+    # Point it at the in-memory test engine so their writes land in the same DB
+    # the test reads from. Restore afterward.
+    original_engine = db_session.engine
+    db_session.engine = engine
+
     app.dependency_overrides[get_session] = override_get_session
     with TestClient(app) as test_client:
         yield test_client
 
     app.dependency_overrides.clear()
+    db_session.engine = original_engine
     SQLModel.metadata.drop_all(engine)

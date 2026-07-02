@@ -268,8 +268,16 @@ export type OrchestrationResult = {
 };
 
 export async function getLatestEvaluationRun(): Promise<EvaluationRun | null> {
-  const runs = await request<EvaluationRun[]>("/evaluation-runs?limit=1");
-  return runs[0] ?? null;
+  // Fetch a small page (newest first) and prefer the most recent run that has
+  // actually started, so a stray/aborted "created" row doesn't hijack the Live
+  // Run view and pin it to "Run Setup" forever. Fall back to the newest overall
+  // only when nothing has started yet.
+  const runs = await request<EvaluationRun[]>("/evaluation-runs?limit=10");
+  if (runs.length === 0) return null;
+  const started = runs.find(
+    (r) => r.status !== "created" && r.current_phase !== "created",
+  );
+  return started ?? runs[0];
 }
 
 export async function listMetrics(): Promise<MetricConfig[]> {
@@ -751,6 +759,63 @@ export async function cancelRun(runId: string): Promise<EvaluationRun> {
 
 export async function getEvaluationRun(runId: string): Promise<EvaluationRun> {
   return request<EvaluationRun>(`/evaluation-runs/${runId}`);
+}
+
+/* ─────────────────────────────────────────── Security tools ── */
+
+export type SecurityAdapterStatus = {
+  key: string;
+  name: string;
+  category: string;
+  description: string;
+  kind: "real" | "mock" | "deterministic";
+  dependency: string | null;
+  dependency_installed: boolean;
+  configured: boolean;
+  available: boolean;
+  detail: string;
+};
+
+export type SecurityToolsStatus = {
+  target_client: { mode: string; adapter: string; live: boolean };
+  adapters: SecurityAdapterStatus[];
+  summary: { total: number; available: number; real: number };
+};
+
+export async function getSecurityTools(): Promise<SecurityToolsStatus> {
+  return request<SecurityToolsStatus>(`/security-tools`);
+}
+
+/* ─────────────────────────────────── Context document upload ── */
+
+export type RetrievalContextDocument = {
+  id: string;
+  ai_system_id: string;
+  title: string;
+  content: string;
+  source_uri: string | null;
+  tags: string[];
+  created_at: string;
+};
+
+export async function uploadContextDocument(
+  systemId: string,
+  opts: { file?: File; text?: string; title?: string; tags?: string[] },
+): Promise<RetrievalContextDocument> {
+  const form = new FormData();
+  if (opts.file) form.append("file", opts.file);
+  if (opts.text) form.append("text", opts.text);
+  if (opts.title) form.append("title", opts.title);
+  if (opts.tags?.length) form.append("tags", opts.tags.join(","));
+  // Note: no Content-Type header — the browser sets the multipart boundary.
+  const response = await fetch(
+    `${API_BASE_URL}/ai-systems/${systemId}/retrieval-context/upload`,
+    { method: "POST", body: form },
+  );
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json();
 }
 
 const TERMINAL_STATUSES = new Set(["completed", "report_ready", "failed", "cancelled", "canceled"]);

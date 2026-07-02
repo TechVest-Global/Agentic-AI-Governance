@@ -28,6 +28,16 @@ def run_agents(
     probe_budget_override: int | None = None,
 ) -> AgentRunRead:
     run = get_run_or_raise(session, run_id)
+    # Enter the specialist-agents phase up front and commit, so a client polling
+    # the run / streaming SSE sees "Specialist Agents" become active while the
+    # (slow, real-target) agents run — instead of the phase only flipping after
+    # every agent finishes.
+    run.status = RunStatus.agents_running
+    run.current_phase = RunPhase.specialist_agents
+    run.updated_at = utc_now()
+    session.add(run)
+    session.commit()
+
     start_log_capture()
     ai_system = session.get(AISystem, run.ai_system_id)
     if probe_budget_override is not None:
@@ -55,6 +65,7 @@ def run_agents(
         metric_plan_items=build_metric_plan(session, run_id=run_id).metrics,
         session=session,
         target_client=get_target_model_client(),
+        probe_counts={},
     )
 
     created_findings: list[Finding] = []
@@ -89,6 +100,13 @@ def run_agents(
                 finding = Finding(run_id=run_id, **finding_payload.model_dump())
                 session.add(finding)
                 created_findings.append(finding)
+        # Persist the real probe count (set by the agent during evaluate) so the
+        # SSE progress stream can report a live "Probes Sent" total. Runs even on
+        # failure so partial probing is still counted.
+        execution.metadata_json = {
+            **(execution.metadata_json or {}),
+            "probe_count": context.probe_counts.get(agent.name, 0),
+        }
         execution.completed_at = utc_now()
         execution.updated_at = utc_now()
         executions.append(execution)

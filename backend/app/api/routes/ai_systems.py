@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from sqlmodel import Session
 
 from app.db.session import get_session
@@ -137,6 +137,43 @@ def create_retrieval_context_document(
     session: SessionDependency,
 ) -> RetrievalContextDocumentRead:
     return service.create_retrieval_context_document(session, system_id, payload)
+
+
+@router.post(
+    "/{system_id}/retrieval-context/upload",
+    response_model=RetrievalContextDocumentRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_retrieval_context_document(
+    system_id: UUID,
+    session: SessionDependency,
+    file: Annotated[UploadFile | None, File()] = None,
+    text: Annotated[str | None, Form()] = None,
+    title: Annotated[str | None, Form()] = None,
+    tags: Annotated[str | None, Form()] = None,
+) -> RetrievalContextDocumentRead:
+    """Ingest an uploaded file (or pasted text) as a retrieval-context document.
+
+    Lets users add context by upload instead of hand-typing JSON. The stored
+    document is what RAG groundedness evaluation (RAGAS) reads at run time.
+    Accepts a multipart file or a raw ``text`` field; ``tags`` is a
+    comma-separated string.
+    """
+    raw = b""
+    filename = None
+    if file is not None:
+        raw = await file.read()
+        filename = file.filename
+    content = raw.decode("utf-8", errors="replace") if raw else (text or "")
+    tag_list = [t.strip() for t in (tags or "").split(",") if t.strip()]
+    return service.ingest_context_document(
+        session,
+        system_id,
+        title=title,
+        content=content,
+        source_filename=filename,
+        tags=tag_list,
+    )
 
 
 @router.get(

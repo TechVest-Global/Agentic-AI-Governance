@@ -17,6 +17,7 @@ import logging
 from dataclasses import dataclass
 
 from app.services.agents.base import AgentContext
+from app.services.agents.probe_library import ProbeSet, classify_system, probes_for
 from app.services.model_clients.base import (
     GovernanceModelClient,
     GovernanceModelRequest,
@@ -62,6 +63,11 @@ class TargetProbeResult:
 class ModelBackedAgent:
     execution_mode = "model_backed"
     name: str
+    # The facet this agent probes ("bias", "misuse", "explainability", ...).
+    # Used to pick system-appropriate probes from the probe library. Left as
+    # None for agents that have not opted into system-aware probe selection —
+    # those keep their own curated probe set unchanged.
+    probe_dimension: str | None = None
 
     def __init__(
         self,
@@ -71,7 +77,44 @@ class ModelBackedAgent:
         self._target = target_client
         self._governance = governance_client
 
+    def _select_probes(
+        self,
+        fallback: ProbeSet,
+        *,
+        context: AgentContext,
+    ) -> ProbeSet:
+        """Pick system-appropriate probes, scale them to the probe budget, and
+        record how many probes were selected so run progress can report it.
+
+        Chooses a probe set tailored to the audited system's category (e.g. a
+        RAG assistant gets grounding/injection-via-retrieval probes instead of
+        hiring/loan probes) when the agent declares a ``probe_dimension`` and
+        the library has a tailored set; otherwise uses ``fallback``. The chosen
+        set is then repeated up to the agent's Layer-2 probe budget.
+        """
+        base = fallback
+        if self.probe_dimension:
+            profile = classify_system(getattr(context.ai_system, "system_type", None))
+            base = probes_for(self.probe_dimension, profile, fallback)
+
+        plan = self._scale_to_budget(base, context=context)
+        # Record the real probe count for this agent (read by agent_execution
+        # and surfaced in the SSE "Probes Sent" tile).
+        context.probe_counts[self.name] = len(plan)
+        return plan
+
     def _probe_plan(
+        self,
+        prompts: list[tuple[str, str]],
+        *,
+        context: AgentContext,
+    ) -> list[tuple[str, str]]:
+        """Backward-compatible alias: scale a fixed probe set and record count."""
+        plan = self._scale_to_budget(prompts, context=context)
+        context.probe_counts[self.name] = len(plan)
+        return plan
+
+    def _scale_to_budget(
         self,
         prompts: list[tuple[str, str]],
         *,

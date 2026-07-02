@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, CheckCircle2, FileJson, Layers, Lock, Save, XCircle } from "lucide-react";
+import { AlertCircle, CheckCircle2, FileJson, Layers, Lock, Save, Upload, XCircle } from "lucide-react";
 import clsx from "clsx";
 import { Badge } from "@/components/ui/Badge";
 import { Card, CardHeader } from "@/components/ui/Card";
@@ -8,6 +8,7 @@ import { roleCan } from "@/lib/permissions";
 import {
   getContextProfile,
   listAISystems,
+  uploadContextDocument,
   upsertContextProfile,
   type BackendAISystem,
   type ContextProfile,
@@ -63,14 +64,31 @@ type ParseResult =
 function parseSection(raw: string): ParseResult {
   const trimmed = raw.trim();
   if (!trimmed) return { ok: true, value: {} };
+  // Only text that looks like a JSON object/array is parsed strictly. Anything
+  // else (prose, notes, a pasted paragraph) is accepted and wrapped as
+  // { notes: "<text>" } so users can add context without writing JSON — this
+  // is what previously surfaced as "JSON errors when adding context".
+  const looksStructured = trimmed.startsWith("{") || trimmed.startsWith("[");
+  if (!looksStructured) {
+    return { ok: true, value: { notes: trimmed } };
+  }
   try {
     const parsed = JSON.parse(trimmed) as unknown;
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { ok: false, error: "Must be a JSON object." };
+    if (parsed === null || typeof parsed !== "object") {
+      return { ok: false, error: "Enter a JSON object, or plain text (saved as notes)." };
+    }
+    if (Array.isArray(parsed)) {
+      // A bare array isn't a valid section object; keep it under a key.
+      return { ok: true, value: { items: parsed } };
     }
     return { ok: true, value: parsed as Record<string, unknown> };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "Invalid JSON." };
+  } catch {
+    // Starts like JSON but is malformed — surface a clear, actionable error
+    // rather than a raw parser message.
+    return {
+      ok: false,
+      error: "This looks like JSON but is malformed. Fix it, or remove the leading { / [ to save as notes.",
+    };
   }
 }
 
@@ -92,6 +110,38 @@ export function ApplicationContextProfiles() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Context document upload (file or pasted text -> retrieval-context doc).
+  const [uploadText, setUploadText] = useState("");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadTitle, setUploadTitle] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<{ ok: boolean; message: string } | null>(null);
+
+  async function handleUpload() {
+    if (!selectedId || uploading) return;
+    if (!uploadFile && !uploadText.trim()) {
+      setUploadStatus({ ok: false, message: "Choose a file or enter some text first." });
+      return;
+    }
+    setUploading(true);
+    setUploadStatus(null);
+    try {
+      const doc = await uploadContextDocument(selectedId, {
+        file: uploadFile ?? undefined,
+        text: uploadText.trim() || undefined,
+        title: uploadTitle.trim() || undefined,
+      });
+      setUploadStatus({ ok: true, message: `Uploaded "${doc.title}" — available to RAG groundedness checks.` });
+      setUploadText("");
+      setUploadFile(null);
+      setUploadTitle("");
+    } catch (err) {
+      setUploadStatus({ ok: false, message: err instanceof Error ? err.message : "Upload failed." });
+    } finally {
+      setUploading(false);
+    }
+  }
 
   useEffect(() => {
     (async () => {
@@ -314,6 +364,95 @@ export function ApplicationContextProfiles() {
                   <Save className="h-4 w-4" />
                   {saving ? "Saving…" : profile ? "Save profile" : "Create profile"}
                 </button>
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {selectedId && (
+        <Card>
+          <CardHeader
+            eyebrow="Upload context"
+            title="Add context by file or text"
+            action={<Badge tone="blue">Feeds RAG grounding</Badge>}
+          />
+          <div className="space-y-4 px-5 py-5">
+            <p className="text-[12px] text-slate-500 dark:text-slate-400">
+              Attach a document (policy, FAQ, knowledge-base article) or paste text. It is stored as a
+              retrieval-context document for this system and used by RAG groundedness evaluation (RAGAS) at run time.
+            </p>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300">File</label>
+                <input
+                  type="file"
+                  accept=".txt,.md,.json,.csv,.log,text/*"
+                  disabled={!canEdit || uploading}
+                  onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+                  className="block w-full text-[12px] text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-50 file:px-3 file:py-2 file:text-[12px] file:font-semibold file:text-brand-700 hover:file:bg-brand-100 dark:text-slate-300 dark:file:bg-brand-950/40 dark:file:text-brand-300"
+                />
+                <input
+                  type="text"
+                  placeholder="Title (optional)"
+                  value={uploadTitle}
+                  disabled={!canEdit || uploading}
+                  onChange={(e) => setUploadTitle(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300">Or paste text</label>
+                <textarea
+                  className={clsx(inputClass, "resize-y text-[12px] leading-5")}
+                  rows={5}
+                  placeholder="Paste policy text, documentation, or notes…"
+                  value={uploadText}
+                  disabled={!canEdit || uploading}
+                  onChange={(e) => setUploadText(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {uploadStatus && (
+              <div
+                className={clsx(
+                  "flex items-start gap-2 rounded-lg border px-3 py-2 text-[12px]",
+                  uploadStatus.ok
+                    ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
+                    : "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400",
+                )}
+              >
+                {uploadStatus.ok ? (
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                ) : (
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                )}
+                <span>{uploadStatus.message}</span>
+              </div>
+            )}
+
+            {canEdit ? (
+              <div className="flex items-center justify-end">
+                <button
+                  type="button"
+                  disabled={uploading || (!uploadFile && !uploadText.trim())}
+                  onClick={handleUpload}
+                  className={clsx(
+                    "flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-semibold text-white transition-colors",
+                    !uploading && (uploadFile || uploadText.trim())
+                      ? "bg-brand-600 hover:bg-brand-700"
+                      : "cursor-not-allowed bg-slate-300 dark:bg-slate-700",
+                  )}
+                >
+                  <Upload className="h-4 w-4" />
+                  {uploading ? "Uploading…" : "Upload context"}
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-[12px] text-slate-500 dark:text-slate-400">
+                <Lock className="h-3.5 w-3.5" /> Uploading requires the developer role.
               </div>
             )}
           </div>

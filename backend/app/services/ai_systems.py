@@ -2,7 +2,7 @@ from uuid import UUID
 
 from sqlmodel import Session, select
 
-from app.core.exceptions import ResourceConflictError, ResourceNotFoundError
+from app.core.exceptions import ApplicationError, ResourceConflictError, ResourceNotFoundError
 from app.models.ai_system import (
     AISystem,
     AISystemCapability,
@@ -160,6 +160,42 @@ def upsert_context_profile(
     session.commit()
     session.refresh(profile)
     return profile
+
+
+def ingest_context_document(
+    session: Session,
+    system_id: UUID,
+    *,
+    title: str | None,
+    content: str,
+    source_filename: str | None = None,
+    tags: list[str] | None = None,
+) -> RetrievalContextDocument:
+    """Store uploaded/pasted context as a retrieval-context document.
+
+    Backs the "upload file/context" flow. Derives a title from the filename
+    when none is given and rejects empty content with a clear validation error.
+    """
+    text = (content or "").strip()
+    if not text:
+        raise ApplicationError(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message="Uploaded context is empty — provide a non-empty file or text.",
+        )
+    resolved_title = (title or "").strip() or (source_filename or "").strip() or "Uploaded context"
+    document = RetrievalContextDocument(
+        ai_system_id=system_id,
+        title=resolved_title[:300],
+        content=text,
+        source_uri=source_filename,
+        tags=tags or [],
+    )
+    get_ai_system(session, system_id)
+    session.add(document)
+    session.commit()
+    session.refresh(document)
+    return document
 
 
 def create_retrieval_context_document(

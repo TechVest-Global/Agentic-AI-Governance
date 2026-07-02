@@ -3,6 +3,7 @@ import {
   Activity,
   Bot,
   ChevronDown,
+  Clock,
   Download,
   FileJson,
   FileText,
@@ -13,7 +14,6 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { findings as mockFindings, liveRuns, systems as mockSystems, applicationContextProfiles, type ApplicationContextProfile } from "@/data/mockData";
-import { metricPlan } from "@/data/metricPlan";
 import { Badge } from "@/components/ui/Badge";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { MetricCard } from "@/components/ui/MetricCard";
@@ -31,7 +31,7 @@ import { ArtifactDrawer } from "@/components/execution/ArtifactDrawer";
 import { exportJSON, exportCSV, exportPDF, exportLedger, exportEvidenceBundle } from "@/utils/exports";
 import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
 import { useRunProgress, phaseIndex, type AgentProgress } from "@/hooks/useRunProgress";
-import { PIPELINE_STEPS } from "@/pages/pipelineSteps";
+import { PIPELINE_STEPS, layerStatus } from "@/pages/pipelineSteps";
 import type { AuditLedgerEntry, GovernanceReport } from "@/api/governanceApi";
 
 // ---------------------------------------------------------------------------
@@ -97,6 +97,20 @@ function NoRunMessage() {
   );
 }
 
+/** Shown for a layer the run has not reached yet — prevents stale/placeholder
+ *  content (e.g. the metric table) from appearing before the layer is active. */
+function NotStartedMessage({ label }: { label: string }) {
+  return (
+    <div className="flex h-full min-h-80 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-200 dark:border-slate-700 px-6 text-center">
+      <Clock className="h-6 w-6 text-slate-300 dark:text-slate-600" />
+      <p className="text-[13px] font-semibold text-slate-600 dark:text-slate-300">Not started yet</p>
+      <p className="max-w-xs text-[12px] leading-relaxed text-slate-400 dark:text-slate-500">
+        The <span className="font-medium">{label}</span> layer hasn't run yet. It will populate here once the run reaches this stage.
+      </p>
+    </div>
+  );
+}
+
 function PipelineStepContent({
   step,
   navigateTo,
@@ -105,6 +119,8 @@ function PipelineStepContent({
   intelligenceAgents,
   displayedFindings,
   runId,
+  currentPhase,
+  runStatus,
   selectedAgentId,
   selectedCouncilMemberId,
   ledgerEntries,
@@ -116,6 +132,8 @@ function PipelineStepContent({
   intelligenceAgents: ReturnType<typeof buildAgentsFromBackend>;
   displayedFindings: UiFinding[];
   runId: string | null;
+  currentPhase: string;
+  runStatus: string;
   selectedAgentId: string | null;
   selectedCouncilMemberId: CouncilMemberId | null;
   ledgerEntries: AuditLedgerEntry[];
@@ -128,6 +146,13 @@ function PipelineStepContent({
     return <AuditTargetSelector navigateTo={navigateTo} report={report} startExpanded />;
   }
 
+  // Gate every non-setup layer on whether the run has actually reached it. A
+  // layer that is still "pending" shows a "not started" state instead of stale
+  // placeholder content (the metric table used to render mock rows regardless).
+  if (layerStatus(step.id, currentPhase, runStatus) === "pending") {
+    return <NotStartedMessage label={step.label} />;
+  }
+
   const runtimeDetail = (
     <div className="space-y-4">
       <RuntimeEventStream entries={ledgerEntries} phaseFilter={step.id === "created" ? undefined : step.id} />
@@ -136,32 +161,62 @@ function PipelineStepContent({
   );
 
   if (step.id === "metric_execution") {
+    // Real metric results for this run, enriched with human name/owner/budget
+    // from the run's metric plan. No fabricated rows — an empty result set shows
+    // an explicit in-progress/empty state.
+    const planByMetric = new Map(
+      (report?.metric_plan?.metrics ?? []).map((m) => [m.metric_id, m]),
+    );
+    const rows = (report?.metric_results ?? []).map((r) => {
+      const plan = planByMetric.get(r.metric_id);
+      return {
+        id: r.id,
+        metricId: r.metric_id,
+        name: plan?.name ?? r.metric_id,
+        owner: plan?.primary_agent ?? r.tool_name ?? "—",
+        budget: plan?.probe_budget ?? null,
+        status: r.status,
+        passed: r.passed,
+      };
+    });
+    const statusTone = (status: string, passed: boolean | null | undefined) => {
+      if (passed === true || status === "passed") return "green" as const;
+      if (passed === false || status === "failed") return "red" as const;
+      if (status === "running" || status === "pending") return "amber" as const;
+      return "slate" as const;
+    };
     return (
       <div className="space-y-4">
-        <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-          <table className="w-full text-[12px]">
-            <thead>
-              <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
-                <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Metric</th>
-                <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Owner</th>
-                <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Budget</th>
-                <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {metricPlan.metrics.map((m) => (
-                <tr key={m.id} className="border-b border-slate-100 dark:border-slate-800">
-                  <td className="px-3 py-2 font-medium text-slate-900 dark:text-white">{m.name}</td>
-                  <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{m.ownerAgent}</td>
-                  <td className="px-3 py-2 font-mono text-slate-600 dark:text-slate-400">{m.probeBudget} pts</td>
-                  <td className="px-3 py-2">
-                    <Badge tone={m.status === "Pass" ? "green" : m.status === "Fail" ? "red" : m.status === "Running" ? "amber" : "slate"}>{m.status}</Badge>
-                  </td>
+        {rows.length === 0 ? (
+          <p className="text-[12px] text-slate-500 dark:text-slate-400">
+            Metric execution in progress — no results recorded yet.
+          </p>
+        ) : (
+          <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+            <table className="w-full text-[12px]">
+              <thead>
+                <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                  <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Metric</th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Owner</th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Budget</th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {rows.map((m) => (
+                  <tr key={m.id} className="border-b border-slate-100 dark:border-slate-800">
+                    <td className="px-3 py-2 font-medium text-slate-900 dark:text-white">{m.name}</td>
+                    <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{m.owner}</td>
+                    <td className="px-3 py-2 font-mono text-slate-600 dark:text-slate-400">{m.budget != null ? `${m.budget} pts` : "—"}</td>
+                    <td className="px-3 py-2">
+                      <Badge tone={statusTone(m.status, m.passed)}>{m.status}</Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
         {runtimeDetail}
       </div>
     );
@@ -345,6 +400,24 @@ export function LiveRuns() {
     return Array.from(latestByName.values());
   }, [backend.agentExecutions]);
 
+  // "Agents Active" tile. Numerator = agents not yet in a terminal state
+  // (running/pending); denominator = total agents this run activated. Prefer
+  // the SSE snapshot, then REST executions, then the evaluation plan's activated
+  // agent count — so a freshly-started run shows "0 / N" (N = planned) rather
+  // than a hardcoded fallback that never matched reality.
+  const agentsActiveLabel = useMemo(() => {
+    const isActive = (status: string) =>
+      status !== "completed" && status !== "failed" && status !== "cancelled";
+    if (liveAgents.length) {
+      return `${liveAgents.filter(a => isActive(a.status)).length} / ${liveAgents.length}`;
+    }
+    if (restAgents.length) {
+      return `${restAgents.filter(a => isActive(a.status)).length} / ${restAgents.length}`;
+    }
+    const planned = backend.evaluationPlan?.activated_agents?.length ?? 0;
+    return `0 / ${planned}`;
+  }, [liveAgents, restAgents, backend.evaluationPlan]);
+
   // Full agent intelligence detail (Overview/Probes/Evidence/Frameworks/Remediation/Runtime),
   // built from the same backend executions + findings — keyed by agent id.
   const intelligenceAgents = useMemo(
@@ -420,7 +493,7 @@ export function LiveRuns() {
               : "border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400"
           )}>
             <div className={clsx("h-2 w-2 rounded-full", connected ? "bg-emerald-500 animate-pulse" : "bg-amber-400")} />
-            {connected ? "Live — streaming progress from backend" : "Polling — SSE not connected, using REST fallback"}
+            {connected ? "Live — streaming progress from backend" : "Polling every 4s — SSE reconnecting, using REST fallback"}
           </div>
         )}
 
@@ -431,13 +504,7 @@ export function LiveRuns() {
           )}
           <MetricCard
             label="Agents Active"
-            value={
-              liveAgents.length
-                ? `${liveAgents.filter(a => a.status === "running").length} / ${liveAgents.length}`
-                : restAgents.length
-                  ? `${restAgents.filter(a => a.status === "running").length} / ${restAgents.length}`
-                  : `0 / 7`
-            }
+            value={agentsActiveLabel}
             icon={Bot}
             tone="amber"
           />
@@ -473,6 +540,8 @@ export function LiveRuns() {
               intelligenceAgents={intelligenceAgents}
               displayedFindings={displayedFindings}
               runId={runId}
+              currentPhase={livePhase}
+              runStatus={liveStatus}
               selectedAgentId={selectedAgentId}
               selectedCouncilMemberId={selectedCouncilMemberId}
               ledgerEntries={backend.ledgerEntries}

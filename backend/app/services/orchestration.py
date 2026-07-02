@@ -1,8 +1,11 @@
+import logging
 from uuid import UUID
 
 from sqlmodel import Session
 
-from app.models.enums import LedgerActorType, RunPhase
+from app.db import session as db_session
+from app.models.base import utc_now
+from app.models.enums import LedgerActorType, RunPhase, RunStatus
 from app.schemas.governance import (
     AgentRunCreate,
     AuditLedgerEntryCreate,
@@ -25,6 +28,40 @@ from app.services.action_reporting import reports
 from app.services.deliberation_council import deliberation as council
 from app.services.run_validation import get_run_or_raise
 from app.services.specialist_agents import agent_execution, metric_execution
+
+logger = logging.getLogger(__name__)
+
+
+def run_governance_pipeline_job(
+    run_id: UUID,
+    payload: GovernancePipelineRunCreate,
+) -> None:
+    """Run the full pipeline off the request thread, with its own DB session.
+
+    Invoked as a background task so the HTTP request returns immediately (202)
+    and the run's phase transitions become observable via polling / SSE while
+    the pipeline executes. On failure the run is marked failed so watchers stop
+    waiting instead of hanging on a non-terminal status. Must NOT reuse the
+    request-scoped session (it is closed once the response is sent).
+    """
+    with Session(db_session.engine) as session:
+        try:
+            run_governance_pipeline(session, run_id=run_id, payload=payload)
+        except Exception as exc:  # noqa: BLE001 — background job: never let it crash silently
+            logger.exception("Background orchestration failed for run %s", run_id)
+            try:
+                run = get_run_or_raise(session, run_id)
+                run.status = RunStatus.failed
+                run.completed_at = run.completed_at or utc_now()
+                run.updated_at = utc_now()
+                run.error_summary = {
+                    "error_type": exc.__class__.__name__,
+                    "message": str(exc),
+                }
+                session.add(run)
+                session.commit()
+            except Exception:  # noqa: BLE001
+                logger.exception("Could not mark run %s as failed", run_id)
 
 
 def run_governance_pipeline(
@@ -158,6 +195,18 @@ def run_governance_pipeline(
             "state_chain_valid": report.state_chain.valid,
         },
     )
+
+    # Finalize: report building is read-only, so without this the run would be
+    # left parked at council_running / deliberation_council — never a terminal
+    # status. That made the SSE progress stream never close and the frontend
+    # completion poll hang forever. Mark the run completed at action_reporting.
+    run = get_run_or_raise(session, run_id)
+    run.status = RunStatus.completed
+    run.current_phase = RunPhase.completed
+    run.completed_at = run.completed_at or utc_now()
+    run.updated_at = utc_now()
+    session.add(run)
+    session.commit()
 
     return GovernancePipelineRunRead(
         run_id=run_id,

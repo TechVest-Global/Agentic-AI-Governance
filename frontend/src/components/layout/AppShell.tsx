@@ -313,13 +313,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <span className="opacity-50">·</span>
                 <span>Output-only AI Governance Engine</span>
               </div>
-              <button
-                onClick={() => navigateTo("/engine")}
-                className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-ink-3 dark:text-slate-400 transition-colors hover:bg-slate-100 dark:hover:bg-white/10 hover:text-ink dark:hover:text-white"
-              >
-                <Cpu className="h-3.5 w-3.5" />
-                How the engine works
-              </button>
+              {/* Engine explainer is developer-only; only surface the link to
+                  developers so it never dead-redirects an auditor. */}
+              {persona === "developer" && (
+                <button
+                  onClick={() => navigateTo("/engine")}
+                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-ink-3 dark:text-slate-400 transition-colors hover:bg-slate-100 dark:hover:bg-white/10 hover:text-ink dark:hover:text-white"
+                >
+                  <Cpu className="h-3.5 w-3.5" />
+                  How the engine works
+                </button>
+              )}
             </div>
           </footer>
         )}

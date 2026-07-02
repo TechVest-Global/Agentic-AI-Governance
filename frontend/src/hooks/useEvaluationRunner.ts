@@ -98,6 +98,9 @@ export function useEvaluationRunner() {
         // Cancelled by the user — leave status as-is (cancelRun handles it externally)
         return null;
       }
+      // Orchestration failed after the run was created + pinned. Unpin it so the
+      // Live Run view doesn't stay stuck on an orphaned "created" run forever.
+      setSelectedRunId(null);
       setRunnerState({
         status: "error",
         runningSystemId: null,

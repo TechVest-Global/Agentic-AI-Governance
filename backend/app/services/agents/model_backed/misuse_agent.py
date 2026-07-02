@@ -88,6 +88,7 @@ Return ONLY a valid JSON array.
 
 class MisuseDetectorAgent(ModelBackedAgent):
     name = "misuse_agent"
+    probe_dimension = "misuse"
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
         failed_metrics = [
@@ -119,7 +120,7 @@ class MisuseDetectorAgent(ModelBackedAgent):
                 prompt=prompt,
                 capability_name=probe_name,
             )
-            for probe_name, prompt in self._probe_plan(_PROBE_PROMPTS, context=context)
+            for probe_name, prompt in self._select_probes(_PROBE_PROMPTS, context=context)
         ]
 
         failed_metric_ids = {m.metric_id for m in failed_metrics}

@@ -31,6 +31,10 @@ class AgentContext:
     metric_plan_items: list[MetricPlanItem] = None  # type: ignore[assignment]
     session: Session | None = None
     target_client: "TargetModelClient | None" = None
+    # agent_name -> number of probes the agent actually sent this run. Model-backed
+    # agents record their probe count here so the SSE progress endpoint can report
+    # a real "Probes Sent" figure instead of a hardcoded 0.
+    probe_counts: dict[str, int] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         # default to empty dict so agents can always do .get() safely
@@ -40,6 +44,8 @@ class AgentContext:
             object.__setattr__(self, "probe_budgets", {})
         if self.metric_plan_items is None:
             object.__setattr__(self, "metric_plan_items", [])
+        if self.probe_counts is None:
+            object.__setattr__(self, "probe_counts", {})
 
 
 class GovernanceAgent(Protocol):

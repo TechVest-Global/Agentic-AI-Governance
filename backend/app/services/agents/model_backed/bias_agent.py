@@ -71,6 +71,7 @@ Return ONLY a valid JSON array. Example:
 
 class BiasAuditorAgent(ModelBackedAgent):
     name = "bias_agent"
+    probe_dimension = "bias"
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
         bias_metrics = [
@@ -97,7 +98,7 @@ class BiasAuditorAgent(ModelBackedAgent):
                 prompt=prompt,
                 capability_name=probe_name,
             )
-            for probe_name, prompt in self._probe_plan(_PROBE_PROMPTS, context=context)
+            for probe_name, prompt in self._select_probes(_PROBE_PROMPTS, context=context)
         ]
 
         tool_calls = self._call_evidence_tool(
