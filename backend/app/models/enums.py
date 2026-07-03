@@ -37,6 +37,23 @@ class SideEffectLevel(StrEnum):
     destructive = "destructive"
 
 
+class ApplicabilityType(StrEnum):
+    """How a governance framework applies to a registered AI system."""
+
+    mandatory = "mandatory"
+    voluntary = "voluntary"
+    unsure = "unsure"
+
+
+class EndpointStatus(StrEnum):
+    """Operational status of a registered target API endpoint."""
+
+    draft = "draft"
+    active = "active"
+    disabled = "disabled"
+    deprecated = "deprecated"
+
+
 class RunStatus(StrEnum):
     created = "created"
     context_assembly = "context_assembly"

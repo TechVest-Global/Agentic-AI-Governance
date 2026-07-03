@@ -10,6 +10,8 @@ from app.schemas.governance import (
     AISystemCapabilityRead,
     AISystemCreate,
     AISystemRead,
+    AISystemRegistrationCreate,
+    AISystemRegistrationRead,
     AISystemUpdate,
     ApplicationContextProfileCreate,
     ApplicationContextProfileRead,
@@ -17,6 +19,7 @@ from app.schemas.governance import (
     RetrievalContextDocumentRead,
 )
 from app.services import ai_systems as service
+from app.services import registration as registration_service
 
 router = APIRouter(prefix="/ai-systems")
 SessionDependency = Annotated[Session, Depends(get_session)]
@@ -28,6 +31,19 @@ def create_ai_system(
     session: SessionDependency,
 ) -> AISystemRead:
     return service.create_ai_system(session, payload)
+
+
+@router.post(
+    "/register",
+    response_model=AISystemRegistrationRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def register_ai_system(
+    payload: AISystemRegistrationCreate,
+    session: SessionDependency,
+) -> AISystemRegistrationRead:
+    """Register a complete AI system (nested facts) and derive a preliminary risk tier."""
+    return registration_service.register_ai_system(session, payload)
 
 
 @router.get("", response_model=list[AISystemRead])
@@ -42,6 +58,14 @@ def list_ai_systems(
 @router.get("/{system_id}", response_model=AISystemRead)
 def get_ai_system(system_id: UUID, session: SessionDependency) -> AISystemRead:
     return service.get_ai_system(session, system_id)
+
+
+@router.get("/{system_id}/registration", response_model=AISystemRegistrationRead)
+def get_ai_system_registration(
+    system_id: UUID, session: SessionDependency
+) -> AISystemRegistrationRead:
+    """Return the complete nested registration record for an AI system."""
+    return registration_service.get_registration_detail(session, system_id)
 
 
 @router.patch("/{system_id}", response_model=AISystemRead)

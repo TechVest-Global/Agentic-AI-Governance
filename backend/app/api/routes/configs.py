@@ -11,11 +11,29 @@ from app.schemas.governance import (
     GovernanceConfigBootstrapRead,
     MetricConfigCreate,
     MetricConfigRead,
+    RegistrationFrameworkOption,
+    RegistrationOptions,
 )
 from app.services import configs as service
+from app.services import registration_config
 
 router = APIRouter()
 SessionDependency = Annotated[Session, Depends(get_session)]
+
+
+@router.get(
+    "/governance-config/frameworks",
+    response_model=list[RegistrationFrameworkOption],
+)
+def list_registration_frameworks() -> list[RegistrationFrameworkOption]:
+    """Applicable governance frameworks the platform implements (for registration)."""
+    return registration_config.list_registration_frameworks()
+
+
+@router.get("/governance-config/options", response_model=RegistrationOptions)
+def get_registration_options() -> RegistrationOptions:
+    """Backend-sourced dropdown options for the AI application registration form."""
+    return registration_config.get_registration_options()
 
 
 @router.post("/governance-config/bootstrap", response_model=GovernanceConfigBootstrapRead)

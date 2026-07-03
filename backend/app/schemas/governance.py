@@ -8,7 +8,9 @@ from app.models.enums import (
     ActionTier,
     AgentExecutionStatus,
     AISystemStatus,
+    ApplicabilityType,
     CapabilityType,
+    EndpointStatus,
     FindingStatus,
     LedgerActorType,
     MetricResultStatus,
@@ -739,3 +741,466 @@ class LLMCallLogSummary(APIModel):
     mock_call_count: int
     error_count: int
     calls: list[LLMCallLogRead] = Field(default_factory=list)
+
+
+# ── AI application registration: backend-sourced options + frameworks ──────────
+
+
+class OptionItem(APIModel):
+    """A single selectable option (machine value + human label)."""
+
+    value: str
+    label: str
+
+
+class RegistrationFrameworkOption(APIModel):
+    """An applicable governance framework the registration form can offer."""
+
+    framework_id: str
+    framework_name: str
+    framework_version: str
+    description: str
+    rubric_count: int
+    probe_count: int
+    coverage_count: int
+
+
+class RegistrationOptions(APIModel):
+    """All option lists that drive the AI application registration form.
+
+    Sourced from backend enums + curated catalogs so the frontend never
+    hardcodes dropdown values.
+    """
+
+    risk_tiers: list[OptionItem]
+    modalities: list[OptionItem]
+    deployment_environments: list[OptionItem]
+    application_types: list[OptionItem]
+    domains: list[OptionItem]
+    model_providers: list[OptionItem]
+    capability_types: list[OptionItem]
+    side_effect_levels: list[OptionItem]
+    http_methods: list[OptionItem]
+    statuses: list[OptionItem]
+    # Enhanced registration catalogs (Phase 1)
+    system_types: list[OptionItem] = Field(default_factory=list)
+    business_domains: list[OptionItem] = Field(default_factory=list)
+    lifecycle_stages: list[OptionItem] = Field(default_factory=list)
+    production_criticalities: list[OptionItem] = Field(default_factory=list)
+    internal_external_use: list[OptionItem] = Field(default_factory=list)
+    output_usage: list[OptionItem] = Field(default_factory=list)
+    human_oversight: list[OptionItem] = Field(default_factory=list)
+    owner_roles: list[OptionItem] = Field(default_factory=list)
+    model_types: list[OptionItem] = Field(default_factory=list)
+    input_modalities: list[OptionItem] = Field(default_factory=list)
+    output_types: list[OptionItem] = Field(default_factory=list)
+    capability_tags: list[OptionItem] = Field(default_factory=list)
+    gateway_types: list[OptionItem] = Field(default_factory=list)
+    authentication_types: list[OptionItem] = Field(default_factory=list)
+    exposure_types: list[OptionItem] = Field(default_factory=list)
+    endpoint_statuses: list[OptionItem] = Field(default_factory=list)
+    applicability_types: list[OptionItem] = Field(default_factory=list)
+    # Phase 2 catalogs
+    data_source_types: list[OptionItem] = Field(default_factory=list)
+    data_classifications: list[OptionItem] = Field(default_factory=list)
+    data_usage_purposes: list[OptionItem] = Field(default_factory=list)
+    security_controls: list[OptionItem] = Field(default_factory=list)
+    security_statuses: list[OptionItem] = Field(default_factory=list)
+    dependency_types: list[OptionItem] = Field(default_factory=list)
+    document_types: list[OptionItem] = Field(default_factory=list)
+    confidentiality_levels: list[OptionItem] = Field(default_factory=list)
+
+
+# ── Enhanced AI system registration: nested request + response ─────────────────
+
+_EMAIL_RE = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+_URL_RE = r"^https?://.+"
+
+
+def _normalize_email(value: object) -> object:
+    if isinstance(value, str):
+        text = value.strip()
+        return text or None
+    return value
+
+
+class RegistrationSystemInput(APIModel):
+    """Core System Identity facts. risk_tier + selected_frameworks are DERIVED."""
+
+    name: str = Field(min_length=1, max_length=200)
+    version: str | None = Field(default=None, max_length=100)
+    description: str | None = Field(default=None, max_length=2000)
+    business_purpose: str | None = Field(default=None, max_length=2000)
+    system_type: str | None = Field(default=None, max_length=100)
+    business_domain: str | None = Field(default=None, max_length=100)
+    lifecycle_stage: str | None = Field(default=None, max_length=100)
+    deployment_environment: str = Field(default="development", max_length=100)
+    modality: Modality = Modality.text
+    business_unit: str | None = Field(default=None, max_length=200)
+    product_name: str | None = Field(default=None, max_length=200)
+    internal_identifier: str | None = Field(default=None, max_length=200)
+    production_criticality: str | None = Field(default=None, max_length=100)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class RegistrationUsageContextInput(APIModel):
+    primary_use_case: str | None = Field(default=None, max_length=2000)
+    intended_users: str | None = Field(default=None, max_length=500)
+    internal_external_use: str | None = Field(default=None, max_length=100)
+    output_usage: str | None = Field(default=None, max_length=100)
+    human_oversight: str | None = Field(default=None, max_length=100)
+    input_modalities: list[str] = Field(default_factory=list)
+    output_types: list[str] = Field(default_factory=list)
+    capabilities: list[str] = Field(default_factory=list)
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class RegistrationOwnerInput(APIModel):
+    role: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=200)
+    email: str | None = Field(default=None, max_length=320, pattern=_EMAIL_RE)
+    is_primary: bool = False
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def clean_email(cls, value: object) -> object:
+        return _normalize_email(value)
+
+
+class RegistrationModelInput(APIModel):
+    name: str = Field(min_length=1, max_length=200)
+    provider: str = Field(min_length=1, max_length=100)
+    version: str | None = Field(default=None, max_length=100)
+    deployment_name: str | None = Field(default=None, max_length=200)
+    model_type: str | None = Field(default=None, max_length=100)
+    purpose: str | None = Field(default=None, max_length=500)
+    hosting_platform: str | None = Field(default=None, max_length=200)
+    hosting_region: str | None = Field(default=None, max_length=100)
+    base_model: str | None = Field(default=None, max_length=200)
+    is_fine_tuned: bool = False
+    is_open_source: bool = False
+    is_third_party: bool = True
+    input_modalities: list[str] = Field(default_factory=list)
+    output_modalities: list[str] = Field(default_factory=list)
+    safety_filters_enabled: bool = True
+    fallback_model: str | None = Field(default=None, max_length=200)
+    documentation_url: str | None = Field(default=None, max_length=1000)
+
+
+class RegistrationEndpointInput(APIModel):
+    name: str = Field(min_length=1, max_length=200)
+    url: str = Field(min_length=1, max_length=1000, pattern=_URL_RE)
+    purpose: str | None = Field(default=None, max_length=500)
+    http_method: str = Field(default="POST", pattern="^(GET|POST|PUT|PATCH|DELETE)$")
+    environment: str = Field(default="development", max_length=100)
+    model_ref: str | None = Field(default=None, max_length=200)
+    gateway_type: str | None = Field(default=None, max_length=100)
+    authentication_type: str | None = Field(default=None, max_length=100)
+    exposure_type: str | None = Field(default=None, max_length=100)
+    is_public: bool = False
+    input_format: str | None = Field(default=None, max_length=100)
+    output_format: str | None = Field(default=None, max_length=100)
+    rate_limit: int | None = Field(default=None, ge=0)
+    timeout_seconds: int | None = Field(default=None, ge=0)
+    logging_enabled: bool = True
+    monitoring_enabled: bool = True
+    pii_allowed: bool = False
+    retention_days: int | None = Field(default=None, ge=0)
+    status: EndpointStatus = EndpointStatus.active
+
+    @field_validator("http_method", mode="before")
+    @classmethod
+    def normalize_http_method(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().upper()
+        return value
+
+
+class RegistrationFrameworkInput(APIModel):
+    framework_id: str = Field(min_length=1, max_length=100)
+    applicability_type: ApplicabilityType = ApplicabilityType.unsure
+    applicability_note: str | None = Field(default=None, max_length=2000)
+
+
+class RegistrationRiskScreeningInput(APIModel):
+    answers: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("answers")
+    @classmethod
+    def validate_answers(cls, value: dict[str, str]) -> dict[str, str]:
+        allowed = {"yes", "no", "unknown"}
+        for key, answer in value.items():
+            if str(answer).strip().lower() not in allowed:
+                raise ValueError(
+                    f"Answer for '{key}' must be one of yes/no/unknown, got '{answer}'."
+                )
+        return value
+
+
+class RegistrationDataSourceInput(APIModel):
+    name: str = Field(min_length=1, max_length=200)
+    source_type: str | None = Field(default=None, max_length=100)
+    classification: str | None = Field(default=None, max_length=100)
+    usage_purpose: str | None = Field(default=None, max_length=100)
+    data_owner: str | None = Field(default=None, max_length=200)
+    source_location: str | None = Field(default=None, max_length=300)
+    residency: str | None = Field(default=None, max_length=100)
+    retention_days: int | None = Field(default=None, ge=0)
+    used_for_training: bool = False
+    used_for_fine_tuning: bool = False
+    used_for_inference: bool = False
+    used_for_rag: bool = False
+    external_sharing: bool = False
+    contains_personal_data: bool = False
+    contains_sensitive_personal_data: bool = False
+    contains_confidential_data: bool = False
+    contains_health_data: bool = False
+    contains_financial_data: bool = False
+    contains_biometric_data: bool = False
+    contains_minors_data: bool = False
+
+
+class RegistrationRAGConfigInput(APIModel):
+    knowledge_base_name: str | None = Field(default=None, max_length=200)
+    vector_database: str | None = Field(default=None, max_length=100)
+    embedding_model: str | None = Field(default=None, max_length=200)
+    reranking_model: str | None = Field(default=None, max_length=200)
+    retrieval_strategy: str | None = Field(default=None, max_length=100)
+    top_k: int | None = Field(default=None, ge=0)
+    citations_enabled: bool = False
+    access_control_applied: bool = False
+    document_refresh_frequency: str | None = Field(default=None, max_length=100)
+
+
+class RegistrationAgentConfigInput(APIModel):
+    agent_purpose: str | None = Field(default=None, max_length=2000)
+    num_agents: int | None = Field(default=None, ge=0)
+    tools_used: list[str] = Field(default_factory=list)
+    external_systems: list[str] = Field(default_factory=list)
+    read_access: bool = False
+    write_access: bool = False
+    can_send_messages: bool = False
+    can_modify_files: bool = False
+    can_write_database: bool = False
+    can_execute_code: bool = False
+    human_approval_required: bool = False
+    max_steps: int | None = Field(default=None, ge=0)
+    max_execution_seconds: int | None = Field(default=None, ge=0)
+    persistent_memory_enabled: bool = False
+
+
+class RegistrationSecurityControlInput(APIModel):
+    control_key: str = Field(min_length=1, max_length=100)
+    implementation_status: str = Field(default="unknown", max_length=50)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class RegistrationDependencyInput(APIModel):
+    name: str = Field(min_length=1, max_length=200)
+    service_purpose: str | None = Field(default=None, max_length=500)
+    dependency_type: str | None = Field(default=None, max_length=100)
+    data_shared: str | None = Field(default=None, max_length=500)
+    hosting_region: str | None = Field(default=None, max_length=100)
+    is_critical: bool = False
+    is_third_party_api: bool = False
+    contract_sla_available: bool = False
+    exit_option: str | None = Field(default=None, max_length=500)
+
+
+class RegistrationDocumentInput(APIModel):
+    name: str = Field(min_length=1, max_length=300)
+    document_type: str | None = Field(default=None, max_length=100)
+    version: str | None = Field(default=None, max_length=100)
+    document_owner: str | None = Field(default=None, max_length=200)
+    related_framework: str | None = Field(default=None, max_length=100)
+    confidentiality_level: str | None = Field(default=None, max_length=100)
+    storage_ref: str | None = Field(default=None, max_length=1000)
+    content_type: str | None = Field(default=None, max_length=200)
+    file_size: int | None = Field(default=None, ge=0)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class AISystemRegistrationCreate(APIModel):
+    status: Literal["draft", "registered"] = "registered"
+    system: RegistrationSystemInput
+    usage_context: RegistrationUsageContextInput | None = None
+    owners: list[RegistrationOwnerInput] = Field(default_factory=list)
+    models: list[RegistrationModelInput] = Field(default_factory=list)
+    endpoints: list[RegistrationEndpointInput] = Field(default_factory=list)
+    frameworks: list[RegistrationFrameworkInput] = Field(default_factory=list)
+    risk_screening: RegistrationRiskScreeningInput | None = None
+    # Phase 2 (all optional)
+    data_sources: list[RegistrationDataSourceInput] = Field(default_factory=list)
+    rag_configuration: RegistrationRAGConfigInput | None = None
+    agent_configuration: RegistrationAgentConfigInput | None = None
+    security_posture: list[RegistrationSecurityControlInput] = Field(default_factory=list)
+    dependencies: list[RegistrationDependencyInput] = Field(default_factory=list)
+    documents: list[RegistrationDocumentInput] = Field(default_factory=list)
+
+
+class AISystemOwnerRead(APIModel):
+    id: UUID
+    ai_system_id: UUID
+    role: str
+    name: str
+    email: str | None = None
+    is_primary: bool
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class AISystemModelRead(APIModel):
+    id: UUID
+    ai_system_id: UUID
+    name: str
+    provider: str
+    version: str | None = None
+    deployment_name: str | None = None
+    model_type: str | None = None
+    purpose: str | None = None
+    hosting_platform: str | None = None
+    hosting_region: str | None = None
+    base_model: str | None = None
+    is_fine_tuned: bool
+    is_open_source: bool
+    is_third_party: bool
+    input_modalities: list[str] = Field(default_factory=list)
+    output_modalities: list[str] = Field(default_factory=list)
+    safety_filters_enabled: bool
+    fallback_model: str | None = None
+    documentation_url: str | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class AISystemEndpointRead(APIModel):
+    id: UUID
+    ai_system_id: UUID
+    model_id: UUID | None = None
+    name: str
+    url: str
+    purpose: str | None = None
+    http_method: str
+    environment: str
+    gateway_type: str | None = None
+    authentication_type: str | None = None
+    exposure_type: str | None = None
+    is_public: bool
+    input_format: str | None = None
+    output_format: str | None = None
+    rate_limit: int | None = None
+    timeout_seconds: int | None = None
+    logging_enabled: bool
+    monitoring_enabled: bool
+    pii_allowed: bool
+    retention_days: int | None = None
+    status: EndpointStatus
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class AISystemFrameworkRead(APIModel):
+    id: UUID
+    ai_system_id: UUID
+    framework_id: str
+    applicability_type: ApplicabilityType
+    applicability_note: str | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class AISystemUsageContextRead(APIModel):
+    id: UUID
+    ai_system_id: UUID
+    primary_use_case: str | None = None
+    intended_users: str | None = None
+    internal_external_use: str | None = None
+    output_usage: str | None = None
+    human_oversight: str | None = None
+    business_domain: str | None = None
+    lifecycle_stage: str | None = None
+    production_criticality: str | None = None
+    input_modalities: list[str] = Field(default_factory=list)
+    output_types: list[str] = Field(default_factory=list)
+    capabilities: list[str] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class AISystemRiskScreeningRead(APIModel):
+    id: UUID
+    ai_system_id: UUID
+    answers: dict[str, str] = Field(default_factory=dict)
+    preliminary_risk_score: int
+    preliminary_risk_tier: str
+    triggered_risk_factors: list[str] = Field(default_factory=list)
+    risk_summary: str | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class AISystemDataSourceRead(RegistrationDataSourceInput):
+    id: UUID
+    ai_system_id: UUID
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class AISystemRAGConfigRead(RegistrationRAGConfigInput):
+    id: UUID
+    ai_system_id: UUID
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class AISystemAgentConfigRead(RegistrationAgentConfigInput):
+    id: UUID
+    ai_system_id: UUID
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class AISystemSecurityControlRead(RegistrationSecurityControlInput):
+    id: UUID
+    ai_system_id: UUID
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class AISystemDependencyRead(RegistrationDependencyInput):
+    id: UUID
+    ai_system_id: UUID
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class AISystemDocumentRead(RegistrationDocumentInput):
+    id: UUID
+    ai_system_id: UUID
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class AISystemRegistrationRead(APIModel):
+    """Complete registered AI system with nested children + preliminary risk."""
+
+    system: AISystemRead
+    usage_context: AISystemUsageContextRead | None = None
+    owners: list[AISystemOwnerRead] = Field(default_factory=list)
+    models: list[AISystemModelRead] = Field(default_factory=list)
+    endpoints: list[AISystemEndpointRead] = Field(default_factory=list)
+    frameworks: list[AISystemFrameworkRead] = Field(default_factory=list)
+    capabilities: list[AISystemCapabilityRead] = Field(default_factory=list)
+    risk_screening: AISystemRiskScreeningRead | None = None
+    data_sources: list[AISystemDataSourceRead] = Field(default_factory=list)
+    rag_configuration: AISystemRAGConfigRead | None = None
+    agent_configuration: AISystemAgentConfigRead | None = None
+    security_posture: list[AISystemSecurityControlRead] = Field(default_factory=list)
+    dependencies: list[AISystemDependencyRead] = Field(default_factory=list)
+    documents: list[AISystemDocumentRead] = Field(default_factory=list)
+    preliminary_risk_score: int = 0
+    preliminary_risk_tier: str = "unassessed"
+    triggered_risk_factors: list[str] = Field(default_factory=list)
+    profile_completeness: float = 0.0
+    missing_recommended_fields: list[str] = Field(default_factory=list)
+    registration_status: Literal["draft", "registered"] = "registered"

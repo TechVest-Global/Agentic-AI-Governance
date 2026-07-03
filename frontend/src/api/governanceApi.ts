@@ -27,6 +27,7 @@ export type BackendAISystemCreate = {
   owner: string;
   system_type: string;
   risk_tier: "low" | "medium" | "high";
+  modality?: string;
   deployment_environment: string;
   selected_frameworks: string[];
   model_provider: string;
@@ -61,6 +62,273 @@ export type BackendAISystemCapabilityCreate = Omit<
   BackendAISystemCapability,
   "id" | "ai_system_id" | "created_at" | "updated_at"
 >;
+
+/* ─── Registration form options + frameworks (backend-sourced) ─── */
+
+export type OptionItem = { value: string; label: string };
+
+export type RegistrationFrameworkOption = {
+  framework_id: string;
+  framework_name: string;
+  framework_version: string;
+  description: string;
+  rubric_count: number;
+  probe_count: number;
+  coverage_count: number;
+};
+
+export type RegistrationOptions = {
+  risk_tiers: OptionItem[];
+  modalities: OptionItem[];
+  deployment_environments: OptionItem[];
+  application_types: OptionItem[];
+  domains: OptionItem[];
+  model_providers: OptionItem[];
+  capability_types: OptionItem[];
+  side_effect_levels: OptionItem[];
+  http_methods: OptionItem[];
+  statuses: OptionItem[];
+  // Enhanced registration catalogs (Phase 1) — all optional for backward compat.
+  system_types?: OptionItem[];
+  business_domains?: OptionItem[];
+  lifecycle_stages?: OptionItem[];
+  production_criticalities?: OptionItem[];
+  internal_external_use?: OptionItem[];
+  output_usage?: OptionItem[];
+  human_oversight?: OptionItem[];
+  owner_roles?: OptionItem[];
+  model_types?: OptionItem[];
+  input_modalities?: OptionItem[];
+  output_types?: OptionItem[];
+  capability_tags?: OptionItem[];
+  gateway_types?: OptionItem[];
+  authentication_types?: OptionItem[];
+  exposure_types?: OptionItem[];
+  endpoint_statuses?: OptionItem[];
+  applicability_types?: OptionItem[];
+  // Phase 2 catalogs
+  data_source_types?: OptionItem[];
+  data_classifications?: OptionItem[];
+  data_usage_purposes?: OptionItem[];
+  security_controls?: OptionItem[];
+  security_statuses?: OptionItem[];
+  dependency_types?: OptionItem[];
+  document_types?: OptionItem[];
+  confidentiality_levels?: OptionItem[];
+};
+
+// ── Enhanced AI system registration (nested request + response) ───────────────
+
+export type RegistrationSystemInput = {
+  name: string;
+  version?: string | null;
+  description?: string | null;
+  business_purpose?: string | null;
+  system_type?: string | null;
+  business_domain?: string | null;
+  lifecycle_stage?: string | null;
+  deployment_environment?: string;
+  modality?: string;
+  business_unit?: string | null;
+  product_name?: string | null;
+  internal_identifier?: string | null;
+  production_criticality?: string | null;
+  notes?: string | null;
+};
+
+export type RegistrationUsageContextInput = {
+  primary_use_case?: string | null;
+  intended_users?: string | null;
+  internal_external_use?: string | null;
+  output_usage?: string | null;
+  human_oversight?: string | null;
+  input_modalities?: string[];
+  output_types?: string[];
+  capabilities?: string[];
+  metadata_json?: Record<string, unknown>;
+};
+
+export type RegistrationOwnerInput = {
+  role: string;
+  name: string;
+  email?: string | null;
+  is_primary?: boolean;
+};
+
+export type RegistrationModelInput = {
+  name: string;
+  provider: string;
+  version?: string | null;
+  deployment_name?: string | null;
+  model_type?: string | null;
+  purpose?: string | null;
+  hosting_platform?: string | null;
+  hosting_region?: string | null;
+  base_model?: string | null;
+  is_fine_tuned?: boolean;
+  is_open_source?: boolean;
+  is_third_party?: boolean;
+  input_modalities?: string[];
+  output_modalities?: string[];
+  safety_filters_enabled?: boolean;
+  fallback_model?: string | null;
+  documentation_url?: string | null;
+};
+
+export type RegistrationEndpointInput = {
+  name: string;
+  url: string;
+  purpose?: string | null;
+  http_method?: string;
+  environment?: string;
+  model_ref?: string | null;
+  gateway_type?: string | null;
+  authentication_type?: string | null;
+  exposure_type?: string | null;
+  is_public?: boolean;
+  input_format?: string | null;
+  output_format?: string | null;
+  rate_limit?: number | null;
+  timeout_seconds?: number | null;
+  logging_enabled?: boolean;
+  monitoring_enabled?: boolean;
+  pii_allowed?: boolean;
+  retention_days?: number | null;
+  status?: string;
+};
+
+export type RegistrationFrameworkInput = {
+  framework_id: string;
+  applicability_type?: string;
+  applicability_note?: string | null;
+};
+
+export type RegistrationRiskScreeningInput = {
+  answers: Record<string, "yes" | "no" | "unknown">;
+};
+
+export type RegistrationDataSourceInput = {
+  name: string;
+  source_type?: string | null;
+  classification?: string | null;
+  usage_purpose?: string | null;
+  data_owner?: string | null;
+  source_location?: string | null;
+  residency?: string | null;
+  retention_days?: number | null;
+  used_for_training?: boolean;
+  used_for_fine_tuning?: boolean;
+  used_for_inference?: boolean;
+  used_for_rag?: boolean;
+  external_sharing?: boolean;
+  contains_personal_data?: boolean;
+  contains_sensitive_personal_data?: boolean;
+  contains_confidential_data?: boolean;
+  contains_health_data?: boolean;
+  contains_financial_data?: boolean;
+  contains_biometric_data?: boolean;
+  contains_minors_data?: boolean;
+};
+
+export type RegistrationRAGConfigInput = {
+  knowledge_base_name?: string | null;
+  vector_database?: string | null;
+  embedding_model?: string | null;
+  reranking_model?: string | null;
+  retrieval_strategy?: string | null;
+  top_k?: number | null;
+  citations_enabled?: boolean;
+  access_control_applied?: boolean;
+  document_refresh_frequency?: string | null;
+};
+
+export type RegistrationAgentConfigInput = {
+  agent_purpose?: string | null;
+  num_agents?: number | null;
+  tools_used?: string[];
+  external_systems?: string[];
+  read_access?: boolean;
+  write_access?: boolean;
+  can_send_messages?: boolean;
+  can_modify_files?: boolean;
+  can_write_database?: boolean;
+  can_execute_code?: boolean;
+  human_approval_required?: boolean;
+  max_steps?: number | null;
+  max_execution_seconds?: number | null;
+  persistent_memory_enabled?: boolean;
+};
+
+export type RegistrationSecurityControlInput = {
+  control_key: string;
+  implementation_status?: string;
+  notes?: string | null;
+};
+
+export type RegistrationDependencyInput = {
+  name: string;
+  service_purpose?: string | null;
+  dependency_type?: string | null;
+  data_shared?: string | null;
+  hosting_region?: string | null;
+  is_critical?: boolean;
+  is_third_party_api?: boolean;
+  contract_sla_available?: boolean;
+  exit_option?: string | null;
+};
+
+export type RegistrationDocumentInput = {
+  name: string;
+  document_type?: string | null;
+  version?: string | null;
+  document_owner?: string | null;
+  related_framework?: string | null;
+  confidentiality_level?: string | null;
+  storage_ref?: string | null;
+  content_type?: string | null;
+  file_size?: number | null;
+  notes?: string | null;
+};
+
+export type AISystemRegistrationCreate = {
+  status: "draft" | "registered";
+  system: RegistrationSystemInput;
+  usage_context?: RegistrationUsageContextInput | null;
+  owners?: RegistrationOwnerInput[];
+  models?: RegistrationModelInput[];
+  endpoints?: RegistrationEndpointInput[];
+  frameworks?: RegistrationFrameworkInput[];
+  risk_screening?: RegistrationRiskScreeningInput | null;
+  data_sources?: RegistrationDataSourceInput[];
+  rag_configuration?: RegistrationRAGConfigInput | null;
+  agent_configuration?: RegistrationAgentConfigInput | null;
+  security_posture?: RegistrationSecurityControlInput[];
+  dependencies?: RegistrationDependencyInput[];
+  documents?: RegistrationDocumentInput[];
+};
+
+export type AISystemRegistrationRead = {
+  system: BackendAISystem;
+  usage_context?: Record<string, unknown> | null;
+  owners: Array<Record<string, unknown>>;
+  models: Array<Record<string, unknown>>;
+  endpoints: Array<Record<string, unknown>>;
+  frameworks: Array<Record<string, unknown>>;
+  capabilities: BackendAISystemCapability[];
+  risk_screening?: Record<string, unknown> | null;
+  data_sources: Array<Record<string, unknown>>;
+  rag_configuration?: Record<string, unknown> | null;
+  agent_configuration?: Record<string, unknown> | null;
+  security_posture: Array<Record<string, unknown>>;
+  dependencies: Array<Record<string, unknown>>;
+  documents: Array<Record<string, unknown>>;
+  preliminary_risk_score: number;
+  preliminary_risk_tier: string;
+  triggered_risk_factors: string[];
+  profile_completeness: number;
+  missing_recommended_fields: string[];
+  registration_status: "draft" | "registered";
+};
 
 export type EvaluationRun = {
   id: string;
@@ -373,6 +641,33 @@ export async function createAISystemCapability(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+/** Register a complete AI system (nested facts) — derives a preliminary risk tier. */
+export async function registerAISystem(
+  payload: AISystemRegistrationCreate,
+): Promise<AISystemRegistrationRead> {
+  return request<AISystemRegistrationRead>("/ai-systems/register", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Fetch the complete nested registration record for an AI system. */
+export async function getAISystemRegistration(
+  systemId: string,
+): Promise<AISystemRegistrationRead> {
+  return request<AISystemRegistrationRead>(`/ai-systems/${systemId}/registration`);
+}
+
+/** Applicable governance frameworks the platform implements (for registration). */
+export async function listRegistrationFrameworks(): Promise<RegistrationFrameworkOption[]> {
+  return request<RegistrationFrameworkOption[]>("/governance-config/frameworks");
+}
+
+/** Backend-sourced dropdown options for the registration form. */
+export async function getRegistrationOptions(): Promise<RegistrationOptions> {
+  return request<RegistrationOptions>("/governance-config/options");
 }
 
 /* ──────────────────────────────────────────────────────────── Evidence ── */

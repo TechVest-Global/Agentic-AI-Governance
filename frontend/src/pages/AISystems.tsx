@@ -32,12 +32,18 @@ import {
   createAISystem,
   createAISystemCapability,
   deleteAISystem,
+  getRegistrationOptions,
   listAISystems,
+  listRegistrationFrameworks,
   updateAISystem,
   type BackendAISystem,
   type BackendAISystemCapabilityCreate,
   type BackendAISystemCreate,
+  type OptionItem,
+  type RegistrationFrameworkOption,
+  type RegistrationOptions,
 } from "@/api/governanceApi";
+import { RegisterAISystemModal } from "@/components/registration/RegisterAISystemModal";
 import { applicationContextProfiles } from "@/data/mockData";
 
 const frameworkDescriptions: Record<string, string> = {
@@ -68,11 +74,19 @@ const columnDescriptions: Record<string, string> = {
   Actions: "Update details or run a governance evaluation. Technical edit and delete are developer-only.",
 };
 
-const riskTiers = ["High", "Medium", "Low"] as const;
-const domains = ["Customer Operations", "Knowledge Management", "Finance", "Healthcare", "HR", "Fraud", "Legal", "Insurance", "Retail", "Other"];
-const appTypes = ["RAG Chatbot", "Generative AI", "Predictive ML", "Classification", "NLP Pipeline", "Computer Vision", "Reinforcement Learning", "Recommender", "Other"];
-const envOptions = ["Production", "Shadow", "Staging", "Development"];
+// Classification dropdowns + the applicable framework list are sourced from the
+// backend (GET /governance-config/options and /governance-config/frameworks).
 const frameworkOptions = Object.keys(frameworkDescriptions);
+
+// One target API endpoint captured at registration — persisted as a capability.
+type EndpointDraft = {
+  key: string;
+  name: string;
+  url: string;
+  httpMethod: string;
+  capabilityType: string;
+  sideEffectLevel: string;
+};
 
 type RegisterForm = {
   name: string;
@@ -82,14 +96,28 @@ type RegisterForm = {
   applicationType: string;
   environment: string;
   riskTier: string;
+  modality: string;
   users: string;
-  frameworks: string[];
+  frameworks: string[]; // backend framework_id values
   notes: string;
   modelProvider: string;
   modelName: string;
-  endpoint: string;
-  capabilityName: string;
+  endpoints: EndpointDraft[];
 };
+
+let _endpointSeq = 0;
+function newEndpoint(overrides: Partial<EndpointDraft> = {}): EndpointDraft {
+  _endpointSeq += 1;
+  return {
+    key: `ep-${_endpointSeq}`,
+    name: "",
+    url: "",
+    httpMethod: "POST",
+    capabilityType: "generation",
+    sideEffectLevel: "none",
+    ...overrides,
+  };
+}
 
 type RegistrySystem = {
   id: string;
@@ -115,26 +143,32 @@ type RegistrySystem = {
 
 const emptyForm: RegisterForm = {
   name: "", version: "", owner: "", domain: "",
-  applicationType: "", environment: "", riskTier: "",
+  applicationType: "", environment: "", riskTier: "", modality: "text",
   users: "", frameworks: [], notes: "",
-  modelProvider: "azure_foundry", modelName: "", endpoint: "", capabilityName: "Chat response generation",
+  modelProvider: "azure_foundry", modelName: "", endpoints: [],
 };
 
 const techvestPreset: RegisterForm = {
   name: "TechVest RAG Chatbot",
   version: "v1",
   owner: "TechVest Global",
-  domain: "Knowledge Management",
-  applicationType: "RAG Chatbot",
-  environment: "Production",
-  riskTier: "Medium",
+  domain: "knowledge_management",
+  applicationType: "rag_chatbot",
+  environment: "production",
+  riskTier: "medium",
+  modality: "text",
   users: "Public website visitors",
-  frameworks: ["NIST AI RMF", "ISO 42001", "EU AI Act"],
+  frameworks: ["nist_ai_rmf", "iso_42001", "eu_ai_act"],
   notes: "Production RAG chatbot powered by Microsoft Foundry AI (GPT-4.1-mini) and Azure AI Search with parent-child chunking. Serves TechVest Global website visitors with document-grounded Q&A.",
   modelProvider: "azure_foundry",
   modelName: "gpt-4.1-mini",
-  endpoint: "https://techvest-chatbot-api-2026.azurewebsites.net",
-  capabilityName: "Chat Q&A",
+  endpoints: [
+    newEndpoint({
+      name: "Chat Q&A",
+      url: "https://techvest-chatbot-api-2026.azurewebsites.net/api/chat",
+      capabilityType: "generation",
+    }),
+  ],
 };
 
 function labelize(value: string | null | undefined) {
@@ -169,21 +203,25 @@ function frameworkToLabel(value: string) {
 
 function systemToForm(system: BackendAISystem): RegisterForm {
   const metadata = system.metadata_json ?? {};
+  const endpoints: EndpointDraft[] = system.target_endpoint_ref
+    ? [newEndpoint({ name: "Primary endpoint", url: system.target_endpoint_ref })]
+    : [];
   return {
     name: system.name,
     version: system.model_version ?? "v1",
     owner: system.owner,
-    domain: typeof metadata.domain === "string" ? metadata.domain : "Other",
-    applicationType: labelize(system.system_type),
-    environment: labelize(system.deployment_environment),
-    riskTier: mapBackendRisk(system.risk_tier),
+    // Classification fields hold backend option *values* (e.g. "production").
+    domain: typeof metadata.domain === "string" ? metadata.domain : "",
+    applicationType: system.system_type,
+    environment: system.deployment_environment,
+    riskTier: system.risk_tier,
+    modality: typeof metadata.modality === "string" ? metadata.modality : "text",
     users: typeof metadata.daily_active_users === "string" ? metadata.daily_active_users : "",
-    frameworks: system.selected_frameworks.map(frameworkToLabel),
+    frameworks: system.selected_frameworks,
     notes: system.description ?? "",
     modelProvider: system.model_provider,
     modelName: system.model_name ?? "",
-    endpoint: system.target_endpoint_ref ?? "",
-    capabilityName: "Chat response generation",
+    endpoints,
   };
 }
 
@@ -219,13 +257,13 @@ function mapBackendSystem(system: BackendAISystem): RegistrySystem {
   };
 }
 
-function buildCapabilityPayload(form: RegisterForm): BackendAISystemCapabilityCreate {
+function buildCapabilityPayload(ep: EndpointDraft): BackendAISystemCapabilityCreate {
   return {
-    name: form.capabilityName.trim() || "Chat response generation",
-    description: "Read-only target chatbot capability registered from the governance portal.",
-    capability_type: "generation",
-    endpoint_ref: form.endpoint.trim(),
-    http_method: "POST",
+    name: ep.name.trim() || "Target endpoint",
+    description: "Target application endpoint registered from the governance portal.",
+    capability_type: (ep.capabilityType || "generation") as BackendAISystemCapabilityCreate["capability_type"],
+    endpoint_ref: ep.url.trim(),
+    http_method: (ep.httpMethod || "POST") as BackendAISystemCapabilityCreate["http_method"],
     input_schema: {
       type: "object",
       required: ["message"],
@@ -243,32 +281,34 @@ function buildCapabilityPayload(form: RegisterForm): BackendAISystemCapabilityCr
       },
     },
     permissions: ["target:invoke"],
-    side_effect_level: "none",
+    side_effect_level: (ep.sideEffectLevel || "none") as BackendAISystemCapabilityCreate["side_effect_level"],
     requires_human_review: false,
     enabled: true,
     metadata_json: {
       registered_from: "frontend_portal",
-      target_kind: "chatbot",
     },
   };
 }
 
 function buildSystemPayload(form: RegisterForm): BackendAISystemCreate {
+  const primaryEndpoint = form.endpoints.find((e) => e.url.trim());
   return {
     name: form.name.trim(),
     description: form.notes.trim() || null,
     owner: form.owner.trim(),
-    system_type: normalizeFramework(form.applicationType || "other"),
+    system_type: form.applicationType || "other",
     risk_tier: mapRiskTier(form.riskTier),
-    deployment_environment: normalizeFramework(form.environment || "local"),
-    selected_frameworks: form.frameworks.map(normalizeFramework),
-    model_provider: normalizeFramework(form.modelProvider || "azure_foundry"),
+    modality: form.modality || "text",
+    deployment_environment: form.environment || "production",
+    selected_frameworks: form.frameworks,
+    model_provider: form.modelProvider || "azure_foundry",
     model_name: form.modelName.trim() || null,
     model_version: form.version.trim() || null,
-    target_endpoint_ref: form.endpoint.trim() || null,
+    target_endpoint_ref: primaryEndpoint?.url.trim() || null,
     metadata_json: {
       domain: form.domain,
       daily_active_users: form.users || "Not provided",
+      modality: form.modality || "text",
       registered_from: "frontend_portal",
     },
   };
@@ -303,6 +343,25 @@ export function AISystems() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const setHeaderHidden = useAppStore((state) => state.setHeaderHidden);
   const runner = useEvaluationRunner();
+  // Backend-sourced registration options + applicable frameworks.
+  const [registrationOptions, setRegistrationOptions] = useState<RegistrationOptions | null>(null);
+  const [registrationFrameworks, setRegistrationFrameworks] = useState<RegistrationFrameworkOption[]>([]);
+  const [frameworksError, setFrameworksError] = useState(false);
+
+  const loadRegistrationMeta = useCallback(async () => {
+    setFrameworksError(false);
+    const [opts, frameworks] = await Promise.all([
+      getRegistrationOptions().catch(() => null),
+      listRegistrationFrameworks().catch(() => null),
+    ]);
+    if (opts) setRegistrationOptions(opts);
+    if (frameworks) setRegistrationFrameworks(frameworks);
+    else setFrameworksError(true);
+  }, []);
+
+  useEffect(() => {
+    void loadRegistrationMeta();
+  }, [loadRegistrationMeta]);
 
   const handleRunEvaluation = useCallback(
     async (systemId: string) => {
@@ -320,7 +379,6 @@ export function AISystems() {
       }
     },
     // loadSystems is declared just below; runner.run is stable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [backendSystems, runner.run, navigateTo, focusRun],
   );
 
@@ -381,8 +439,11 @@ export function AISystems() {
         await updateAISystem(editingSystemId, payload);
       } else {
         const createdSystem = await createAISystem(payload);
-        if (canEditTechnical && registerForm.endpoint.trim()) {
-          await createAISystemCapability(createdSystem.id, buildCapabilityPayload(registerForm));
+        // Register each target API endpoint as a capability on the new system.
+        for (const ep of registerForm.endpoints) {
+          if (ep.url.trim()) {
+            await createAISystemCapability(createdSystem.id, buildCapabilityPayload(ep));
+          }
         }
       }
       await loadSystems();
@@ -414,11 +475,25 @@ export function AISystems() {
 
   return (
     <div className="space-y-5">
-      {showRegisterForm && (
+      {showRegisterForm && formMode === "create" && (
+        <RegisterAISystemModal
+          options={registrationOptions}
+          frameworks={registrationFrameworks}
+          frameworksError={frameworksError}
+          onReloadFrameworks={() => void loadRegistrationMeta()}
+          onClose={() => setShowRegisterForm(false)}
+          onRegistered={() => {
+            void loadSystems();
+          }}
+        />
+      )}
+      {showRegisterForm && formMode === "edit" && (
         <RegisterSystemModal
           mode={formMode}
           form={registerForm}
           step={registerStep}
+          options={registrationOptions}
+          frameworks={registrationFrameworks}
           onChange={(field, value) => setRegisterForm((prev) => ({ ...prev, [field]: value }))}
           onToggleFramework={(fw) =>
             setRegisterForm((prev) => ({
@@ -428,10 +503,24 @@ export function AISystems() {
                 : [...prev.frameworks, fw],
             }))
           }
+          onAddEndpoint={() =>
+            setRegisterForm((prev) => ({ ...prev, endpoints: [...prev.endpoints, newEndpoint()] }))
+          }
+          onUpdateEndpoint={(key, patch) =>
+            setRegisterForm((prev) => ({
+              ...prev,
+              endpoints: prev.endpoints.map((ep) => (ep.key === key ? { ...ep, ...patch } : ep)),
+            }))
+          }
+          onRemoveEndpoint={(key) =>
+            setRegisterForm((prev) => ({
+              ...prev,
+              endpoints: prev.endpoints.filter((ep) => ep.key !== key),
+            }))
+          }
           onFillPreset={(preset) => setRegisterForm(preset)}
           onSubmit={handleSaveSubmit}
           onClose={() => setShowRegisterForm(false)}
-          canEditTechnical={canEditTechnical}
           isSubmitting={isSubmitting}
           error={submitError}
         />
@@ -452,10 +541,10 @@ export function AISystems() {
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4 dark:border-slate-700">
         <div>
           <p className="text-[15px] font-semibold text-slate-950 dark:text-white">
-            AI application registry
+            AI system registry
           </p>
           <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400">
-            Register the target application, assign frameworks, then run the governance audit.
+            Register the target AI system, assign frameworks, then run the governance audit.
           </p>
         </div>
         <div className="flex shrink-0 gap-2">
@@ -471,7 +560,7 @@ export function AISystems() {
               onClick={openCreateModal}
               className="flex items-center gap-2 rounded bg-[#111827] px-3 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-slate-700"
             >
-              <Plus className="h-4 w-4" /> Register Application
+              <Plus className="h-4 w-4" /> Register AI System
             </button>
           )}
         </div>
@@ -1055,16 +1144,44 @@ function InfoRow({ label, value, mono = false }: { label: string; value: string;
 
 // ─── Register Application Modal ───────────────────────────────────────────────
 
+const modalInputCls =
+  "w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400";
+
+function ModalSelect({
+  value,
+  onChange,
+  options,
+  placeholder = "Select…",
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: OptionItem[];
+  placeholder?: string;
+}) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} className={modalInputCls}>
+      <option value="">{placeholder}</option>
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+    </select>
+  );
+}
+
 type RegisterSystemModalProps = {
   mode: "create" | "edit";
   form: RegisterForm;
   step: "form" | "success";
+  options: RegistrationOptions | null;
+  frameworks: RegistrationFrameworkOption[];
   onChange: (field: keyof RegisterForm, value: string) => void;
   onToggleFramework: (fw: string) => void;
+  onAddEndpoint: () => void;
+  onUpdateEndpoint: (key: string, patch: Partial<EndpointDraft>) => void;
+  onRemoveEndpoint: (key: string) => void;
   onFillPreset: (preset: RegisterForm) => void;
   onSubmit: () => void | Promise<void>;
   onClose: () => void;
-  canEditTechnical: boolean;
   isSubmitting: boolean;
   error: string | null;
 };
@@ -1073,37 +1190,40 @@ function RegisterSystemModal({
   mode,
   form,
   step,
+  options,
+  frameworks,
   onChange,
   onToggleFramework,
+  onAddEndpoint,
+  onUpdateEndpoint,
+  onRemoveEndpoint,
   onFillPreset,
   onSubmit,
   onClose,
-  canEditTechnical,
   isSubmitting,
   error,
 }: RegisterSystemModalProps) {
-  const baseComplete = form.name && form.version && form.owner && form.domain && form.riskTier && form.applicationType && form.environment;
-  const canSubmit = baseComplete && form.endpoint.trim().length > 0;
-  const title = mode === "edit"
-    ? canEditTechnical ? "Edit AI Application" : "Update Application Details"
-    : "Register AI Application";
+  const opts = options;
+  const frameworkNameById = new Map(frameworks.map((f) => [f.framework_id, f.framework_name]));
+  const hasEndpoint = form.endpoints.some((e) => e.url.trim().length > 0);
+  const baseComplete =
+    form.name && form.version && form.owner && form.domain && form.riskTier && form.applicationType && form.environment;
+  const canSubmit = Boolean(baseComplete && hasEndpoint);
+  const title = mode === "edit" ? "Edit AI System" : "Register AI System";
   const successTitle = mode === "edit" ? `${form.name} updated` : `${form.name} registered`;
-  const subtitle = canEditTechnical
-    ? "Capture business details and technical connection settings for governance evaluation."
-    : "Capture the business, governance, and target endpoint details for evaluation. Credentials remain developer-managed.";
+  const selectedFrameworkNames = form.frameworks.map((id) => frameworkNameById.get(id) ?? id);
 
   return createPortal(
     <div className="fixed inset-0 z-[1000] flex items-center justify-center overflow-hidden px-4 py-4 sm:px-6">
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[3px]" onClick={onClose} />
-
-      {/* Centered modal card */}
-      <div className="relative z-10 flex h-[min(760px,calc(100vh-2rem))] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black/10 dark:bg-slate-900 dark:ring-white/10">
+      <div className="relative z-10 flex h-[min(780px,calc(100vh-2rem))] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black/10 dark:bg-slate-900 dark:ring-white/10">
         {/* Header */}
         <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
           <div>
             <p className="text-[15px] font-semibold text-slate-950 dark:text-white">{title}</p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">{subtitle}</p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              Capture identity, classification, target API endpoints, and applicable frameworks for governance evaluation.
+            </p>
           </div>
           <div className="flex items-center gap-2">
             {mode === "create" && (
@@ -1133,19 +1253,17 @@ function RegisterSystemModal({
             <div>
               <p className="text-[16px] font-semibold text-slate-950 dark:text-white">{successTitle}</p>
               <p className="mt-1 text-[12px] leading-5 text-slate-600 dark:text-slate-300">
-                <span className="font-mono font-medium">{form.name} v{form.version}</span> is ready in the governance registry.
+                <span className="font-mono font-medium">{form.name} {form.version}</span> is ready in the governance registry.
               </p>
             </div>
             <div className="w-full rounded border border-slate-200 bg-slate-50 p-3 text-left dark:border-slate-700 dark:bg-slate-800">
               <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                 {[
                   ["Owner", form.owner],
-                  ["Domain", form.domain],
-                  ["Risk Tier", form.riskTier],
-                  ["Environment", form.environment],
-                  ["Target Endpoint", form.endpoint ? "Registered" : "Not provided"],
-                  ["Credentials", canEditTechnical ? "Developer managed" : "Pending developer setup"],
-                  ["Frameworks", form.frameworks.length ? form.frameworks.join(", ") : "None selected"],
+                  ["Risk Tier", form.riskTier || "—"],
+                  ["Environment", form.environment || "—"],
+                  ["Target endpoints", `${form.endpoints.filter((e) => e.url.trim()).length} registered`],
+                  ["Frameworks", selectedFrameworkNames.length ? selectedFrameworkNames.join(", ") : "None selected"],
                 ].map(([label, value]) => (
                   <div key={label}>
                     <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{label}</p>
@@ -1163,180 +1281,192 @@ function RegisterSystemModal({
           </div>
         ) : (
           <>
-            {/* Form body */}
-            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
-              {/* System Identity */}
-              <section>
-                <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">System Identity</p>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="Application Name *" hint="Use the business or product name auditors recognize.">
-                    <input
-                      value={form.name}
-                      onChange={(e) => onChange("name", e.target.value)}
-                      placeholder="Customer Support Assistant"
-                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
-                    />
-                  </Field>
-                  <Field label="Version *" hint="Semantic version tag">
-                    <input
-                      value={form.version}
-                      onChange={(e) => onChange("version", e.target.value)}
-                      placeholder="v1"
-                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
-                    />
-                  </Field>
-                  <Field label="Owner / Team *" hint="Accountable team for governance sign-off">
-                    <input
-                      value={form.owner}
-                      onChange={(e) => onChange("owner", e.target.value)}
-                      placeholder="AI Governance Office"
-                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
-                    />
-                  </Field>
-                  <Field label="Daily Active Users" hint="Approximate number of end-users affected">
-                    <input
-                      value={form.users}
-                      onChange={(e) => onChange("users", e.target.value)}
-                      placeholder="Internal pilot"
-                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
-                    />
+            {/* Vertical form — all sections top to bottom */}
+            <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-4">
+              <section className="space-y-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">System Identity</p>
+                <div className="space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Application Name *" hint="Use the business or product name auditors recognize.">
+                      <input value={form.name} onChange={(e) => onChange("name", e.target.value)} placeholder="Customer Support Assistant" className={modalInputCls} />
+                    </Field>
+                    <Field label="Version *" hint="Semantic version tag">
+                      <input value={form.version} onChange={(e) => onChange("version", e.target.value)} placeholder="v1" className={modalInputCls} />
+                    </Field>
+                    <Field label="Owner / Team *" hint="Accountable team for governance sign-off">
+                      <input value={form.owner} onChange={(e) => onChange("owner", e.target.value)} placeholder="AI Governance Office" className={modalInputCls} />
+                    </Field>
+                    <Field label="Daily Active Users" hint="Approximate number of end-users affected">
+                      <input value={form.users} onChange={(e) => onChange("users", e.target.value)} placeholder="Internal pilot" className={modalInputCls} />
+                    </Field>
+                  </div>
+                  <Field label="Notes / Context" hint="Describe the system purpose, data sources, or known risks">
+                    <textarea value={form.notes} onChange={(e) => onChange("notes", e.target.value)} rows={3} placeholder="Production RAG chatbot answering customer questions over the knowledge base…" className={clsx(modalInputCls, "resize-none")} />
                   </Field>
                 </div>
               </section>
 
-              {/* Classification */}
-              <section>
-                <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Classification</p>
+              <section className="space-y-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Classification</p>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="Application Type *" hint="Technical architecture of the model">
-                    <select value={form.applicationType} onChange={(e) => onChange("applicationType", e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400">
-                      <option value="">Select…</option>
-                      {appTypes.map((t) => <option key={t}>{t}</option>)}
-                    </select>
+                  <Field label="Application Type *" hint="Technical architecture of the system">
+                    <ModalSelect value={form.applicationType} onChange={(v) => onChange("applicationType", v)} options={opts?.application_types ?? []} />
                   </Field>
                   <Field label="Domain *" hint="Business area the system operates in">
-                    <select value={form.domain} onChange={(e) => onChange("domain", e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400">
-                      <option value="">Select…</option>
-                      {domains.map((d) => <option key={d}>{d}</option>)}
-                    </select>
+                    <ModalSelect value={form.domain} onChange={(v) => onChange("domain", v)} options={opts?.domains ?? []} />
                   </Field>
                   <Field label="Risk Tier *" hint="Regulatory classification under EU AI Act Annex III">
-                    <select value={form.riskTier} onChange={(e) => onChange("riskTier", e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400">
-                      <option value="">Select…</option>
-                      {riskTiers.map((r) => <option key={r}>{r}</option>)}
-                    </select>
+                    <ModalSelect value={form.riskTier} onChange={(v) => onChange("riskTier", v)} options={opts?.risk_tiers ?? []} />
                   </Field>
                   <Field label="Environment *" hint="Where the system is currently deployed">
-                    <select value={form.environment} onChange={(e) => onChange("environment", e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400">
-                      <option value="">Select…</option>
-                      {envOptions.map((e) => <option key={e}>{e}</option>)}
-                    </select>
+                    <ModalSelect value={form.environment} onChange={(v) => onChange("environment", v)} options={opts?.deployment_environments ?? []} />
+                  </Field>
+                  <Field label="Modality" hint="Primary input/output modality">
+                    <ModalSelect value={form.modality} onChange={(v) => onChange("modality", v)} options={opts?.modalities ?? []} />
                   </Field>
                 </div>
               </section>
 
-              {/* Connection details */}
-              <section>
-                <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Connection Details</p>
+              <section className="space-y-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Model</p>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="Target API Endpoint *" hint="The application endpoint the governance backend will call for testing">
-                    <input
-                      value={form.endpoint}
-                      onChange={(e) => onChange("endpoint", e.target.value)}
-                      placeholder="https://api.company.com/ai/chat"
-                      className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
-                    />
+                  <Field label="Model Provider" hint="Provider powering the target application">
+                    <ModalSelect value={form.modelProvider} onChange={(v) => onChange("modelProvider", v)} options={opts?.model_providers ?? []} />
                   </Field>
-                  {canEditTechnical ? (
-                    <Field label="First Capability" hint="The initial endpoint/capability to store">
-                      <input
-                        value={form.capabilityName}
-                        onChange={(e) => onChange("capabilityName", e.target.value)}
-                        placeholder="Chat response generation"
-                        className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
-                      />
-                    </Field>
+                  <Field label="Model Name" hint="Deployment / model name if known">
+                    <input value={form.modelName} onChange={(e) => onChange("modelName", e.target.value)} placeholder="gpt-4.1-mini" className={modalInputCls} />
+                  </Field>
+                </div>
+              </section>
+
+              <section className="space-y-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Target API Endpoints</p>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[12px] font-semibold text-slate-800 dark:text-slate-200">Target API Endpoints</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">Each endpoint the governance engine can probe. Registered as a capability on the system.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={onAddEndpoint}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-brand-300 bg-brand-50/50 px-3 py-1.5 text-[12px] font-semibold text-brand-700 transition hover:bg-brand-50 dark:border-brand-800 dark:bg-brand-950/20 dark:text-brand-300"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Add endpoint
+                    </button>
+                  </div>
+                  {form.endpoints.length === 0 && (
+                    <div className="rounded-lg border border-dashed border-slate-300 p-6 text-center text-[12px] text-slate-500 dark:border-slate-600 dark:text-slate-400">
+                      No endpoints yet — add at least one target API endpoint the engine can call.
+                    </div>
+                  )}
+                  {form.endpoints.map((ep, i) => (
+                    <div key={ep.key} className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-700 dark:bg-slate-800/40">
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">Endpoint {i + 1}</p>
+                        <button type="button" onClick={() => onRemoveEndpoint(ep.key)} title="Remove" className="rounded p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <Field label="Endpoint Name">
+                          <input value={ep.name} onChange={(e) => onUpdateEndpoint(ep.key, { name: e.target.value })} placeholder="Chat Q&A" className={modalInputCls} />
+                        </Field>
+                        <Field label="Endpoint URL *">
+                          <input value={ep.url} onChange={(e) => onUpdateEndpoint(ep.key, { url: e.target.value })} placeholder="https://api.company.com/ai/chat" className={modalInputCls} />
+                        </Field>
+                        <Field label="HTTP Method">
+                          <ModalSelect value={ep.httpMethod} onChange={(v) => onUpdateEndpoint(ep.key, { httpMethod: v })} options={opts?.http_methods ?? []} />
+                        </Field>
+                        <Field label="Capability Type">
+                          <ModalSelect value={ep.capabilityType} onChange={(v) => onUpdateEndpoint(ep.key, { capabilityType: v })} options={opts?.capability_types ?? []} />
+                        </Field>
+                        <Field label="Side-effect Level" hint="Impact of invoking this endpoint">
+                          <ModalSelect value={ep.sideEffectLevel} onChange={(v) => onUpdateEndpoint(ep.key, { sideEffectLevel: v })} options={opts?.side_effect_levels ?? []} />
+                        </Field>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="space-y-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Applicable Frameworks</p>
+                <div className="space-y-3">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Applicable governance frameworks the platform implements. Select the ones this system is evaluated against.
+                  </p>
+                  {frameworks.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-slate-300 p-6 text-center text-[12px] text-slate-500 dark:border-slate-600 dark:text-slate-400">
+                      Loading frameworks from backend…
+                    </div>
                   ) : (
-                    <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 dark:border-blue-900/50 dark:bg-blue-950/30">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-700 dark:text-blue-300">Credential Handling</p>
-                      <p className="mt-1 text-[11px] leading-4 text-blue-900 dark:text-blue-200">
-                        Do not enter API keys here. The developer team attaches credentials and capability schemas through the technical setup flow.
-                      </p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {frameworks.map((fw) => {
+                        const active = form.frameworks.includes(fw.framework_id);
+                        return (
+                          <button
+                            key={fw.framework_id}
+                            type="button"
+                            onClick={() => onToggleFramework(fw.framework_id)}
+                            className={clsx(
+                              "rounded-lg border p-3 text-left transition-colors",
+                              active
+                                ? "border-brand-400 bg-brand-50/60 dark:border-brand-700 dark:bg-brand-950/20"
+                                : "border-slate-200 hover:border-slate-400 dark:border-slate-700 dark:hover:border-slate-500",
+                            )}
+                          >
+                            <div className="flex items-center gap-2">
+                              <input type="checkbox" checked={active} readOnly />
+                              <span className="text-[13px] font-semibold text-slate-900 dark:text-white">{fw.framework_name}</span>
+                              <span className="text-[10px] text-slate-400">v{fw.framework_version}</span>
+                            </div>
+                            <p className="mt-1 text-[11px] leading-4 text-slate-500 dark:text-slate-400">{fw.description}</p>
+                            <p className="mt-1 text-[10px] text-slate-400 dark:text-slate-500">{fw.rubric_count} rubric items · {fw.probe_count} probes</p>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
-                {canEditTechnical && (
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <Field label="Model Provider" hint="Provider used by the target application">
-                      <input
-                        value={form.modelProvider}
-                        onChange={(e) => onChange("modelProvider", e.target.value)}
-                        placeholder="azure_foundry"
-                        className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
-                      />
-                    </Field>
-                    <Field label="Model Name" hint="Deployment/model name if known">
-                      <input
-                        value={form.modelName}
-                        onChange={(e) => onChange("modelName", e.target.value)}
-                        placeholder="gpt-4.1-mini"
-                        className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
-                      />
-                    </Field>
+              </section>
+
+              <section className="space-y-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Review</p>
+                <div className="space-y-3">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {[
+                      ["Name", `${form.name || "—"} ${form.version}`.trim()],
+                      ["Type / Environment", [form.applicationType, form.environment].filter(Boolean).join(" · ") || "—"],
+                      ["Risk Tier", form.riskTier || "—"],
+                      ["Modality", form.modality || "—"],
+                      ["Owner", form.owner || "—"],
+                      ["Model", [form.modelProvider, form.modelName].filter(Boolean).join(" · ") || "—"],
+                      ["Target endpoints", String(form.endpoints.filter((e) => e.url.trim()).length)],
+                      ["Frameworks", selectedFrameworkNames.length ? selectedFrameworkNames.join(", ") : "None"],
+                    ].map(([label, value]) => (
+                      <div key={label} className="flex items-start justify-between gap-3 rounded border border-slate-100 bg-slate-50/60 px-3 py-2 dark:border-slate-700/60 dark:bg-slate-800/40">
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400">{label}</span>
+                        <span className="text-right text-[11px] font-medium text-slate-900 dark:text-white">{value}</span>
+                      </div>
+                    ))}
                   </div>
-                )}
-              </section>
-
-              {/* Frameworks */}
-              <section>
-                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Applicable Frameworks</p>
-                <p className="mb-3 text-[11px] text-slate-400 dark:text-slate-500">Select all regulatory and risk frameworks that apply to this system.</p>
-                <div className="flex flex-wrap gap-2">
-                  {frameworkOptions.map((fw) => {
-                    const active = form.frameworks.includes(fw);
-                    return (
-                      <button
-                        key={fw}
-                        type="button"
-                        title={frameworkDescriptions[fw]}
-                        onClick={() => onToggleFramework(fw)}
-                        className={clsx(
-                          "rounded border px-2.5 py-1.5 text-[12px] font-medium transition-colors",
-                          active
-                            ? "border-brand-500 bg-brand-50 text-brand-800 dark:border-brand-600 dark:bg-brand-900/40 dark:text-brand-300"
-                            : "border-slate-200 bg-white text-slate-700 hover:border-slate-400 hover:text-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-400 dark:hover:text-white"
-                        )}
-                      >
-                        {fw}
-                      </button>
-                    );
-                  })}
+                  <div className={clsx(
+                    "rounded-lg border px-3 py-2 text-[12px]",
+                    canSubmit
+                      ? "border-emerald-200 bg-emerald-50/60 text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300"
+                      : "border-amber-200 bg-amber-50/60 text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-400",
+                  )}>
+                    {canSubmit
+                      ? "All required fields complete — ready to register."
+                      : "Missing required fields: name, version, owner, application type, domain, risk tier, environment, and at least one endpoint URL."}
+                  </div>
                 </div>
-              </section>
-
-              {/* Notes */}
-              <section>
-                <Field label="Notes / Context" hint="Describe the system purpose, data sources, or known risks">
-                  <textarea
-                    value={form.notes}
-                    onChange={(e) => onChange("notes", e.target.value)}
-                    rows={3}
-                    placeholder="This model evaluates chatbot response quality using bureau data and application features…"
-                    className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 resize-none dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-brand-400"
-                  />
-                </Field>
               </section>
             </div>
 
             {/* Footer */}
             <div className="shrink-0 border-t border-slate-200 bg-white px-5 py-4 dark:border-slate-700 dark:bg-slate-900">
-              {!canSubmit && (
-                <p className="mb-2 text-[11px] text-slate-400 dark:text-slate-500">
-                  {canEditTechnical
-                    ? "* Fill in all required fields and a target endpoint to continue"
-                    : "* Fill in the required business, governance, and target endpoint fields to continue"}
-                </p>
-              )}
               {error && (
                 <p className="mb-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-[11px] leading-4 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">{error}</p>
               )}
@@ -1352,10 +1482,10 @@ function RegisterSystemModal({
                   onClick={onSubmit}
                   className={clsx(
                     "flex-1 rounded py-2.5 text-[13px] font-semibold text-white transition-colors",
-                    canSubmit && !isSubmitting ? "bg-brand-600 hover:bg-brand-700" : "cursor-not-allowed bg-slate-300"
+                    canSubmit && !isSubmitting ? "bg-brand-600 hover:bg-brand-700" : "cursor-not-allowed bg-slate-300 dark:bg-slate-700",
                   )}
                 >
-                  {isSubmitting ? "Saving..." : mode === "edit" ? "Save Changes" : "Register Application"}
+                  {isSubmitting ? "Saving…" : mode === "edit" ? "Save Changes" : "Register AI System"}
                 </button>
               </div>
             </div>
