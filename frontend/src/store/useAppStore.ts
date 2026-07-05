@@ -4,6 +4,19 @@ import type { PageId } from "@/types";
 export type GlobalRunnerStatus = "idle" | "running" | "done" | "error";
 
 const routeMatchers: Array<[RegExp, PageId]> = [
+  // ── Auditor workspace (matched before the shared/developer routes) ──
+  [/^\/overview(?:\/.*)?$/, "overview"],
+  [/^\/my-assignments(?:\/.*)?$/, "my-assignments"],
+  [/^\/review-queue(?:\/.*)?$/, "review-queue"],
+  [/^\/audit-systems(?:\/.*)?$/, "audit-systems"],
+  [/^\/evidence-review(?:\/.*)?$/, "evidence-review"],
+  [/^\/findings-review(?:\/.*)?$/, "findings-review"],
+  [/^\/verdict-review(?:\/.*)?$/, "verdict-review"],
+  [/^\/compliance-reports(?:\/.*)?$/, "compliance-reports"],
+  [/^\/audit-ledger(?:\/.*)?$/, "audit-ledger"],
+  [/^\/remediation(?:\/.*)?$/, "remediation"],
+  [/^\/notes-queries(?:\/.*)?$/, "notes-queries"],
+  // ── Shared / developer routes ──
   [/^\/(?:dashboard)?$/, "dashboard"],
   [/^\/systems(?:\/.*)?$/, "systems"],
   [/^\/eval-runs(?:\/.*)?$/, "eval-runs"],
@@ -45,9 +58,15 @@ type AppStore = {
   navigateTo: (path: string) => void;
 };
 
+const initialPath = typeof window !== "undefined" ? window.location.pathname : "/dashboard";
+
 export const useAppStore = create<AppStore>((set) => ({
-  activePage: "dashboard",
-  currentPath: "/dashboard",
+  // Initialise from the real URL so a refresh / deep link lands on the right
+  // page. Hardcoding "dashboard" made the route guard bounce any first-load
+  // deep link not accessible to the current persona (e.g. an auditor
+  // refreshing on /review-queue, since auditors can't see "dashboard").
+  activePage: pageFromPath(initialPath),
+  currentPath: initialPath,
   headerHidden: false,
   setHeaderHidden: (hidden) => set({ headerHidden: hidden }),
   globalRunnerStatus: "idle",

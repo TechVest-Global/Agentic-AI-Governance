@@ -10,9 +10,11 @@ import {
   FileText,
   Gauge,
   GitBranch,
+  Inbox,
   Layers,
   LayoutDashboard,
   ListChecks,
+  MessagesSquare,
   Network,
   Scale,
   Settings,
@@ -20,15 +22,42 @@ import {
   SlidersHorizontal,
   Split,
   Terminal,
+  Wrench,
 } from "lucide-react";
 import type { AgentStatus, AiSystem, AuditEvent, Finding, GovernanceRun, NavigationItem } from "@/types";
 
 export const navigation: NavigationItem[] = [
+  // ══════════════════════════════════════════════════════════════════════
+  // AUDITOR WORKSPACE
+  // A self-contained, assurance-focused surface. Auditors get their own
+  // page ids and sections so their sidebar/labels can evolve independently
+  // of the developer engine — no developer controls (registration, endpoint
+  // config, credentials, metric config, agent execution) ever appear here.
+  // ══════════════════════════════════════════════════════════════════════
+  // ── My Workspace ──────────────────────────────────────────────────────
+  { id: "overview", label: "Overview", section: "My Workspace", path: "/overview", icon: LayoutDashboard, personas: ["auditor"] },
+  { id: "my-assignments", label: "My Assignments", section: "My Workspace", path: "/my-assignments", icon: Inbox, personas: ["auditor"] },
+  { id: "review-queue", label: "Review Queue", section: "My Workspace", path: "/review-queue", icon: ListChecks, personas: ["auditor"] },
+  // ── Review ────────────────────────────────────────────────────────────
+  { id: "audit-systems", label: "AI Systems", section: "Review", path: "/audit-systems", icon: ShieldCheck, personas: ["auditor"] },
+  { id: "evidence-review", label: "Evidence Review", section: "Review", path: "/evidence-review", icon: FileSearch, personas: ["auditor"] },
+  { id: "findings-review", label: "Findings Review", section: "Review", path: "/findings-review", icon: AlertTriangle, personas: ["auditor"] },
+  { id: "verdict-review", label: "Verdict Review", section: "Review", path: "/verdict-review", icon: GitBranch, personas: ["auditor"] },
+  // ── Compliance & Reporting ──────────────────────────────────────────────
+  { id: "compliance-reports", label: "Compliance Reports", section: "Compliance & Reporting", path: "/compliance-reports", icon: FileText, personas: ["auditor"] },
+  { id: "audit-ledger", label: "Audit Ledger", section: "Compliance & Reporting", path: "/audit-ledger", icon: BookOpen, personas: ["auditor"] },
+  { id: "remediation", label: "Remediation", section: "Compliance & Reporting", path: "/remediation", icon: Wrench, personas: ["auditor"] },
+  // ── Collaboration ─────────────────────────────────────────────────────
+  { id: "notes-queries", label: "Notes & Queries", section: "Collaboration", path: "/notes-queries", icon: MessagesSquare, personas: ["auditor"] },
+
+  // ══════════════════════════════════════════════════════════════════════
+  // DEVELOPER ENGINE (unchanged)
+  // ══════════════════════════════════════════════════════════════════════
   // ── Govern ────────────────────────────────────────────────────────────
-  { id: "dashboard", label: "Dashboard", section: "Govern", path: "/dashboard", icon: LayoutDashboard, personas: ["auditor", "developer"] },
-  { id: "systems", label: "AI Systems", section: "Govern", path: "/systems", icon: ShieldCheck, personas: ["auditor", "developer"] },
-  { id: "runs", label: "Live Run", section: "Govern", path: "/runs", icon: Activity, personas: ["auditor", "developer"] },
-  { id: "eval-runs", label: "Run History", section: "Govern", path: "/eval-runs", icon: ListChecks, personas: ["auditor", "developer"] },
+  { id: "dashboard", label: "Dashboard", section: "Govern", path: "/dashboard", icon: LayoutDashboard, personas: ["developer"] },
+  { id: "systems", label: "AI Systems", section: "Govern", path: "/systems", icon: ShieldCheck, personas: ["developer"] },
+  { id: "runs", label: "Live Run", section: "Govern", path: "/runs", icon: Activity, personas: ["developer"] },
+  { id: "eval-runs", label: "Run History", section: "Govern", path: "/eval-runs", icon: ListChecks, personas: ["developer"] },
   // Developer-only engine explainer. Not in the main sidebar (hidden); the only
   // entry point is the "How the engine works" footer button, which is likewise
   // shown only to developers so it never dead-redirects an auditor.
@@ -36,12 +65,12 @@ export const navigation: NavigationItem[] = [
   { id: "metric-plan", label: "Metric Plan", section: "Govern", path: "/metric-plan", icon: ClipboardList, personas: ["developer"] },
   { id: "council", label: "Council Deliberation", section: "Govern", path: "/council", icon: Scale, personas: ["developer"], hidden: true },
   // ── Assurance ─────────────────────────────────────────────────────────
-  { id: "findings", label: "Findings", section: "Assurance", path: "/findings", icon: AlertTriangle, personas: ["auditor", "developer"] },
-  { id: "metric-results", label: "Metric Results", section: "Assurance", path: "/metric-results", icon: Gauge, personas: ["auditor", "developer"] },
-  { id: "verdicts", label: "Verdicts", section: "Assurance", path: "/verdicts", icon: GitBranch, personas: ["auditor", "developer"] },
-  { id: "reports", label: "Compliance Reports", section: "Assurance", path: "/reports", icon: FileText, personas: ["auditor", "developer"] },
-  { id: "evidence", label: "Evidence", section: "Assurance", path: "/evidence", icon: FileSearch, personas: ["auditor", "developer"] },
-  { id: "ledger", label: "Audit Ledger", section: "Assurance", path: "/ledger", icon: BookOpen, personas: ["auditor", "developer"] },
+  { id: "findings", label: "Findings", section: "Assurance", path: "/findings", icon: AlertTriangle, personas: ["developer"] },
+  { id: "metric-results", label: "Metric Results", section: "Assurance", path: "/metric-results", icon: Gauge, personas: ["developer"] },
+  { id: "verdicts", label: "Verdicts", section: "Assurance", path: "/verdicts", icon: GitBranch, personas: ["developer"] },
+  { id: "reports", label: "Compliance Reports", section: "Assurance", path: "/reports", icon: FileText, personas: ["developer"] },
+  { id: "evidence", label: "Evidence", section: "Assurance", path: "/evidence", icon: FileSearch, personas: ["developer"] },
+  { id: "ledger", label: "Audit Ledger", section: "Assurance", path: "/ledger", icon: BookOpen, personas: ["developer"] },
   // ── Configure (developer only) ────────────────────────────────────────
   { id: "system-setup", label: "AI System Setup", section: "Configure", path: "/system-setup", icon: Settings, personas: ["developer"] },
   { id: "context-profiles", label: "Context Profiles", section: "Configure", path: "/context-profiles", icon: Layers, personas: ["developer"] },

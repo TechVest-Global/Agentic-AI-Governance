@@ -39,8 +39,8 @@ export function canAccess(persona: Persona, page: PageId): boolean {
 }
 
 /** Landing page for a persona after login or when redirected from a blocked page. */
-export function defaultPageFor(_persona: Persona): PageId {
-  return "dashboard";
+export function defaultPageFor(persona: Persona): PageId {
+  return persona === "auditor" ? "overview" : "dashboard";
 }
 
 export const PERSONA_LABEL: Record<Persona, string> = {

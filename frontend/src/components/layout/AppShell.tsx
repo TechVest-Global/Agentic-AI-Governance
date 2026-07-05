@@ -15,6 +15,8 @@ import type { PageId as PageIdType } from "@/types";
 const RUN_SCOPED: ReadonlySet<PageIdType> = new Set<PageIdType>([
   "runs", "metric-plan", "council", "findings", "metric-results",
   "verdicts", "reports", "evidence", "ledger", "governance-state", "llm-boundary",
+  // Auditor single-run review pages — share the header run switcher.
+  "evidence-review", "findings-review", "verdict-review", "compliance-reports", "audit-ledger",
 ]);
 import { useAppStore } from "@/store/useAppStore";
 import { useAuthStore } from "@/store/useAuthStore";
@@ -114,7 +116,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* nav */}
         <nav className="flex-1 overflow-y-auto px-3 py-5">
-          {(["Govern", "Assurance", "Configure", "Operate"] as const)
+          {([
+            // Auditor workspace sections first, then developer engine sections.
+            // Each persona only renders the sections that contain its nav items.
+            "My Workspace", "Review", "Compliance & Reporting", "Collaboration",
+            "Govern", "Assurance", "Configure", "Operate",
+          ] as const)
             .filter((section) => navItems.some((item) => item.section === section))
             .map((section) => (
             <div key={section} className="mb-6">
@@ -208,8 +215,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {/* notifications */}
             <NotificationsMenu />
 
-            {/* start / pause run button */}
-            {!isEngine && (
+            {/* start / pause run button — auditors don't execute runs */}
+            {!isEngine && persona !== "auditor" && (
               isRunning ? (
                 <button
                   onClick={async () => {
@@ -356,6 +363,18 @@ const pageDescriptions: Record<PageId, string> = {
   "security-tools": "Security tool adapters — Custom Boundary Test, garak, PyRIT, Inspect AI, CyberSecEval, prompt-injection scanners, tracing, and policy tests.",
   "governance-state": "Append-only GovernanceState chain — sequence, phase, source, payload, and hash linkage. The reconstruction record for any run.",
   "api-debug":    "Integration status — API health, route-to-endpoint mapping, role permissions, and request/response inspection for the FastAPI backend.",
+  // ── Auditor workspace ──
+  overview:            "Your assurance priorities across every AI system in scope — pending reviews, critical findings, verdicts, sign-offs, and remediation.",
+  "my-assignments":    "AI systems and reviews assigned specifically to you.",
+  "review-queue":      "Governance runs awaiting your review. Open one to focus the whole workspace on that run.",
+  "audit-systems":     "AI systems in scope for assurance — read-only governance posture, findings, and verdicts. No technical configuration.",
+  "evidence-review":   "Evidence records behind every finding and metric result — source, tool, score vs. threshold, pass/fail, and sensitivity.",
+  "findings-review":   "Findings raised by specialist agents — triage by severity, dimension, and status, and record your review decisions.",
+  "verdict-review":    "The council verdict for the selected run — confidence, action tier, required actions, and objections raised.",
+  "compliance-reports":"Clause-level compliance reports across EU AI Act, NIST AI RMF, ISO 42001, and OWASP LLM Top 10.",
+  "audit-ledger":      "Hash-chained, append-only audit trail of every governance action for the selected run.",
+  remediation:         "Open remediation obligations across all runs — council-prescribed actions and open findings with a recommended fix.",
+  "notes-queries":     "Raise clarification queries to system owners and keep review notes, threaded per system and run.",
 };
 
 function sectionFor(page: PageId) {

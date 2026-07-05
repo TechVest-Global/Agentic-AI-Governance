@@ -24,9 +24,30 @@ export type PageId =
   | "security-tools"
   // Developer · Operate
   | "governance-state"
-  | "api-debug";
+  | "api-debug"
+  // Auditor workspace (assurance / compliance / review — no engine internals)
+  | "overview"
+  | "my-assignments"
+  | "review-queue"
+  | "audit-systems"
+  | "evidence-review"
+  | "findings-review"
+  | "verdict-review"
+  | "compliance-reports"
+  | "audit-ledger"
+  | "remediation"
+  | "notes-queries";
 
-export type NavSection = "Govern" | "Assurance" | "Configure" | "Operate";
+export type NavSection =
+  | "Govern"
+  | "Assurance"
+  | "Configure"
+  | "Operate"
+  // Auditor workspace sections
+  | "My Workspace"
+  | "Review"
+  | "Compliance & Reporting"
+  | "Collaboration";
 
 /** Capability flags derived from persona — the permission model for the UI. */
 export type Permission =

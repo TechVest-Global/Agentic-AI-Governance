@@ -28,6 +28,15 @@ import { GovernanceStatePage } from "@/pages/GovernanceStatePage";
 import { APIDebug } from "@/pages/APIDebug";
 import { SignIn } from "@/pages/SignIn";
 import { SignUp } from "@/pages/SignUp";
+// Auditor workspace pages. Evidence / FindingsReview / Reports / AuditLedger
+// are shared, read-only components reused here under auditor routes.
+import { AuditorOverview } from "@/pages/auditor/AuditorOverview";
+import { MyAssignments } from "@/pages/auditor/MyAssignments";
+import { ReviewQueue } from "@/pages/auditor/ReviewQueue";
+import { AuditorSystems } from "@/pages/auditor/AuditorSystems";
+import { VerdictReview } from "@/pages/auditor/VerdictReview";
+import { Remediation } from "@/pages/auditor/Remediation";
+import { NotesQueries } from "@/pages/auditor/NotesQueries";
 import type { PageId } from "@/types";
 
 const pages = {
@@ -53,6 +62,18 @@ const pages = {
   "security-tools": SecurityToolAdapters,
   "governance-state": GovernanceStatePage,
   "api-debug": APIDebug,
+  // ── Auditor workspace ──
+  overview: AuditorOverview,
+  "my-assignments": MyAssignments,
+  "review-queue": ReviewQueue,
+  "audit-systems": AuditorSystems,
+  "evidence-review": Evidence,          // reuse shared read-only Evidence page
+  "findings-review": FindingsReview,    // reuse shared auditor findings workspace
+  "verdict-review": VerdictReview,
+  "compliance-reports": Reports,        // reuse shared compliance reports page
+  "audit-ledger": AuditLedger,          // reuse shared audit ledger page
+  remediation: Remediation,
+  "notes-queries": NotesQueries,
 } satisfies Record<PageId, React.ComponentType>;
 
 export default function App() {
