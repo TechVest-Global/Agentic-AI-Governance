@@ -39,6 +39,13 @@ _log_buffer: contextvars.ContextVar[list[dict] | None] = contextvars.ContextVar(
     "llm_gateway_log_buffer", default=None
 )
 
+# Which specialist agent is currently executing. Stamped onto every captured LLM
+# call so the UI can show each agent ONLY its own probes/responses instead of the
+# whole run's shared call set. None outside an agent's evaluate() (e.g. council).
+_current_agent: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "llm_gateway_current_agent", default=None
+)
+
 
 def start_log_capture() -> None:
     """Reset the audit buffer for this request context."""
@@ -52,9 +59,16 @@ def drain_log_capture() -> list[dict]:
     return buf
 
 
+def set_current_agent(agent_name: str | None) -> None:
+    """Attribute subsequent captured LLM calls to this agent (or None to clear)."""
+    _current_agent.set(agent_name)
+
+
 def _append_log(entry: dict) -> None:
     buf = _log_buffer.get(None)
     if buf is not None:
+        # Attribute the call to the executing agent so per-agent views can filter.
+        entry.setdefault("agent_name", _current_agent.get(None))
         buf.append(entry)
 
 

@@ -347,7 +347,6 @@ const pageDescriptions: Record<PageId, string> = {
   "eval-runs":    "Historical governance evaluations — status, phase, frameworks, timestamps, and result. Drill into any run's findings, verdict, and evidence.",
   findings:       "All findings raised by metrics and specialist agents — severity, confidence, framework refs, and evidence. Review, accept, or request remediation.",
   "metric-results": "Scored metric outcomes — dimension, tool, normalized score vs. threshold, pass/fail, and the evidence each result links to.",
-  "system-setup": "Create and configure AI systems — identity, owner, risk tier, frameworks, model configuration, and target endpoint reference.",
   "context-profiles": "Application Context Profiles — identity & purpose, pre-model controls, model configuration, post-model controls, and integration context.",
   capabilities:   "Callable capabilities per AI system — endpoint, method, schemas, permissions, side-effect level, and human-review requirement.",
   "metrics-config": "The 44-metric catalog — dimension, owner agent, tool, framework mappings, threshold rules, scoring config, and enabled state.",

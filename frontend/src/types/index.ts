@@ -15,7 +15,6 @@ export type PageId =
   | "evidence"
   | "ledger"
   // Developer · Configure
-  | "system-setup"
   | "context-profiles"
   | "capabilities"
   | "metrics-config"

@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     # than a stand-in model.
     target_endpoint: str | None = None
     target_api_key: str | None = None
+    # Which client adapter speaks the target system's API:
+    #   "techvest"   — TechVest RAG chatbot (POST /api/chat, {"message": ...})
+    #   "hr_gateway" — HR Recruitment AI Gateway (13 endpoints under /api/v1/ai)
+    target_system_kind: str = "techvest"
 
     # Judge model (Azure OpenAI) — powers the Deliberation Council agents
     judge_endpoint: str | None = None
@@ -66,7 +70,9 @@ class Settings(BaseSettings):
             return f"/{value}"
         return value
 
-    @field_validator("secrets_provider", "ai_model_provider", "target_model_provider")
+    @field_validator(
+        "secrets_provider", "ai_model_provider", "target_model_provider", "target_system_kind"
+    )
     @classmethod
     def provider_values_must_be_normalized(cls, value: str) -> str:
         return value.strip().lower().replace("-", "_")

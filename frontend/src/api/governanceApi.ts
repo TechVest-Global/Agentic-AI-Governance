@@ -525,6 +525,8 @@ export type EvaluationRunCreatePayload = {
   ai_system_id: string;
   selected_frameworks: string[];
   selected_metrics: string[];
+  // Capability endpoint_refs to scope the audit to. Empty = whole application.
+  selected_capabilities?: string[];
 };
 
 export type OrchestrationResult = {
@@ -888,6 +890,24 @@ export async function listCapabilities(systemId: string): Promise<BackendAISyste
   return request<BackendAISystemCapability[]>(`/ai-systems/${systemId}/capabilities?limit=100`);
 }
 
+export type CatalogImportResult = {
+  system_id: string;
+  catalog_name?: string | null;
+  total: number;
+  imported: number;
+  skipped: number;
+  capabilities: Array<{ id: string; name: string; endpoint_ref: string; http_method: string }>;
+};
+
+/** Import all of a multi-endpoint target's functions as capabilities, from its
+ *  gateway catalog (idempotent). */
+export async function importCapabilitiesFromCatalog(systemId: string): Promise<CatalogImportResult> {
+  return request<CatalogImportResult>(`/ai-systems/${systemId}/capabilities/import-from-catalog`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
 /* ─────────────────────────────────────────────────── Metric results ── */
 
 export type MetricResult = {
@@ -1079,6 +1099,46 @@ export type SecurityToolsStatus = {
 
 export async function getSecurityTools(): Promise<SecurityToolsStatus> {
   return request<SecurityToolsStatus>(`/security-tools`);
+}
+
+/* ─────────────────────────────────────────── LLM client boundary ── */
+
+export type ClientBoundaryClient = {
+  mode: "real" | "mock";
+  provider: string;
+  credential_ref: string;
+};
+
+export type ClientBoundaryStatus = {
+  governance: ClientBoundaryClient;
+  target: ClientBoundaryClient;
+};
+
+export type BoundaryTestResult = {
+  prompt: string;
+  target_mode: "real" | "mock";
+  provider: string;
+  trace_id: string;
+  latency_ms: number;
+  raw: string;
+  sanitized: string;
+  redaction_count: number;
+  warnings: string[];
+  warning_count: number;
+  fenced: string;
+  caught_something: boolean;
+};
+
+export async function getClientBoundary(): Promise<ClientBoundaryStatus> {
+  return request<ClientBoundaryStatus>(`/client-boundary`);
+}
+
+/** Send a prompt to the REAL target model and return the sanitized + fenced result. */
+export async function runBoundaryTest(prompt: string): Promise<BoundaryTestResult> {
+  return request<BoundaryTestResult>(`/client-boundary/test`, {
+    method: "POST",
+    body: JSON.stringify({ prompt }),
+  });
 }
 
 /* ─────────────────────────────────── Context document upload ── */
