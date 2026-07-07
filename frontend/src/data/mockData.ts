@@ -17,7 +17,6 @@ import {
   MessagesSquare,
   Network,
   Scale,
-  Settings,
   ShieldCheck,
   SlidersHorizontal,
   Split,
@@ -72,7 +71,8 @@ export const navigation: NavigationItem[] = [
   { id: "evidence", label: "Evidence", section: "Assurance", path: "/evidence", icon: FileSearch, personas: ["developer"] },
   { id: "ledger", label: "Audit Ledger", section: "Assurance", path: "/ledger", icon: BookOpen, personas: ["developer"] },
   // ── Configure (developer only) ────────────────────────────────────────
-  { id: "system-setup", label: "AI System Setup", section: "Configure", path: "/system-setup", icon: Settings, personas: ["developer"] },
+  // AI System Setup removed — systems are created via the registration flow
+  // (AI Systems → Register), and their context lives on the Context Profiles page.
   { id: "context-profiles", label: "Context Profiles", section: "Configure", path: "/context-profiles", icon: Layers, personas: ["developer"] },
   { id: "capabilities", label: "Capabilities", section: "Configure", path: "/capabilities", icon: Boxes, personas: ["developer"] },
   { id: "metrics-config", label: "Metrics Configuration", section: "Configure", path: "/metrics-config", icon: SlidersHorizontal, personas: ["developer"] },

@@ -109,20 +109,7 @@ class ExplainabilityAgent(ModelBackedAgent):
         if not explainability_metrics:
             return []
 
-        endpoint_ref = (
-            context.ai_system.target_endpoint_ref
-            or context.ai_system.name
-            or "default"
-        )
-
-        probes: list[TargetProbeResult] = [
-            self._probe_target(
-                endpoint_ref=endpoint_ref,
-                prompt=prompt,
-                capability_name=probe_name,
-            )
-            for probe_name, prompt in self._select_probes(_PROBE_PROMPTS, context=context)
-        ]
+        probes: list[TargetProbeResult] = self._run_probes(_PROBE_PROMPTS, context=context)
 
         tool_calls = self._call_evidence_tool(
             tool_name="ragas",

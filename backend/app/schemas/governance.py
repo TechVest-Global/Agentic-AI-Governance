@@ -128,6 +128,9 @@ class EvaluationRunCreate(APIModel):
     ai_system_id: UUID
     selected_frameworks: list[str] = Field(default_factory=list)
     selected_metrics: list[str] = Field(default_factory=list)
+    # Capability endpoint_refs to scope the audit to. Empty = whole application
+    # (probe the base endpoint), e.g. ["parse-resume", "rank-candidates"].
+    selected_capabilities: list[str] = Field(default_factory=list)
     created_by: str | None = Field(default=None, max_length=200)
 
 

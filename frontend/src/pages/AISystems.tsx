@@ -44,6 +44,7 @@ import {
   type RegistrationOptions,
 } from "@/api/governanceApi";
 import { RegisterAISystemModal } from "@/components/registration/RegisterAISystemModal";
+import { StartAuditModal } from "@/components/execution/StartAuditModal";
 import { applicationContextProfiles } from "@/data/mockData";
 
 const frameworkDescriptions: Record<string, string> = {
@@ -334,6 +335,8 @@ export function AISystems() {
   const [registerForm, setRegisterForm] = useState<RegisterForm>(emptyForm);
   const [registerStep, setRegisterStep] = useState<"form" | "success">("form");
   const [backendSystems, setBackendSystems] = useState<BackendAISystem[]>([]);
+  // System whose audit-scope modal is open (null = closed).
+  const [auditSystem, setAuditSystem] = useState<BackendAISystem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<RegistrySystem | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -364,22 +367,14 @@ export function AISystems() {
   }, [loadRegistrationMeta]);
 
   const handleRunEvaluation = useCallback(
-    async (systemId: string) => {
+    (systemId: string) => {
       const system = backendSystems.find((s) => s.id === systemId);
       if (!system) return;
-      const result = await runner.run(system, {
-        onRunCreated: (run) => {
-          focusRun(run.id, system.id);
-          navigateTo("/runs");
-        },
-      });
-      if (result) {
-        // Keep every run-scoped tab on the completed run after orchestration.
-        focusRun(result.id, system.id);
-      }
+      // Open the scope picker; the run is started from the modal so the auditor
+      // can choose whole-app or specific functions.
+      setAuditSystem(system);
     },
-    // loadSystems is declared just below; runner.run is stable.
-    [backendSystems, runner.run, navigateTo, focusRun],
+    [backendSystems],
   );
 
   const loadSystems = useCallback(async () => {
@@ -475,6 +470,21 @@ export function AISystems() {
 
   return (
     <div className="space-y-5">
+      {auditSystem && (
+        <StartAuditModal
+          system={auditSystem}
+          runner={runner}
+          onClose={() => setAuditSystem(null)}
+          onRunCreated={(run) => {
+            focusRun(run.id, auditSystem.id);
+            navigateTo("/runs");
+          }}
+          onStarted={(run) => {
+            focusRun(run.id, auditSystem.id);
+            setAuditSystem(null);
+          }}
+        />
+      )}
       {showRegisterForm && formMode === "create" && (
         <RegisterAISystemModal
           options={registrationOptions}

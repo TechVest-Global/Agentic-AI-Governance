@@ -35,6 +35,7 @@ from app.models.ai_system import (
     AISystemRiskScreening,
     AISystemSecurityControlStatus,
     AISystemUsageContext,
+    ApplicationContextProfile,
 )
 from app.models.enums import AISystemStatus, CapabilityType, SideEffectLevel
 from app.schemas.governance import (
@@ -255,6 +256,106 @@ def _build_usage_context(
     )
 
 
+def _prune(section: dict[str, object]) -> dict[str, object]:
+    """Drop empty/None/[] values so seeded sections stay readable JSON."""
+    return {
+        k: v
+        for k, v in section.items()
+        if v is not None and v != "" and v != [] and v != {}
+    }
+
+
+def _build_context_profile(
+    system_id: UUID, payload: AISystemRegistrationCreate
+) -> ApplicationContextProfile:
+    """Seed the five ApplicationContextProfile sections from registration facts.
+
+    So a newly registered system's business purpose, primary use, intended
+    users, model config, and integration details show up on the Context
+    Profiles page immediately (editable there), instead of an empty profile.
+    """
+    system = payload.system
+    usage = payload.usage_context
+    first_model = payload.models[0] if payload.models else None
+    rag = payload.rag_configuration
+    endpoints = payload.endpoints or []
+    data_sources = payload.data_sources or []
+
+    identity_purpose = _prune({
+        "name": system.name,
+        "business_purpose": system.business_purpose,
+        "description": system.description,
+        "system_type": system.system_type,
+        "business_domain": system.business_domain,
+        "lifecycle_stage": system.lifecycle_stage,
+        "product_name": system.product_name,
+        "primary_use_case": usage.primary_use_case if usage else None,
+        "intended_users": usage.intended_users if usage else None,
+        "internal_external_use": usage.internal_external_use if usage else None,
+        "capabilities": list(usage.capabilities) if usage else [],
+        "_seeded_from": "registration",
+    })
+
+    pre_model_controls = _prune({
+        "input_modalities": list(usage.input_modalities) if usage else [],
+        "data_sources": [
+            _prune({
+                "name": d.name,
+                "type": d.source_type,
+                "classification": d.classification,
+                "contains_personal_data": d.contains_personal_data,
+            })
+            for d in data_sources
+        ],
+    })
+
+    model_configuration = _prune({
+        "provider": first_model.provider if first_model else None,
+        "model": first_model.name if first_model else None,
+        "version": (first_model.version if first_model else None) or system.version,
+        "deployment_name": first_model.deployment_name if first_model else None,
+        "hosting_platform": first_model.hosting_platform if first_model else None,
+        "safety_filters_enabled": first_model.safety_filters_enabled if first_model else None,
+        "rag": _prune({
+            "knowledge_base": rag.knowledge_base_name if rag else None,
+            "vector_database": rag.vector_database if rag else None,
+            "embedding_model": rag.embedding_model if rag else None,
+            "retrieval_strategy": rag.retrieval_strategy if rag else None,
+            "top_k": rag.top_k if rag else None,
+        }) if rag else {},
+    })
+
+    post_model_controls = _prune({
+        "human_oversight": usage.human_oversight if usage else None,
+        "output_usage": usage.output_usage if usage else None,
+        "output_types": list(usage.output_types) if usage else [],
+        "citations_enabled": rag.citations_enabled if rag else None,
+    })
+
+    integration_context = _prune({
+        "deployment_environment": system.deployment_environment,
+        "production_criticality": system.production_criticality,
+        "endpoints": [
+            _prune({
+                "name": e.name,
+                "url": e.url,
+                "method": e.http_method,
+                "authentication_type": e.authentication_type,
+            })
+            for e in endpoints
+        ],
+    })
+
+    return ApplicationContextProfile(
+        ai_system_id=system_id,
+        identity_purpose=identity_purpose,
+        pre_model_controls=pre_model_controls,
+        model_configuration=model_configuration,
+        post_model_controls=post_model_controls,
+        integration_context=integration_context,
+    )
+
+
 def _build_capability_for_endpoint(
     system_id: UUID,
     endpoint: RegistrationEndpointInput,
@@ -335,6 +436,10 @@ def register_ai_system(
         session.flush()  # assigns ai_system.id without committing
 
         session.add(_build_usage_context(ai_system.id, payload))
+        # Seed the Application Context Profile from registration facts so business
+        # purpose, primary use, intended users, model config, etc. show up on the
+        # Context Profiles page immediately (still editable there).
+        session.add(_build_context_profile(ai_system.id, payload))
 
         session.add_all(
             AISystemOwner(

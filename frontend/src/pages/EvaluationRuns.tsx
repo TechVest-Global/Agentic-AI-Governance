@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, ListChecks, Loader2, Play, PlayCircle, Plus, X, XCircle } from "lucide-react";
 import clsx from "clsx";
 import { Card, CardHeader } from "@/components/ui/Card";
@@ -13,6 +13,7 @@ import {
   type BackendAISystem,
   type EvaluationRun,
 } from "@/api/governanceApi";
+import { AuditScopeField, WHOLE_APP_SCOPE, type AuditScope } from "@/components/execution/AuditScopeField";
 
 type StatusFilter = "all" | "running" | "completed" | "failed";
 
@@ -69,6 +70,9 @@ export function EvaluationRuns() {
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [showNewRun, setShowNewRun] = useState(false);
   const [selectedSystemId, setSelectedSystemId] = useState<string>("");
+  // Audit scope (whole app vs specific functions), owned by AuditScopeField.
+  const [scope, setScope] = useState<AuditScope>(WHOLE_APP_SCOPE);
+  const handleScope = useCallback((s: AuditScope) => setScope(s), []);
 
   const loadRuns = () => {
     setLoading(true);
@@ -97,6 +101,7 @@ export function EvaluationRuns() {
     if (!system) return;
     setShowNewRun(false);
     const result = await runner.run(system, {
+      selectedCapabilities: scope.capabilities,
       onRunCreated: (run) => {
         focusRun(run.id, system.id);
       },
@@ -189,6 +194,8 @@ export function EvaluationRuns() {
                   })()}
                 </div>
               )}
+              {/* Audit scope — whole app vs specific functions. */}
+              <AuditScopeField systemId={selectedSystemId || null} onChange={handleScope} />
               {runner.status === "error" && runner.error && (
                 <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">{runner.error}</p>
               )}
@@ -197,7 +204,7 @@ export function EvaluationRuns() {
                   Cancel
                 </button>
                 <button
-                  disabled={!selectedSystemId || runner.status === "running"}
+                  disabled={!selectedSystemId || runner.status === "running" || !scope.valid}
                   onClick={() => void handleStartRun()}
                   className="flex flex-1 items-center justify-center gap-2 rounded bg-slate-900 py-2.5 text-[13px] font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >

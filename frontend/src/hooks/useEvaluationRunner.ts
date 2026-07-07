@@ -20,6 +20,8 @@ export type EvaluationRunnerState = {
 
 type EvaluationRunnerOptions = {
   onRunCreated?: (run: EvaluationRun) => void;
+  // Audit scope: capability endpoint_refs to probe. Empty/omitted = whole app.
+  selectedCapabilities?: string[];
 };
 
 const INITIAL: EvaluationRunnerState = {
@@ -75,6 +77,7 @@ export function useEvaluationRunner() {
         ai_system_id: system.id,
         selected_frameworks: frameworks,
         selected_metrics: [],
+        selected_capabilities: options.selectedCapabilities ?? [],
       });
       options.onRunCreated?.(evaluationRun);
 

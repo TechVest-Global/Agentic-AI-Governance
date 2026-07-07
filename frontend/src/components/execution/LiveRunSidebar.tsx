@@ -8,6 +8,7 @@ import { cancelRun } from "@/api/governanceApi";
 import { Card } from "@/components/ui/Card";
 import { PIPELINE_STEPS, layerStatus } from "@/pages/pipelineSteps";
 import { AgentGlyph, type IntelligenceAgent } from "@/components/execution/AgentDetailCard";
+import { StartAuditModal } from "@/components/execution/StartAuditModal";
 
 function riskBadgeTone(tier: string): string {
   const t = tier.toLowerCase();
@@ -60,6 +61,8 @@ export function LiveRunSidebar({
   // without deselecting.
   const [agentsExpanded, setAgentsExpanded] = useState(false);
   const [councilExpanded, setCouncilExpanded] = useState(false);
+  // Open the scope picker before starting an audit (whole app vs functions).
+  const [showStartAudit, setShowStartAudit] = useState(false);
 
   // Auto-expand the nested list whenever a step becomes selected via any path
   // (an explicit click, or the live-phase auto-follow) — the user can still collapse it.
@@ -74,13 +77,12 @@ export function LiveRunSidebar({
 
   const hasStarted = runStatus !== "created";
 
-  async function handleRunAudit() {
+  function handleRunAudit() {
     if (!activeSystem) return;
     setSwitcherOpen(false);
-    const result = await runner.run(activeSystem, {
-      onRunCreated: (run) => setRunId(run.id),
-    });
-    if (result) refresh();
+    // Open the scope picker; the actual run is started from the modal so the
+    // auditor can choose whole-app or specific functions.
+    setShowStartAudit(true);
   }
 
   async function handlePauseAudit() {
@@ -102,6 +104,16 @@ export function LiveRunSidebar({
   }
 
   return (
+    <>
+    {showStartAudit && activeSystem && (
+      <StartAuditModal
+        system={activeSystem}
+        runner={runner}
+        onClose={() => setShowStartAudit(false)}
+        onRunCreated={(run) => setRunId(run.id)}
+        onStarted={() => { setShowStartAudit(false); refresh(); }}
+      />
+    )}
     <Card className="sticky top-20 self-start overflow-visible">
       {/* Target system switcher */}
       <div className="p-3 border-b border-slate-100 dark:border-slate-700/50">
@@ -318,5 +330,6 @@ export function LiveRunSidebar({
         })}
       </div>
     </Card>
+    </>
   );
 }

@@ -95,6 +95,37 @@ def create_capability(
     return service.create_capability(session, system_id, payload)
 
 
+@router.post("/{system_id}/capabilities/import-from-catalog")
+def import_capabilities_from_catalog(
+    system_id: UUID,
+    session: SessionDependency,
+) -> dict:
+    """Create one capability per endpoint in the target's gateway catalog.
+
+    Fetches ``GET {target_endpoint_ref}/catalog`` using the configured target API
+    key and imports every endpoint as a capability (idempotent). Lets an auditor
+    register all of a multi-endpoint system's functions in one click instead of
+    entering them by hand.
+    """
+    from dataclasses import asdict as _asdict  # noqa: F401  (kept for parity)
+
+    from app.core.config import get_settings
+    from app.services.capability_import import import_capabilities_from_catalog as _import
+
+    result = _import(session, system_id, api_key=get_settings().target_api_key)
+    # Serialize capability rows for the response.
+    result["capabilities"] = [
+        {
+            "id": str(c.id),
+            "name": c.name,
+            "endpoint_ref": c.endpoint_ref,
+            "http_method": c.http_method,
+        }
+        for c in result["capabilities"]
+    ]
+    return result
+
+
 @router.get(
     "/{system_id}/capabilities",
     response_model=list[AISystemCapabilityRead],

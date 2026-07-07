@@ -280,8 +280,12 @@ export function buildAgentsFromBackend(
     const completed = execution.status === "completed";
     const plan = plans.find((p) => canonicalAgent(p.agent_name) === canon) ?? null;
     const namedCalls = llmCalls.filter((c) => c.agent_name && canonicalAgent(c.agent_name) === canon);
-    // Older runs may not attribute agent_name on call records — fall back to the full call set for this run.
-    const agentCalls = namedCalls.length > 0 ? namedCalls : llmCalls;
+    // Scope strictly to this agent. Only fall back to the full set for legacy
+    // runs where NO call was attributed (older data lacking agent_name).
+    const anyAttributed = llmCalls.some((c) => c.agent_name);
+    const agentCalls = anyAttributed ? namedCalls : llmCalls;
+    // Real probe count = this agent's target calls (0 when it sent none).
+    const probeCount = agentCalls.filter((c) => c.call_type === "target").length;
     return {
       id: execution.agent_name,
       name: meta.name,
@@ -289,7 +293,7 @@ export function buildAgentsFromBackend(
       severity: highestSeverity(agentFindings),
       confidence: completed ? (execution.finding_count === 0 ? 96 : 74) : execution.status === "running" ? 40 : 0,
       confidenceImpact: agentFindings.length ? -Math.min(agentFindings.length * 5, 20) : 0,
-      probes: `${execution.finding_count} finding${execution.finding_count === 1 ? "" : "s"}`,
+      probes: `${probeCount} probe${probeCount === 1 ? "" : "s"}`,
       findings: execution.finding_count,
       purpose: meta.purpose,
       checks: meta.checks,
@@ -461,11 +465,19 @@ function ProbesTab({ agent, runId }: { agent: IntelligenceAgent; runId: string |
     setLoading(true);
     getLlmCalls(runId)
       .then((log) => {
-        // Only target-call probes for this agent
+        // Only THIS agent's target-call probes. The backend stamps agent_name on
+        // every call, so we scope strictly — an agent that sent no probes shows
+        // an empty state rather than the whole run's shared probe set. Legacy
+        // rows without agent_name are only shown when nothing is attributed at all.
+        const anyAttributed = log.calls.some((c) => c.call_type === "target" && c.agent_name);
         const agentCalls = log.calls.filter(
-          (c) => c.call_type === "target" && (!c.agent_name || c.agent_name === agent.id),
+          (c) =>
+            c.call_type === "target" &&
+            (c.agent_name
+              ? c.agent_name === agent.id
+              : !anyAttributed),
         );
-        setCalls(agentCalls.length > 0 ? agentCalls : log.calls.filter((c) => c.call_type === "target"));
+        setCalls(agentCalls);
       })
       .catch(() => setCalls([]))
       .finally(() => setLoading(false));

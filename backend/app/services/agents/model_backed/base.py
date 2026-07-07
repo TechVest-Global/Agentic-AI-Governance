@@ -17,7 +17,12 @@ import logging
 from dataclasses import dataclass
 
 from app.services.agents.base import AgentContext
-from app.services.agents.probe_library import ProbeSet, classify_system, probes_for
+from app.services.agents.probe_library import (
+    ProbeSet,
+    classify_system,
+    probes_for,
+    probes_for_endpoint,
+)
 from app.services.model_clients.base import (
     GovernanceModelClient,
     GovernanceModelRequest,
@@ -77,31 +82,89 @@ class ModelBackedAgent:
         self._target = target_client
         self._governance = governance_client
 
+    def _choose_probes(self, fallback: ProbeSet, *, context: AgentContext) -> ProbeSet:
+        """Pick a system-appropriate probe set (no budget scaling).
+
+        Returns probes tailored to the audited system's category (e.g. a RAG
+        assistant gets grounding/injection-via-retrieval probes instead of
+        hiring/loan probes) when the agent declares a ``probe_dimension`` and the
+        library has a tailored set; otherwise ``fallback``.
+        """
+        if self.probe_dimension:
+            profile = classify_system(getattr(context.ai_system, "system_type", None))
+            return probes_for(self.probe_dimension, profile, fallback)
+        return fallback
+
     def _select_probes(
         self,
         fallback: ProbeSet,
         *,
         context: AgentContext,
     ) -> ProbeSet:
-        """Pick system-appropriate probes, scale them to the probe budget, and
-        record how many probes were selected so run progress can report it.
-
-        Chooses a probe set tailored to the audited system's category (e.g. a
-        RAG assistant gets grounding/injection-via-retrieval probes instead of
-        hiring/loan probes) when the agent declares a ``probe_dimension`` and
-        the library has a tailored set; otherwise uses ``fallback``. The chosen
-        set is then repeated up to the agent's Layer-2 probe budget.
+        """Choose system-appropriate probes, scale them to the probe budget, and
+        record the probe count so run progress can report it.
         """
-        base = fallback
-        if self.probe_dimension:
-            profile = classify_system(getattr(context.ai_system, "system_type", None))
-            base = probes_for(self.probe_dimension, profile, fallback)
-
-        plan = self._scale_to_budget(base, context=context)
+        chosen = self._choose_probes(fallback, context=context)
+        plan = self._scale_to_budget(chosen, context=context)
         # Record the real probe count for this agent (read by agent_execution
         # and surfaced in the SSE "Probes Sent" tile).
         context.probe_counts[self.name] = len(plan)
         return plan
+
+    def _run_probes(
+        self,
+        fallback: ProbeSet,
+        *,
+        context: AgentContext,
+    ) -> list["TargetProbeResult"]:
+        """Send this agent's probes to the in-scope endpoint(s) and return results.
+
+        Whole-application audit (no ``selected_capabilities``): the budget-scaled
+        probe set is sent to the system's base endpoint — identical to prior
+        behavior. Scoped audit (specific capabilities selected): the curated
+        probe set (not budget-scaled, to avoid an N-endpoints x budget blow-up)
+        is sent to EACH selected capability endpoint, so an auditor can target
+        just parse-resume, rank-candidates, etc. Records the true probe count.
+        """
+        endpoints = context.probe_endpoints()
+        scoped = bool(context.selected_capabilities)
+        profile = (
+            classify_system(getattr(context.ai_system, "system_type", None))
+            if self.probe_dimension
+            else None
+        )
+
+        results: list[TargetProbeResult] = []
+        if not scoped:
+            # Whole application: budget-scaled system-type probes to the base endpoint.
+            plan = self._select_probes(fallback, context=context)
+            for endpoint_ref in endpoints:
+                for probe_name, prompt in plan:
+                    results.append(
+                        self._probe_target(
+                            endpoint_ref=endpoint_ref, prompt=prompt, capability_name=probe_name
+                        )
+                    )
+        else:
+            # Scoped: probe each selected function with probes relevant to THAT
+            # function (falling back to system-type probes when none tailored).
+            for endpoint_ref in endpoints:
+                if self.probe_dimension and profile is not None:
+                    plan = probes_for_endpoint(
+                        self.probe_dimension, endpoint_ref, profile, fallback
+                    )
+                else:
+                    plan = fallback
+                for probe_name, prompt in plan:
+                    results.append(
+                        self._probe_target(
+                            endpoint_ref=endpoint_ref,
+                            prompt=prompt,
+                            capability_name=f"{probe_name}@{endpoint_ref}",
+                        )
+                    )
+        context.probe_counts[self.name] = len(results)
+        return results
 
     def _probe_plan(
         self,
