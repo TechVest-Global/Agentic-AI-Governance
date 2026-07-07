@@ -13,7 +13,11 @@ from app.models.llm_call_log import LLMCallLog
 from app.schemas.governance import AgentRunCreate, AgentRunRead, AgentRunSummary, EvaluationPlanRead
 from app.services.agents.base import AgentContext
 from app.services.agents.registry import select_agents
-from app.services.model_clients.gateway import drain_log_capture, start_log_capture
+from app.services.model_clients.gateway import (
+    drain_log_capture,
+    set_current_agent,
+    start_log_capture,
+)
 from app.services.model_clients.registry import get_target_model_client
 from app.services.run_validation import get_run_or_raise
 from app.services.specialist_agents.metric_plans import build_metric_plan
@@ -66,6 +70,7 @@ def run_agents(
         session=session,
         target_client=get_target_model_client(),
         probe_counts={},
+        selected_capabilities=list(run.selected_capabilities or []),
     )
 
     created_findings: list[Finding] = []
@@ -84,6 +89,9 @@ def run_agents(
             },
         )
         session.add(execution)
+        # Attribute every LLM call this agent makes (probes + governance reasoning)
+        # to the agent, so the UI can show each agent only its own transcript.
+        set_current_agent(agent.name)
         try:
             finding_payloads = agent.evaluate(context)
         except Exception as exc:  # noqa: BLE001
@@ -100,6 +108,8 @@ def run_agents(
                 finding = Finding(run_id=run_id, **finding_payload.model_dump())
                 session.add(finding)
                 created_findings.append(finding)
+        finally:
+            set_current_agent(None)
         # Persist the real probe count (set by the agent during evaluate) so the
         # SSE progress stream can report a live "Probes Sent" total. Runs even on
         # failure so partial probing is still counted.

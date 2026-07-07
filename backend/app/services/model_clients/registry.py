@@ -36,17 +36,30 @@ GOVERNANCE_MODEL_CREDENTIAL_REF = "AZURE_AI_FOUNDRY_API_KEY"
 def get_target_model_client(settings: Settings | None = None) -> TargetModelClient:
     resolved = settings or get_settings()
 
-    # Priority 1: the real audited system (e.g. the TechVest RAG chatbot)
+    # Priority 1: the real audited system (TechVest chatbot or HR AI gateway,
+    # selected via TARGET_SYSTEM_KIND)
     if resolved.target_endpoint and resolved.target_api_key:
-        from app.services.model_clients.techvest import TechVestTargetModelClient
+        if resolved.target_system_kind == "hr_gateway":
+            from app.services.model_clients.hr_gateway import HRGatewayTargetModelClient
 
-        logger.info(
-            "Target client: real audited system (endpoint=%s)", resolved.target_endpoint
-        )
-        inner = TechVestTargetModelClient(
-            endpoint=resolved.target_endpoint,
-            api_key=resolved.target_api_key,
-        )
+            logger.info(
+                "Target client: HR AI gateway (endpoint=%s)", resolved.target_endpoint
+            )
+            inner: TargetModelClient = HRGatewayTargetModelClient(
+                endpoint=resolved.target_endpoint,
+                api_key=resolved.target_api_key,
+                timeout=resolved.llm_call_timeout_seconds,
+            )
+        else:
+            from app.services.model_clients.techvest import TechVestTargetModelClient
+
+            logger.info(
+                "Target client: real audited system (endpoint=%s)", resolved.target_endpoint
+            )
+            inner = TechVestTargetModelClient(
+                endpoint=resolved.target_endpoint,
+                api_key=resolved.target_api_key,
+            )
         return GatewayTargetModelClient(inner)
 
     # Priority 2: LiteLLM proxy

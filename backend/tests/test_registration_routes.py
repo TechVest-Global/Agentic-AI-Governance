@@ -117,6 +117,18 @@ def test_register_valid_full_payload(client: TestClient) -> None:
     assert body["system"]["risk_tier"] in {"low", "medium", "high"}
     assert 0 < body["profile_completeness"] <= 100
 
+    # Registration seeds the Application Context Profile so the Context Profiles
+    # page reflects business purpose / primary use / model config immediately.
+    system_id = body["system"]["id"]
+    profile = client.get(f"{BASE}/{system_id}/context-profile")
+    assert profile.status_code == 200, profile.text
+    p = profile.json()
+    assert p["identity_purpose"]["business_purpose"] == "Reduce support handling time."
+    assert p["identity_purpose"]["primary_use_case"] == "Answer employee HR/IT questions."
+    assert p["identity_purpose"]["intended_users"] == "Internal employees"
+    assert p["model_configuration"]["provider"] == "azure_openai"
+    assert p["post_model_controls"]["human_oversight"] == "human_can_override"
+
 
 def test_register_rejects_missing_required(client: TestClient) -> None:
     response = client.post(

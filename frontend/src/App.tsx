@@ -19,7 +19,6 @@ import { MetricResults } from "@/pages/MetricResults";
 import { FindingsReview } from "@/pages/FindingsReview";
 import { LLMClientBoundary } from "@/pages/LLMClientBoundary";
 import { SecurityToolAdapters } from "@/pages/SecurityToolAdapters";
-import { AISystemSetup } from "@/pages/AISystemSetup";
 import { ApplicationContextProfiles } from "@/pages/ApplicationContextProfiles";
 import { Capabilities } from "@/pages/Capabilities";
 import { MetricsConfiguration } from "@/pages/MetricsConfiguration";
@@ -44,7 +43,6 @@ const pages = {
   reports: Reports,
   evidence: Evidence,
   ledger: AuditLedger,
-  "system-setup": AISystemSetup,
   "context-profiles": ApplicationContextProfiles,
   capabilities: Capabilities,
   "metrics-config": MetricsConfiguration,

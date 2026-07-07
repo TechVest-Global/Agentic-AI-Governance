@@ -35,6 +35,9 @@ class AgentContext:
     # agents record their probe count here so the SSE progress endpoint can report
     # a real "Probes Sent" figure instead of a hardcoded 0.
     probe_counts: dict[str, int] = None  # type: ignore[assignment]
+    # Audit scope: capability endpoint_refs to probe (e.g. ["parse-resume"]).
+    # Empty = whole application (probe the system's base endpoint).
+    selected_capabilities: list[str] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         # default to empty dict so agents can always do .get() safely
@@ -46,6 +49,34 @@ class AgentContext:
             object.__setattr__(self, "metric_plan_items", [])
         if self.probe_counts is None:
             object.__setattr__(self, "probe_counts", {})
+        if self.selected_capabilities is None:
+            object.__setattr__(self, "selected_capabilities", [])
+
+    def probe_endpoints(self) -> list[str]:
+        """Endpoint refs a model-backed agent should probe.
+
+        When the run scoped the audit to specific capabilities, return those
+        endpoint_refs (resolving each selected capability to its real
+        endpoint_ref). Otherwise return the single base endpoint — the
+        whole-application default, unchanged from prior behavior.
+        """
+        base = (
+            getattr(self.ai_system, "target_endpoint_ref", None)
+            or getattr(self.ai_system, "name", None)
+            or "default"
+        )
+        if not self.selected_capabilities:
+            return [base]
+
+        # Map selected values (endpoint_ref or capability name) to endpoint_refs.
+        by_ref = {c.endpoint_ref: c.endpoint_ref for c in self.capabilities}
+        by_name = {c.name: c.endpoint_ref for c in self.capabilities}
+        resolved: list[str] = []
+        for selected in self.selected_capabilities:
+            ref = by_ref.get(selected) or by_name.get(selected) or selected
+            if ref not in resolved:
+                resolved.append(ref)
+        return resolved or [base]
 
 
 class GovernanceAgent(Protocol):
