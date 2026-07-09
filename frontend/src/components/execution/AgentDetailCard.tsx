@@ -15,6 +15,7 @@ import {
   MessageSquare,
   SearchCheck,
   Terminal,
+  Wrench,
 } from "lucide-react";
 import clsx from "clsx";
 import { useAppStore } from "@/store/useAppStore";
@@ -24,6 +25,7 @@ import {
   type AgentPlanItem,
   type BackendFinding,
   type ContextAssemblyRead,
+  type FindingToolCall,
   type LlmCall,
 } from "@/api/governanceApi";
 import {
@@ -31,6 +33,7 @@ import {
   complianceMapperDetail,
   driftAnalystDetail,
 } from "@/data/executionLayerData";
+import { metricBlurb, metricName } from "@/data/metricCatalog";
 
 export type AgentTab = "Overview" | "Probes" | "Evidence" | "Frameworks" | "Remediation" | "Runtime";
 
@@ -50,9 +53,28 @@ export type IntelligenceAgent = {
   frameworks: string[];
   remediation: string[];
   timeline: Array<{ label: string; status: "complete" | "running" | "waiting"; detail: string }>;
+  toolCalls: FindingToolCall[];
 };
 
 export const AGENT_TABS: AgentTab[] = ["Overview", "Probes", "Evidence", "Frameworks", "Remediation", "Runtime"];
+
+/**
+ * Turn a raw probe identifier into a readable title, keeping the pass number as
+ * a suffix. e.g. "demographic_parity_matched_pair_pass2" → "Demographic Parity
+ * Matched Pair (pass 2)"; "proxy_discrimination" → "Proxy Discrimination".
+ */
+function humanizeProbeTitle(raw: string | null | undefined): string {
+  if (!raw) return "Probe";
+  // Pull a trailing pass number (pass2 / _pass_3) out to a parenthetical suffix.
+  const passMatch = raw.match(/_?pass[_-]?(\d+)$/i);
+  const pass = passMatch ? ` (pass ${passMatch[1]})` : "";
+  const core = passMatch ? raw.slice(0, passMatch.index) : raw;
+  const words = core
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return `${words || "Probe"}${pass}`;
+}
 
 // Curated, agent-type reference metadata (purpose / checks / methods / frameworks /
 // default remediation). The live run supplies the rest — status, findings, evidence.
@@ -174,7 +196,9 @@ function describeProbeDesign(plan: AgentPlanItem | null): string {
   if (!plan) return "No evaluation plan entry recorded for this agent on this run.";
   if (!plan.activated) return `Not activated for this run. ${plan.rationale}`.trim();
   const metrics = plan.assigned_metric_ids.length
-    ? `Assigned metric${plan.assigned_metric_ids.length === 1 ? "" : "s"}: ${plan.assigned_metric_ids.join(", ")}.`
+    ? `Assigned metric${plan.assigned_metric_ids.length === 1 ? "" : "s"}: ${plan.assigned_metric_ids
+        .map((id) => (metricName(id) !== id ? `${id} (${metricName(id)})` : id))
+        .join(", ")}.`
     : "No metrics assigned.";
   return `Priority ${plan.priority} · probe budget ${plan.probe_budget}. ${metrics} ${plan.rationale}`.trim();
 }
@@ -234,6 +258,19 @@ function mapStatus(status: string): IntelligenceAgent["status"] {
   return "Waiting";
 }
 
+/** Findings carry the same tool_calls payload repeated across every finding from one
+ * evaluate() call — dedupe by tool+metric so each real tool invocation shows once. */
+function dedupeToolCalls(agentFindings: BackendFinding[]): FindingToolCall[] {
+  const byKey = new Map<string, FindingToolCall>();
+  for (const f of agentFindings) {
+    const calls = f.payload?.tool_calls ?? [];
+    for (const call of calls) {
+      byKey.set(`${call.tool_name}:${call.metric_id}`, call);
+    }
+  }
+  return Array.from(byKey.values());
+}
+
 /** A run can contain multiple execution rows for the same agent (re-probes) — keep only the latest. */
 function latestExecutionPerAgent(executions: AgentExecution[]): AgentExecution[] {
   const latestByCanon = new Map<string, AgentExecution>();
@@ -260,11 +297,16 @@ export function buildAgentsFromBackend(
     const meta = AGENT_META[canon] ?? fallbackMeta(execution.agent_name);
     const agentFindings = findings.filter((f) => canonicalAgent(f.agent_name ?? "") === canon);
     const realActions = agentFindings.map((f) => f.recommended_action).filter((a): a is string => Boolean(a));
+    const toolCalls = dedupeToolCalls(agentFindings);
     const completed = execution.status === "completed";
     const plan = plans.find((p) => canonicalAgent(p.agent_name) === canon) ?? null;
     const namedCalls = llmCalls.filter((c) => c.agent_name && canonicalAgent(c.agent_name) === canon);
-    // Older runs may not attribute agent_name on call records — fall back to the full call set for this run.
-    const agentCalls = namedCalls.length > 0 ? namedCalls : llmCalls;
+    // Scope strictly to this agent. Only fall back to the full set for legacy
+    // runs where NO call was attributed (older data lacking agent_name).
+    const anyAttributed = llmCalls.some((c) => c.agent_name);
+    const agentCalls = anyAttributed ? namedCalls : llmCalls;
+    // Real probe count = this agent's target calls (0 when it sent none).
+    const probeCount = agentCalls.filter((c) => c.call_type === "target").length;
     return {
       id: execution.agent_name,
       name: meta.name,
@@ -272,7 +314,7 @@ export function buildAgentsFromBackend(
       severity: highestSeverity(agentFindings),
       confidence: completed ? (execution.finding_count === 0 ? 96 : 74) : execution.status === "running" ? 40 : 0,
       confidenceImpact: agentFindings.length ? -Math.min(agentFindings.length * 5, 20) : 0,
-      probes: `${execution.finding_count} finding${execution.finding_count === 1 ? "" : "s"}`,
+      probes: `${probeCount} probe${probeCount === 1 ? "" : "s"}`,
       findings: execution.finding_count,
       purpose: meta.purpose,
       checks: meta.checks,
@@ -283,6 +325,7 @@ export function buildAgentsFromBackend(
       frameworks: meta.frameworks,
       remediation: realActions.length ? realActions : meta.remediation,
       timeline: buildTimeline(execution.status, plan, contextAssembly, agentCalls, agentFindings),
+      toolCalls,
     };
   });
 }
@@ -357,6 +400,12 @@ function ExpandedTab({
           <MiniMetric label="Probe Set" value={agent.probes} />
           <MiniMetric label="Confidence" value={agent.confidence ? `${agent.confidence}%` : "Pending"} />
         </div>
+        {agent.toolCalls.length > 0 && (
+          <div>
+            <SectionTitle icon={Wrench} title="Tools Used" />
+            <ToolCallList toolCalls={agent.toolCalls} />
+          </div>
+        )}
         <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-4">
           <Timeline items={agent.timeline} />
         </div>
@@ -437,11 +486,19 @@ function ProbesTab({ agent, runId }: { agent: IntelligenceAgent; runId: string |
     setLoading(true);
     getLlmCalls(runId)
       .then((log) => {
-        // Only target-call probes for this agent
+        // Only THIS agent's target-call probes. The backend stamps agent_name on
+        // every call, so we scope strictly — an agent that sent no probes shows
+        // an empty state rather than the whole run's shared probe set. Legacy
+        // rows without agent_name are only shown when nothing is attributed at all.
+        const anyAttributed = log.calls.some((c) => c.call_type === "target" && c.agent_name);
         const agentCalls = log.calls.filter(
-          (c) => c.call_type === "target" && (!c.agent_name || c.agent_name === agent.id),
+          (c) =>
+            c.call_type === "target" &&
+            (c.agent_name
+              ? c.agent_name === agent.id
+              : !anyAttributed),
         );
-        setCalls(agentCalls.length > 0 ? agentCalls : log.calls.filter((c) => c.call_type === "target"));
+        setCalls(agentCalls);
       })
       .catch(() => setCalls([]))
       .finally(() => setLoading(false));
@@ -529,8 +586,8 @@ function ProbesTab({ agent, runId }: { agent: IntelligenceAgent; runId: string |
                     </span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[12px] font-semibold text-slate-900 dark:text-white font-mono">
-                          {call.task ?? "probe"}
+                        <span className="text-[12px] font-semibold text-slate-900 dark:text-white">
+                          {humanizeProbeTitle(call.task)}
                         </span>
                         <span className={clsx(
                           "rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
@@ -544,6 +601,11 @@ function ProbesTab({ agent, runId }: { agent: IntelligenceAgent; runId: string |
                           target
                         </span>
                       </div>
+                      {call.task && (
+                        <div className="mt-0.5 font-mono text-[10px] text-slate-400 dark:text-slate-500 truncate">
+                          {call.task}
+                        </div>
+                      )}
                       <div className="mt-0.5 flex items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400">
                         {call.latency_ms != null && (
                           <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{call.latency_ms} ms</span>
@@ -955,6 +1017,75 @@ export function AgentGlyph({ agent }: { agent: IntelligenceAgent }) {
         .join("")
         .slice(0, 2)}
     </span>
+  );
+}
+
+const TOOL_LABELS: Record<string, string> = {
+  garak: "Garak",
+  presidio: "Presidio",
+  ragas: "Ragas",
+  deepeval: "DeepEval",
+};
+
+/** Real evidence-tool invocations this agent made while forming its findings —
+ * e.g. DeepEval's BiasMetric scoring a fairness metric, Garak probing for
+ * jailbreak resistance. Distinct from LLM probes: these are actual scoring
+ * library calls, not prompts sent to the target/governance model. */
+function ToolCallList({ toolCalls }: { toolCalls: FindingToolCall[] }) {
+  return (
+    <div className="space-y-2">
+      {toolCalls.map((call) => {
+        const skipped = call.status === "skipped";
+        return (
+          <div
+            key={`${call.tool_name}-${call.metric_id}`}
+            className={clsx(
+              "flex items-center justify-between gap-3 rounded border px-3 py-2.5",
+              skipped
+                ? "border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40"
+                : call.passed === false
+                ? "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/20"
+                : "border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/20"
+            )}
+          >
+            <div className="flex items-start gap-2.5 min-w-0">
+              <Wrench className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500" />
+              <div className="min-w-0">
+                <p className="text-[12px] font-semibold text-slate-900 dark:text-white">
+                  {metricName(call.metric_id)}
+                  <span className="ml-1.5 font-mono text-[11px] font-normal text-slate-400 dark:text-slate-500">
+                    {call.metric_id}
+                  </span>
+                </p>
+                <p className="mt-0.5 text-[11.5px] leading-snug text-slate-500 dark:text-slate-400">
+                  {metricBlurb(call.metric_id)}
+                </p>
+                <p className="mt-0.5 text-[10.5px] text-slate-400 dark:text-slate-500">
+                  Scored by {TOOL_LABELS[call.tool_name] ?? call.tool_name}
+                  {call.formula ? ` · ${call.formula}` : ""}
+                </p>
+              </div>
+            </div>
+            <div className="shrink-0 text-right">
+              {skipped ? (
+                <span className="text-[11px] text-slate-400 dark:text-slate-500">skipped</span>
+              ) : (
+                <span
+                  className={clsx(
+                    "text-[12px] font-semibold",
+                    call.passed === false
+                      ? "text-red-700 dark:text-red-400"
+                      : "text-emerald-700 dark:text-emerald-400"
+                  )}
+                >
+                  {call.normalized_score != null ? `${Math.round(call.normalized_score * 100)}%` : "—"}
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

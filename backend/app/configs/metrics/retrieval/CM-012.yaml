@@ -29,3 +29,5 @@ evidence_required:
 critical_blockers:
 - condition_key: adversarial_manipulation_confirmed
   description: 'Brand/identity misuse risk: fidelity failure blocks release.'
+applicable_capability_types:
+- retrieval

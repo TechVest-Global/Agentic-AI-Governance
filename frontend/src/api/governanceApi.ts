@@ -27,6 +27,7 @@ export type BackendAISystemCreate = {
   owner: string;
   system_type: string;
   risk_tier: "low" | "medium" | "high";
+  modality?: string;
   deployment_environment: string;
   selected_frameworks: string[];
   model_provider: string;
@@ -61,6 +62,273 @@ export type BackendAISystemCapabilityCreate = Omit<
   BackendAISystemCapability,
   "id" | "ai_system_id" | "created_at" | "updated_at"
 >;
+
+/* ─── Registration form options + frameworks (backend-sourced) ─── */
+
+export type OptionItem = { value: string; label: string };
+
+export type RegistrationFrameworkOption = {
+  framework_id: string;
+  framework_name: string;
+  framework_version: string;
+  description: string;
+  rubric_count: number;
+  probe_count: number;
+  coverage_count: number;
+};
+
+export type RegistrationOptions = {
+  risk_tiers: OptionItem[];
+  modalities: OptionItem[];
+  deployment_environments: OptionItem[];
+  application_types: OptionItem[];
+  domains: OptionItem[];
+  model_providers: OptionItem[];
+  capability_types: OptionItem[];
+  side_effect_levels: OptionItem[];
+  http_methods: OptionItem[];
+  statuses: OptionItem[];
+  // Enhanced registration catalogs (Phase 1) — all optional for backward compat.
+  system_types?: OptionItem[];
+  business_domains?: OptionItem[];
+  lifecycle_stages?: OptionItem[];
+  production_criticalities?: OptionItem[];
+  internal_external_use?: OptionItem[];
+  output_usage?: OptionItem[];
+  human_oversight?: OptionItem[];
+  owner_roles?: OptionItem[];
+  model_types?: OptionItem[];
+  input_modalities?: OptionItem[];
+  output_types?: OptionItem[];
+  capability_tags?: OptionItem[];
+  gateway_types?: OptionItem[];
+  authentication_types?: OptionItem[];
+  exposure_types?: OptionItem[];
+  endpoint_statuses?: OptionItem[];
+  applicability_types?: OptionItem[];
+  // Phase 2 catalogs
+  data_source_types?: OptionItem[];
+  data_classifications?: OptionItem[];
+  data_usage_purposes?: OptionItem[];
+  security_controls?: OptionItem[];
+  security_statuses?: OptionItem[];
+  dependency_types?: OptionItem[];
+  document_types?: OptionItem[];
+  confidentiality_levels?: OptionItem[];
+};
+
+// ── Enhanced AI system registration (nested request + response) ───────────────
+
+export type RegistrationSystemInput = {
+  name: string;
+  version?: string | null;
+  description?: string | null;
+  business_purpose?: string | null;
+  system_type?: string | null;
+  business_domain?: string | null;
+  lifecycle_stage?: string | null;
+  deployment_environment?: string;
+  modality?: string;
+  business_unit?: string | null;
+  product_name?: string | null;
+  internal_identifier?: string | null;
+  production_criticality?: string | null;
+  notes?: string | null;
+};
+
+export type RegistrationUsageContextInput = {
+  primary_use_case?: string | null;
+  intended_users?: string | null;
+  internal_external_use?: string | null;
+  output_usage?: string | null;
+  human_oversight?: string | null;
+  input_modalities?: string[];
+  output_types?: string[];
+  capabilities?: string[];
+  metadata_json?: Record<string, unknown>;
+};
+
+export type RegistrationOwnerInput = {
+  role: string;
+  name: string;
+  email?: string | null;
+  is_primary?: boolean;
+};
+
+export type RegistrationModelInput = {
+  name: string;
+  provider: string;
+  version?: string | null;
+  deployment_name?: string | null;
+  model_type?: string | null;
+  purpose?: string | null;
+  hosting_platform?: string | null;
+  hosting_region?: string | null;
+  base_model?: string | null;
+  is_fine_tuned?: boolean;
+  is_open_source?: boolean;
+  is_third_party?: boolean;
+  input_modalities?: string[];
+  output_modalities?: string[];
+  safety_filters_enabled?: boolean;
+  fallback_model?: string | null;
+  documentation_url?: string | null;
+};
+
+export type RegistrationEndpointInput = {
+  name: string;
+  url: string;
+  purpose?: string | null;
+  http_method?: string;
+  environment?: string;
+  model_ref?: string | null;
+  gateway_type?: string | null;
+  authentication_type?: string | null;
+  exposure_type?: string | null;
+  is_public?: boolean;
+  input_format?: string | null;
+  output_format?: string | null;
+  rate_limit?: number | null;
+  timeout_seconds?: number | null;
+  logging_enabled?: boolean;
+  monitoring_enabled?: boolean;
+  pii_allowed?: boolean;
+  retention_days?: number | null;
+  status?: string;
+};
+
+export type RegistrationFrameworkInput = {
+  framework_id: string;
+  applicability_type?: string;
+  applicability_note?: string | null;
+};
+
+export type RegistrationRiskScreeningInput = {
+  answers: Record<string, "yes" | "no" | "unknown">;
+};
+
+export type RegistrationDataSourceInput = {
+  name: string;
+  source_type?: string | null;
+  classification?: string | null;
+  usage_purpose?: string | null;
+  data_owner?: string | null;
+  source_location?: string | null;
+  residency?: string | null;
+  retention_days?: number | null;
+  used_for_training?: boolean;
+  used_for_fine_tuning?: boolean;
+  used_for_inference?: boolean;
+  used_for_rag?: boolean;
+  external_sharing?: boolean;
+  contains_personal_data?: boolean;
+  contains_sensitive_personal_data?: boolean;
+  contains_confidential_data?: boolean;
+  contains_health_data?: boolean;
+  contains_financial_data?: boolean;
+  contains_biometric_data?: boolean;
+  contains_minors_data?: boolean;
+};
+
+export type RegistrationRAGConfigInput = {
+  knowledge_base_name?: string | null;
+  vector_database?: string | null;
+  embedding_model?: string | null;
+  reranking_model?: string | null;
+  retrieval_strategy?: string | null;
+  top_k?: number | null;
+  citations_enabled?: boolean;
+  access_control_applied?: boolean;
+  document_refresh_frequency?: string | null;
+};
+
+export type RegistrationAgentConfigInput = {
+  agent_purpose?: string | null;
+  num_agents?: number | null;
+  tools_used?: string[];
+  external_systems?: string[];
+  read_access?: boolean;
+  write_access?: boolean;
+  can_send_messages?: boolean;
+  can_modify_files?: boolean;
+  can_write_database?: boolean;
+  can_execute_code?: boolean;
+  human_approval_required?: boolean;
+  max_steps?: number | null;
+  max_execution_seconds?: number | null;
+  persistent_memory_enabled?: boolean;
+};
+
+export type RegistrationSecurityControlInput = {
+  control_key: string;
+  implementation_status?: string;
+  notes?: string | null;
+};
+
+export type RegistrationDependencyInput = {
+  name: string;
+  service_purpose?: string | null;
+  dependency_type?: string | null;
+  data_shared?: string | null;
+  hosting_region?: string | null;
+  is_critical?: boolean;
+  is_third_party_api?: boolean;
+  contract_sla_available?: boolean;
+  exit_option?: string | null;
+};
+
+export type RegistrationDocumentInput = {
+  name: string;
+  document_type?: string | null;
+  version?: string | null;
+  document_owner?: string | null;
+  related_framework?: string | null;
+  confidentiality_level?: string | null;
+  storage_ref?: string | null;
+  content_type?: string | null;
+  file_size?: number | null;
+  notes?: string | null;
+};
+
+export type AISystemRegistrationCreate = {
+  status: "draft" | "registered";
+  system: RegistrationSystemInput;
+  usage_context?: RegistrationUsageContextInput | null;
+  owners?: RegistrationOwnerInput[];
+  models?: RegistrationModelInput[];
+  endpoints?: RegistrationEndpointInput[];
+  frameworks?: RegistrationFrameworkInput[];
+  risk_screening?: RegistrationRiskScreeningInput | null;
+  data_sources?: RegistrationDataSourceInput[];
+  rag_configuration?: RegistrationRAGConfigInput | null;
+  agent_configuration?: RegistrationAgentConfigInput | null;
+  security_posture?: RegistrationSecurityControlInput[];
+  dependencies?: RegistrationDependencyInput[];
+  documents?: RegistrationDocumentInput[];
+};
+
+export type AISystemRegistrationRead = {
+  system: BackendAISystem;
+  usage_context?: Record<string, unknown> | null;
+  owners: Array<Record<string, unknown>>;
+  models: Array<Record<string, unknown>>;
+  endpoints: Array<Record<string, unknown>>;
+  frameworks: Array<Record<string, unknown>>;
+  capabilities: BackendAISystemCapability[];
+  risk_screening?: Record<string, unknown> | null;
+  data_sources: Array<Record<string, unknown>>;
+  rag_configuration?: Record<string, unknown> | null;
+  agent_configuration?: Record<string, unknown> | null;
+  security_posture: Array<Record<string, unknown>>;
+  dependencies: Array<Record<string, unknown>>;
+  documents: Array<Record<string, unknown>>;
+  preliminary_risk_score: number;
+  preliminary_risk_tier: string;
+  triggered_risk_factors: string[];
+  profile_completeness: number;
+  missing_recommended_fields: string[];
+  registration_status: "draft" | "registered";
+};
 
 export type EvaluationRun = {
   id: string;
@@ -195,6 +463,15 @@ export type CouncilDeliberation = {
 
 export type FindingSeverity = "info" | "low" | "medium" | "high" | "critical";
 
+export type FindingToolCall = {
+  tool_name: string;
+  metric_id: string;
+  formula: string;
+  status: string;
+  normalized_score: number | null;
+  passed: boolean | null;
+};
+
 export type BackendFinding = {
   id: string;
   run_id: string;
@@ -209,6 +486,7 @@ export type BackendFinding = {
   agent_name?: string | null;
   recommended_action?: string | null;
   status: string;
+  payload?: { tool_calls?: FindingToolCall[]; [key: string]: unknown } | null;
   created_at: string;
 };
 
@@ -247,6 +525,8 @@ export type EvaluationRunCreatePayload = {
   ai_system_id: string;
   selected_frameworks: string[];
   selected_metrics: string[];
+  // Capability endpoint_refs to scope the audit to. Empty = whole application.
+  selected_capabilities?: string[];
 };
 
 export type OrchestrationResult = {
@@ -258,8 +538,16 @@ export type OrchestrationResult = {
 };
 
 export async function getLatestEvaluationRun(): Promise<EvaluationRun | null> {
-  const runs = await request<EvaluationRun[]>("/evaluation-runs?limit=1");
-  return runs[0] ?? null;
+  // Fetch a small page (newest first) and prefer the most recent run that has
+  // actually started, so a stray/aborted "created" row doesn't hijack the Live
+  // Run view and pin it to "Run Setup" forever. Fall back to the newest overall
+  // only when nothing has started yet.
+  const runs = await request<EvaluationRun[]>("/evaluation-runs?limit=10");
+  if (runs.length === 0) return null;
+  const started = runs.find(
+    (r) => r.status !== "created" && r.current_phase !== "created",
+  );
+  return started ?? runs[0];
 }
 
 export async function listMetrics(): Promise<MetricConfig[]> {
@@ -273,14 +561,23 @@ export async function createEvaluationRun(payload: EvaluationRunCreatePayload): 
   });
 }
 
-export async function orchestrateRun(runId: string, mockScore = 0.3): Promise<{ run_id: string; status: string }> {
+export async function orchestrateRun(runId: string): Promise<{ run_id: string; status: string }> {
   return request<{ run_id: string; status: string }>(`/evaluation-runs/${runId}/orchestrate`, {
     method: "POST",
-    // logs: [] (rather than omitted) makes the backend actually run Context Assembly —
-    // an explicit empty list still executes the layer, just with nothing to analyze.
-    // evaluator_name: "threshold" scores metrics deterministically from each metric's
-    // real threshold_rules instead of the "mock" default, which never computes a real score.
-    body: JSON.stringify({ mock_score: mockScore, force_metric_status: "failed", evaluator_name: "threshold", requested_by: "frontend", notes: "Triggered from UI.", logs: [] }),
+    // logs omitted here: the backend synthesizes a deterministic, system-specific
+    // production-log sample when a run supplies none, so Context Assembly and the
+    // adaptive orchestrator get real per-system evidence instead of an empty result.
+    // (A user-uploaded log sample would be passed here to override the synthesizer.)
+    // evaluator_name: "auto" routes each metric to the real tool its own config names
+    // (garak/presidio/ragas/deepeval), falling back to deterministic threshold scoring
+    // for metrics whose tool has no real integration yet (langfuse/evidently/promptfoo).
+    //
+    // No force_metric_status: each metric now reports its REAL status (passed/failed
+    // from score-vs-threshold) instead of every result being forced to "failed".
+    // mock_score: 0.5 is the threshold evaluator's "no external score supplied"
+    // sentinel — it derives a conservative score from each metric's own threshold so
+    // fallback metrics surface as borderline rather than a blanket pass or fail.
+    body: JSON.stringify({ mock_score: 0.5, evaluator_name: "auto", requested_by: "frontend", notes: "Triggered from UI." }),
   });
 }
 
@@ -354,6 +651,33 @@ export async function createAISystemCapability(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+/** Register a complete AI system (nested facts) — derives a preliminary risk tier. */
+export async function registerAISystem(
+  payload: AISystemRegistrationCreate,
+): Promise<AISystemRegistrationRead> {
+  return request<AISystemRegistrationRead>("/ai-systems/register", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Fetch the complete nested registration record for an AI system. */
+export async function getAISystemRegistration(
+  systemId: string,
+): Promise<AISystemRegistrationRead> {
+  return request<AISystemRegistrationRead>(`/ai-systems/${systemId}/registration`);
+}
+
+/** Applicable governance frameworks the platform implements (for registration). */
+export async function listRegistrationFrameworks(): Promise<RegistrationFrameworkOption[]> {
+  return request<RegistrationFrameworkOption[]>("/governance-config/frameworks");
+}
+
+/** Backend-sourced dropdown options for the registration form. */
+export async function getRegistrationOptions(): Promise<RegistrationOptions> {
+  return request<RegistrationOptions>("/governance-config/options");
 }
 
 /* ──────────────────────────────────────────────────────────── Evidence ── */
@@ -528,6 +852,8 @@ export type ContextAssemblyRead = {
   gap_count: number;
   highest_gap_severity?: string | null;
   counts: Record<string, number>;
+  /** Provenance, e.g. "Log source: synthesized (12 record(s))." when no logs were uploaded. */
+  notes?: string | null;
 };
 
 export async function getContextAssembly(runId: string): Promise<ContextAssemblyRead | null> {
@@ -572,6 +898,24 @@ export async function upsertContextProfile(
 
 export async function listCapabilities(systemId: string): Promise<BackendAISystemCapability[]> {
   return request<BackendAISystemCapability[]>(`/ai-systems/${systemId}/capabilities?limit=100`);
+}
+
+export type CatalogImportResult = {
+  system_id: string;
+  catalog_name?: string | null;
+  total: number;
+  imported: number;
+  skipped: number;
+  capabilities: Array<{ id: string; name: string; endpoint_ref: string; http_method: string }>;
+};
+
+/** Import all of a multi-endpoint target's functions as capabilities, from its
+ *  gateway catalog (idempotent). */
+export async function importCapabilitiesFromCatalog(systemId: string): Promise<CatalogImportResult> {
+  return request<CatalogImportResult>(`/ai-systems/${systemId}/capabilities/import-from-catalog`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
 }
 
 /* ─────────────────────────────────────────────────── Metric results ── */
@@ -740,6 +1084,103 @@ export async function cancelRun(runId: string): Promise<EvaluationRun> {
 
 export async function getEvaluationRun(runId: string): Promise<EvaluationRun> {
   return request<EvaluationRun>(`/evaluation-runs/${runId}`);
+}
+
+/* ─────────────────────────────────────────── Security tools ── */
+
+export type SecurityAdapterStatus = {
+  key: string;
+  name: string;
+  category: string;
+  description: string;
+  kind: "real" | "mock" | "deterministic";
+  dependency: string | null;
+  dependency_installed: boolean;
+  configured: boolean;
+  available: boolean;
+  detail: string;
+};
+
+export type SecurityToolsStatus = {
+  target_client: { mode: string; adapter: string; live: boolean };
+  adapters: SecurityAdapterStatus[];
+  summary: { total: number; available: number; real: number };
+};
+
+export async function getSecurityTools(): Promise<SecurityToolsStatus> {
+  return request<SecurityToolsStatus>(`/security-tools`);
+}
+
+/* ─────────────────────────────────────────── LLM client boundary ── */
+
+export type ClientBoundaryClient = {
+  mode: "real" | "mock";
+  provider: string;
+  credential_ref: string;
+};
+
+export type ClientBoundaryStatus = {
+  governance: ClientBoundaryClient;
+  target: ClientBoundaryClient;
+};
+
+export type BoundaryTestResult = {
+  prompt: string;
+  target_mode: "real" | "mock";
+  provider: string;
+  trace_id: string;
+  latency_ms: number;
+  raw: string;
+  sanitized: string;
+  redaction_count: number;
+  warnings: string[];
+  warning_count: number;
+  fenced: string;
+  caught_something: boolean;
+};
+
+export async function getClientBoundary(): Promise<ClientBoundaryStatus> {
+  return request<ClientBoundaryStatus>(`/client-boundary`);
+}
+
+/** Send a prompt to the REAL target model and return the sanitized + fenced result. */
+export async function runBoundaryTest(prompt: string): Promise<BoundaryTestResult> {
+  return request<BoundaryTestResult>(`/client-boundary/test`, {
+    method: "POST",
+    body: JSON.stringify({ prompt }),
+  });
+}
+
+/* ─────────────────────────────────── Context document upload ── */
+
+export type RetrievalContextDocument = {
+  id: string;
+  ai_system_id: string;
+  title: string;
+  content: string;
+  source_uri: string | null;
+  tags: string[];
+  created_at: string;
+};
+
+export async function uploadContextDocument(
+  systemId: string,
+  opts: { file?: File; text?: string; title?: string; tags?: string[] },
+): Promise<RetrievalContextDocument> {
+  const form = new FormData();
+  if (opts.file) form.append("file", opts.file);
+  if (opts.text) form.append("text", opts.text);
+  if (opts.title) form.append("title", opts.title);
+  if (opts.tags?.length) form.append("tags", opts.tags.join(","));
+  // Note: no Content-Type header — the browser sets the multipart boundary.
+  const response = await fetch(
+    `${API_BASE_URL}/ai-systems/${systemId}/retrieval-context/upload`,
+    { method: "POST", body: form },
+  );
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json();
 }
 
 const TERMINAL_STATUSES = new Set(["completed", "report_ready", "failed", "cancelled", "canceled"]);

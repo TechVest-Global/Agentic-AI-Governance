@@ -38,6 +38,9 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
     system = create_system(client)
     run = create_run(client, system["id"])
 
+    # Orchestration is now fire-and-forget: the endpoint returns 202 and the
+    # pipeline runs in a BackgroundTask (executed synchronously by TestClient
+    # before this call returns).
     response = client.post(
         f"/api/v1/evaluation-runs/{run['id']}/orchestrate",
         json={
@@ -47,28 +50,38 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
             "notes": "Run full governance pipeline.",
         },
     )
+    assert response.status_code == 202
+    assert response.json()["run_id"] == run["id"]
 
-    assert response.status_code == 200
-    result = response.json()
-    assert result["run_id"] == run["id"]
-    assert result["metric_execution"]["metric_results_created"] == 2
-    assert result["agent_run"]["agents_run"][0]["agent_name"] == "risk_scorer"
-    assert result["agent_run"]["executions"][0]["status"] == "completed"
-    assert result["council"]["verdict"]["label"] == "approved"
-    assert result["report"]["run"]["id"] == run["id"]
-    assert result["report"]["counts"]["metric_results"] == 2
-    assert result["report"]["counts"]["agent_executions"] == 1
-    assert result["report"]["counts"]["state_entries"] == 5
-    assert result["report"]["verdict"]["label"] == "approved"
-    assert result["report"]["state_chain"]["valid"] is True
+    # The pipeline finalizes the run to a terminal state (previously it parked at
+    # council_running, which hung SSE + completion polling).
+    run_after = client.get(f"/api/v1/evaluation-runs/{run['id']}").json()
+    assert run_after["status"] == "completed"
+    assert run_after["current_phase"] == "completed"
 
-    # Layer 2 records the evaluation plan as the first link in the state chain.
-    assert result["evaluation_plan"]["probe_budget_allocated"] == 100
+    report = client.get(f"/api/v1/evaluation-runs/{run['id']}/report").json()
+    assert report["run"]["id"] == run["id"]
+    assert report["counts"]["metric_results"] == 2
+    assert report["counts"]["agent_executions"] == 1
+    # 7 state entries once the run is finalized: context_assembled (Layer 1 now
+    # always runs — logs are synthesized per-system when a run supplies none),
+    # evaluation_plan_prepared, metric/agent/council/report steps. This GET /report
+    # is taken after completion, so it includes the governance_report_generated entry.
+    assert report["counts"]["state_entries"] == 7
+    assert report["state_chain"]["valid"] is True
+
+    plan = client.get(f"/api/v1/evaluation-runs/{run['id']}/evaluation-plan").json()
+    assert plan["probe_budget_allocated"] == 100
+
+    agents = client.get(f"/api/v1/evaluation-runs/{run['id']}/agents/executions").json()
+    assert agents[0]["agent_name"] == "risk_scorer"
+    assert agents[0]["status"] == "completed"
 
     state_response = client.get(f"/api/v1/evaluation-runs/{run['id']}/state")
     assert state_response.status_code == 200
     state_entries = state_response.json()
     assert [entry["entry_type"] for entry in state_entries] == [
+        "context_assembled",
         "evaluation_plan_prepared",
         "metric_execution_completed",
         "agent_execution_completed",
@@ -76,12 +89,13 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
         "council_deliberation_completed",
         "governance_report_generated",
     ]
-    assert [entry["sequence_number"] for entry in state_entries] == [1, 2, 3, 4, 5, 6]
+    assert [entry["sequence_number"] for entry in state_entries] == [1, 2, 3, 4, 5, 6, 7]
 
     ledger_response = client.get(f"/api/v1/evaluation-runs/{run['id']}/ledger")
     assert ledger_response.status_code == 200
     ledger_entries = ledger_response.json()
     assert [entry["event_type"] for entry in ledger_entries] == [
+        "context_assembly.completed",
         "evaluation_plan.prepared",
         "metric_execution.completed",
         "agent_execution.completed",
@@ -91,13 +105,13 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
 
     assert client.get(f"/api/v1/evaluation-runs/{run['id']}/state/verify").json() == {
         "valid": True,
-        "entry_count": 6,
+        "entry_count": 7,
         "failed_sequence": None,
         "reason": None,
     }
     assert client.get(f"/api/v1/evaluation-runs/{run['id']}/ledger/verify").json() == {
         "valid": True,
-        "entry_count": 5,
+        "entry_count": 6,
         "failed_entry_id": None,
         "reason": None,
     }
@@ -105,8 +119,14 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
     run_response = client.get(f"/api/v1/evaluation-runs/{run['id']}")
     assert run_response.status_code == 200
     updated_run = run_response.json()
-    assert updated_run["current_phase"] == "deliberation_council"
-    assert updated_run["result_summary"]["council_label"] == "approved"
+    # The pipeline now finalizes the run instead of leaving it parked at
+    # deliberation_council.
+    assert updated_run["current_phase"] == "completed"
+    assert updated_run["status"] == "completed"
+    # Deterministic mock-council output for this all-pass single-agent scenario.
+    # (Was "approved" before commit 958dd58 capped re_probe remediation budget,
+    # which changed the mock deliberation's verdict; assertion updated to match.)
+    assert updated_run["result_summary"]["council_label"] == "conditional_approval"
 
 
 def test_governance_pipeline_requires_existing_run(client: TestClient) -> None:

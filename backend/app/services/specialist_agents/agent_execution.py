@@ -10,11 +10,17 @@ from app.models.evaluation import EvaluationRun
 from app.models.evidence import EvidenceRecord, MetricResult
 from app.models.finding import Finding
 from app.models.llm_call_log import LLMCallLog
-from app.schemas.governance import AgentRunCreate, AgentRunRead, AgentRunSummary
+from app.schemas.governance import AgentRunCreate, AgentRunRead, AgentRunSummary, EvaluationPlanRead
 from app.services.agents.base import AgentContext
 from app.services.agents.registry import select_agents
-from app.services.model_clients.gateway import drain_log_capture, start_log_capture
+from app.services.model_clients.gateway import (
+    drain_log_capture,
+    set_current_agent,
+    start_log_capture,
+)
+from app.services.model_clients.registry import get_target_model_client_for_system
 from app.services.run_validation import get_run_or_raise
+from app.services.specialist_agents.metric_plans import build_metric_plan
 
 
 def run_agents(
@@ -22,10 +28,33 @@ def run_agents(
     *,
     run_id: UUID,
     payload: AgentRunCreate,
+    evaluation_plan: EvaluationPlanRead | None = None,
+    probe_budget_override: int | None = None,
 ) -> AgentRunRead:
     run = get_run_or_raise(session, run_id)
+    # Enter the specialist-agents phase up front and commit, so a client polling
+    # the run / streaming SSE sees "Specialist Agents" become active while the
+    # (slow, real-target) agents run — instead of the phase only flipping after
+    # every agent finishes.
+    run.status = RunStatus.agents_running
+    run.current_phase = RunPhase.specialist_agents
+    run.updated_at = utc_now()
+    session.add(run)
+    session.commit()
+
     start_log_capture()
     ai_system = session.get(AISystem, run.ai_system_id)
+    if probe_budget_override is not None:
+        # Mid-council re_probe remediation needs a *bit* more sample size, not
+        # a full plan-scaled re-run (which could be up to 100 probes/agent) —
+        # cap it explicitly regardless of what the evaluation plan allocated.
+        probe_budgets = {name: probe_budget_override for name in (payload.agent_names or [])}
+    elif evaluation_plan is not None:
+        probe_budgets = {
+            item.agent_name: item.probe_budget for item in evaluation_plan.activated_agents
+        }
+    else:
+        probe_budgets = {}
     context = AgentContext(
         ai_system=ai_system,
         context_profile=_get_context_profile(session, ai_system_id=run.ai_system_id),
@@ -36,6 +65,12 @@ def run_agents(
         prior_metric_scores=_get_prior_metric_scores(
             session, ai_system_id=run.ai_system_id, current_run_id=run_id
         ),
+        probe_budgets=probe_budgets,
+        metric_plan_items=build_metric_plan(session, run_id=run_id).metrics,
+        session=session,
+        target_client=get_target_model_client_for_system(ai_system),
+        probe_counts={},
+        selected_capabilities=list(run.selected_capabilities or []),
     )
 
     created_findings: list[Finding] = []
@@ -54,6 +89,9 @@ def run_agents(
             },
         )
         session.add(execution)
+        # Attribute every LLM call this agent makes (probes + governance reasoning)
+        # to the agent, so the UI can show each agent only its own transcript.
+        set_current_agent(agent.name)
         try:
             finding_payloads = agent.evaluate(context)
         except Exception as exc:  # noqa: BLE001
@@ -70,6 +108,15 @@ def run_agents(
                 finding = Finding(run_id=run_id, **finding_payload.model_dump())
                 session.add(finding)
                 created_findings.append(finding)
+        finally:
+            set_current_agent(None)
+        # Persist the real probe count (set by the agent during evaluate) so the
+        # SSE progress stream can report a live "Probes Sent" total. Runs even on
+        # failure so partial probing is still counted.
+        execution.metadata_json = {
+            **(execution.metadata_json or {}),
+            "probe_count": context.probe_counts.get(agent.name, 0),
+        }
         execution.completed_at = utc_now()
         execution.updated_at = utc_now()
         executions.append(execution)

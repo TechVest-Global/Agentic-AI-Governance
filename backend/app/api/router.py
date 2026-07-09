@@ -4,12 +4,14 @@ from app.api.routes import (
     agents,
     ai_systems,
     audit_ledger,
+    boundary,
     configs,
     council,
     evaluation_runs,
     evidence,
     findings,
     governance_state,
+    security_tools,
     system,
     verdicts,
 )
@@ -26,3 +28,5 @@ api_router.include_router(governance_state.router, tags=["governance-state"])
 api_router.include_router(evidence.router, tags=["evidence"])
 api_router.include_router(findings.router, tags=["findings"])
 api_router.include_router(verdicts.router, tags=["verdicts"])
+api_router.include_router(security_tools.router, tags=["security-tools"])
+api_router.include_router(boundary.router, tags=["client-boundary"])

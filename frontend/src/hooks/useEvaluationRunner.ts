@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createEvaluationRun,
-  listMetrics,
   orchestrateRun,
   waitForRunCompletion,
   type BackendAISystem,
@@ -21,6 +20,8 @@ export type EvaluationRunnerState = {
 
 type EvaluationRunnerOptions = {
   onRunCreated?: (run: EvaluationRun) => void;
+  // Audit scope: capability endpoint_refs to probe. Empty/omitted = whole app.
+  selectedCapabilities?: string[];
 };
 
 const INITIAL: EvaluationRunnerState = {
@@ -67,16 +68,16 @@ export function useEvaluationRunner() {
     setRunnerState({ status: "running", runningSystemId: system.id, result: null, error: null });
     try {
       const frameworks = system.selected_frameworks ?? [];
-      const metrics = await listMetrics();
-      const selected = metrics
-        .filter((m) => m.framework_ids.some((f) => frameworks.includes(f)))
-        .map((m) => m.metric_id);
-      const selectedMetrics = selected.length > 0 ? selected : metrics.slice(0, 6).map((m) => m.metric_id);
 
+      // Leave selected_metrics empty so the backend's adaptive orchestrator
+      // plans metrics itself — it scopes them to this system's declared
+      // capabilities/modality instead of every enabled metric for every
+      // framework, so different systems get different metric sets.
       const evaluationRun = await createEvaluationRun({
         ai_system_id: system.id,
         selected_frameworks: frameworks,
-        selected_metrics: selectedMetrics,
+        selected_metrics: [],
+        selected_capabilities: options.selectedCapabilities ?? [],
       });
       options.onRunCreated?.(evaluationRun);
 
@@ -100,6 +101,9 @@ export function useEvaluationRunner() {
         // Cancelled by the user — leave status as-is (cancelRun handles it externally)
         return null;
       }
+      // Orchestration failed after the run was created + pinned. Unpin it so the
+      // Live Run view doesn't stay stuck on an orphaned "created" run forever.
+      setSelectedRunId(null);
       setRunnerState({
         status: "error",
         runningSystemId: null,

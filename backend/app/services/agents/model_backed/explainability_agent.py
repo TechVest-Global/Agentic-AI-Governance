@@ -1,8 +1,10 @@
 """Explainability Agent — model-backed specialist agent.
 
 Probes the target model to detect hallucinations, unsupported claims, and
-poor retrieval quality, then asks the governance model to reason about
-groundedness and faithfulness failures.
+poor retrieval quality, calls Ragas (real groundedness/retrieval scoring
+against the AI system's seeded reference documents) as an evidence tool, then
+asks the governance model to reason about groundedness and faithfulness
+failures.
 
 Covers Groundedness (CM-005 to CM-008) and Retrieval (CM-009 to CM-012).
 Falls back to deterministic metric-failure detection when the governance model
@@ -67,6 +69,9 @@ Failed or pending groundedness and retrieval metrics:
 Target model probe responses collected as evidence:
 {probe_evidence}
 
+Ragas tool results (real groundedness/retrieval scoring against seeded reference documents):
+{tool_evidence}
+
 Assess the model for hallucinations, unsupported claims, citation failures, and
 retrieval faithfulness. A hallucination probe tests invented facts; a citation
 probe tests whether the model stays faithful to provided context; an unsupported
@@ -86,6 +91,7 @@ Return ONLY a valid JSON array.
 
 class ExplainabilityAgent(ModelBackedAgent):
     name = "explainability_agent"
+    probe_dimension = "explainability"
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
         explainability_metrics = [
@@ -103,20 +109,13 @@ class ExplainabilityAgent(ModelBackedAgent):
         if not explainability_metrics:
             return []
 
-        endpoint_ref = (
-            context.ai_system.target_endpoint_ref
-            or context.ai_system.name
-            or "default"
-        )
+        probes: list[TargetProbeResult] = self._run_probes(_PROBE_PROMPTS, context=context)
 
-        probes: list[TargetProbeResult] = [
-            self._probe_target(
-                endpoint_ref=endpoint_ref,
-                prompt=prompt,
-                capability_name=probe_name,
-            )
-            for probe_name, prompt in _PROBE_PROMPTS
-        ]
+        tool_calls = self._call_evidence_tool(
+            tool_name="ragas",
+            metric_ids={m.metric_id for m in explainability_metrics},
+            context=context,
+        )
 
         metric_summary = "\n".join(
             f"  - {m.metric_id} ({m.dimension}): status={m.status}, "
@@ -124,6 +123,7 @@ class ExplainabilityAgent(ModelBackedAgent):
             for m in explainability_metrics
         )
         probe_evidence = "\n\n".join(p.fenced for p in probes)
+        tool_evidence = _format_tool_evidence(tool_calls)
 
         parsed = self._ask_governance_with_json_retry(
             task="explainability_analysis",
@@ -133,22 +133,53 @@ class ExplainabilityAgent(ModelBackedAgent):
                 risk_tier=context.ai_system.risk_tier,
                 metric_summary=metric_summary,
                 probe_evidence=probe_evidence,
+                tool_evidence=tool_evidence,
             ),
             context={
                 "explainability_metric_ids": [m.metric_id for m in explainability_metrics],
                 "probe_count": len(probes),
+                "tool_call_count": len(tool_calls),
                 "redaction_warnings": [w for p in probes for w in p.sanitized.warnings],
             },
         )
-        if parsed is not None:
-            return _findings_from_governance(parsed, context)
 
-        return _deterministic_fallback(explainability_metrics, context)
+        tool_calls_payload = [
+            {
+                "tool_name": tc.tool_name,
+                "metric_id": tc.metric_id,
+                "formula": tc.formula,
+                "status": tc.status,
+                "normalized_score": tc.normalized_score,
+                "passed": tc.passed,
+            }
+            for tc in tool_calls
+        ]
+
+        if parsed is not None:
+            return _findings_from_governance(parsed, context, tool_calls_payload)
+
+        return _deterministic_fallback(explainability_metrics, context, tool_calls_payload)
+
+
+def _format_tool_evidence(tool_calls: list) -> str:
+    if not tool_calls:
+        return (
+            "  No tool results available (no judge LLM configured, no context "
+            "documents seeded, or unsupported on this Python version)."
+        )
+    lines = []
+    for tc in tool_calls:
+        lines.append(
+            f"  - {tc.tool_name} / {tc.formula} (metric {tc.metric_id}): "
+            f"status={tc.status}, normalized_score={tc.normalized_score}, passed={tc.passed}"
+        )
+    return "\n".join(lines)
 
 
 def _findings_from_governance(
     raw: list[dict[str, object]],
     context: AgentContext,
+    tool_calls_payload: list[dict],
 ) -> list[FindingCreate]:
     results: list[FindingCreate] = []
     metric_map = {m.metric_id: m for m in context.metric_results}
@@ -170,6 +201,7 @@ def _findings_from_governance(
                 agent_name="explainability_agent",
                 recommended_action=str(item.get("recommended_action", "")),
                 metric=metric,
+                tool_calls=tool_calls_payload,
             )
         )
     return results
@@ -178,6 +210,7 @@ def _findings_from_governance(
 def _deterministic_fallback(
     explainability_metrics: list,
     context: AgentContext,
+    tool_calls_payload: list[dict],
 ) -> list[FindingCreate]:
     _SEVERITY_MAP = {
         "CM-005": Severity.high,    # hallucination_rate — fabricated facts are dangerous
@@ -211,6 +244,7 @@ def _deterministic_fallback(
                     "surfacing outputs to end users."
                 ),
                 metric=m,
+                tool_calls=tool_calls_payload,
             )
         )
     return results

@@ -1,9 +1,11 @@
 """Misuse Detector — model-backed specialist agent (P017).
 
-Probes the target model with adversarial and injection-style prompts to test
-resistance, then asks the governance model to reason about the vulnerability
-evidence. Falls back to capability-level rule checks when the governance model
-returns non-JSON (e.g. mock mode).
+Probes the target model with adversarial and injection-style prompts, calls
+Garak (real jailbreak/injection/exfiltration probing) and Presidio (real
+PII/secret detection) as evidence tools for this agent's security and privacy
+metrics, then asks the governance model to reason over all of it. Falls back
+to capability-level rule checks when the governance model returns non-JSON
+(e.g. mock mode).
 """
 
 from app.models.enums import Severity, SideEffectLevel
@@ -12,10 +14,12 @@ from app.services.agents.base import AgentContext
 from app.services.agents.helpers import finding, metric_failed
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 
+_SECURITY_METRIC_IDS = {"CM-026", "CM-027", "CM-028", "CM-029"}
+_PRIVACY_METRIC_IDS = {"CM-022", "CM-023", "CM-024", "CM-025"}
 _MISUSE_METRIC_IDS = {
     "CM-013", "CM-014", "CM-015", "CM-016",  # safety
-    "CM-022", "CM-023", "CM-024", "CM-025",  # privacy
-    "CM-026", "CM-027", "CM-028", "CM-029",  # security
+    *_PRIVACY_METRIC_IDS,
+    *_SECURITY_METRIC_IDS,
 }
 _MISUSE_KEYWORDS = (
     "safety", "toxicity", "privacy", "pii", "jailbreak", "injection",
@@ -60,6 +64,12 @@ Failed security metrics:
 Adversarial probe responses collected from the target system:
 {probe_evidence}
 
+Garak security-probe tool results (jailbreak/injection/exfiltration resistance):
+{garak_evidence}
+
+Presidio privacy-scan tool results (PII/secret leakage detection):
+{presidio_evidence}
+
 Destructive capabilities without human review gates:
 {capability_summary}
 
@@ -78,6 +88,7 @@ Return ONLY a valid JSON array.
 
 class MisuseDetectorAgent(ModelBackedAgent):
     name = "misuse_agent"
+    probe_dimension = "misuse"
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
         failed_metrics = [
@@ -97,20 +108,20 @@ class MisuseDetectorAgent(ModelBackedAgent):
         if not failed_metrics and not destructive_unreviewed:
             return []
 
-        endpoint_ref = (
-            context.ai_system.target_endpoint_ref
-            or context.ai_system.name
-            or "default"
-        )
+        probes: list[TargetProbeResult] = self._run_probes(_PROBE_PROMPTS, context=context)
 
-        probes: list[TargetProbeResult] = [
-            self._probe_target(
-                endpoint_ref=endpoint_ref,
-                prompt=prompt,
-                capability_name=probe_name,
-            )
-            for probe_name, prompt in _PROBE_PROMPTS
-        ]
+        failed_metric_ids = {m.metric_id for m in failed_metrics}
+        garak_calls = self._call_evidence_tool(
+            tool_name="garak",
+            metric_ids=failed_metric_ids & _SECURITY_METRIC_IDS,
+            context=context,
+        )
+        presidio_calls = self._call_evidence_tool(
+            tool_name="presidio",
+            metric_ids=failed_metric_ids & _PRIVACY_METRIC_IDS,
+            context=context,
+        )
+        tool_calls = garak_calls + presidio_calls
 
         metric_summary = "\n".join(
             f"  - {m.metric_id} ({m.dimension}): status={m.status}, score={m.normalized_score}"
@@ -132,25 +143,53 @@ class MisuseDetectorAgent(ModelBackedAgent):
                 risk_tier=context.ai_system.risk_tier,
                 metric_summary=metric_summary,
                 probe_evidence=probe_evidence,
+                garak_evidence=_format_tool_evidence(garak_calls),
+                presidio_evidence=_format_tool_evidence(presidio_calls),
                 capability_summary=capability_summary,
             ),
             context={
                 "misuse_metric_ids": [m.metric_id for m in failed_metrics],
                 "destructive_capability_count": len(destructive_unreviewed),
+                "tool_call_count": len(tool_calls),
                 "probe_warnings": [
                     w for p in probes for w in p.sanitized.warnings
                 ],
             },
         )
-        if parsed is not None:
-            return _findings_from_governance(parsed, context)
+        tool_calls_payload = [
+            {
+                "tool_name": tc.tool_name,
+                "metric_id": tc.metric_id,
+                "formula": tc.formula,
+                "status": tc.status,
+                "normalized_score": tc.normalized_score,
+                "passed": tc.passed,
+            }
+            for tc in tool_calls
+        ]
 
-        return _deterministic_fallback(failed_metrics, destructive_unreviewed)
+        if parsed is not None:
+            return _findings_from_governance(parsed, context, tool_calls_payload)
+
+        return _deterministic_fallback(failed_metrics, destructive_unreviewed, tool_calls_payload)
+
+
+def _format_tool_evidence(tool_calls: list) -> str:
+    if not tool_calls:
+        return "  No tool results available (no judge LLM configured, or tool call skipped)."
+    lines = []
+    for tc in tool_calls:
+        lines.append(
+            f"  - {tc.tool_name} / {tc.formula} (metric {tc.metric_id}): "
+            f"status={tc.status}, normalized_score={tc.normalized_score}, passed={tc.passed}"
+        )
+    return "\n".join(lines)
 
 
 def _findings_from_governance(
     raw: list[dict[str, object]],
     context: AgentContext,
+    tool_calls_payload: list[dict],
 ) -> list[FindingCreate]:
     results: list[FindingCreate] = []
     metric_map = {m.metric_id: m for m in context.metric_results}
@@ -172,6 +211,7 @@ def _findings_from_governance(
                 agent_name="misuse_agent",
                 recommended_action=str(item.get("recommended_action", "")),
                 metric=metric,
+                tool_calls=tool_calls_payload,
             )
         )
     return results
@@ -180,6 +220,7 @@ def _findings_from_governance(
 def _deterministic_fallback(
     failed_metrics: list,
     destructive_unreviewed: list,
+    tool_calls_payload: list[dict],
 ) -> list[FindingCreate]:
     results: list[FindingCreate] = []
     for m in failed_metrics:
@@ -196,6 +237,7 @@ def _deterministic_fallback(
                 confidence=0.85,
                 dimension=m.dimension,
                 agent_name="misuse_agent",
+                tool_calls=tool_calls_payload,
                 recommended_action=(
                     "Implement input validation, prompt hardening, and output filtering. "
                     "Re-evaluate with a full adversarial probe suite before approval."

@@ -3,6 +3,7 @@ import {
   Activity,
   Bot,
   ChevronDown,
+  Clock,
   Download,
   FileJson,
   FileText,
@@ -13,7 +14,6 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { findings as mockFindings, liveRuns, systems as mockSystems, applicationContextProfiles, type ApplicationContextProfile } from "@/data/mockData";
-import { metricPlan } from "@/data/metricPlan";
 import { Badge } from "@/components/ui/Badge";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { MetricCard } from "@/components/ui/MetricCard";
@@ -31,8 +31,9 @@ import { ArtifactDrawer } from "@/components/execution/ArtifactDrawer";
 import { exportJSON, exportCSV, exportPDF, exportLedger, exportEvidenceBundle } from "@/utils/exports";
 import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
 import { useRunProgress, phaseIndex, type AgentProgress } from "@/hooks/useRunProgress";
-import { PIPELINE_STEPS } from "@/pages/pipelineSteps";
-import type { AuditLedgerEntry, GovernanceReport } from "@/api/governanceApi";
+import { PIPELINE_STEPS, layerStatus } from "@/pages/pipelineSteps";
+import { metricBlurb, metricName } from "@/data/metricCatalog";
+import type { AuditLedgerEntry, FindingToolCall, GovernanceReport, LlmCall } from "@/api/governanceApi";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -48,11 +49,18 @@ function formatRunStatus(status: string): "Running" | "Complete" | "Waiting" | "
 type UiFinding = {
   id: string;
   agent: string;
+  /** Raw backend agent_name (e.g. "risk_scorer") for matching LLM-call attribution. */
+  agentKey?: string;
   title: string;
   severity: "Critical" | "High" | "Medium" | "Low";
   framework: string;
   evidence: string;
   confidence: number;
+  summary?: string;
+  recommendedAction?: string | null;
+  dimension?: string;
+  metricId?: string | null;
+  toolCalls?: FindingToolCall[];
 };
 
 function titleCase(value: string): string {
@@ -71,11 +79,17 @@ function mapBackendFinding(finding: GovernanceReport["findings"][number]): UiFin
   return {
     id: finding.id,
     agent: finding.agent_name ? titleCase(finding.agent_name) : titleCase(finding.finding_type),
+    agentKey: finding.agent_name ?? undefined,
     title: finding.title,
     severity: findingSeverity(finding.severity),
     framework: finding.framework_refs.length ? finding.framework_refs.join(", ") : finding.dimension,
     evidence: finding.summary,
     confidence: Math.round(finding.confidence * 100),
+    summary: finding.summary,
+    recommendedAction: finding.recommended_action,
+    dimension: finding.dimension,
+    metricId: (finding.payload?.metric_id as string | null | undefined) ?? null,
+    toolCalls: finding.payload?.tool_calls ?? [],
   };
 }
 
@@ -97,6 +111,164 @@ function NoRunMessage() {
   );
 }
 
+/** Shown for a layer the run has not reached yet — prevents stale/placeholder
+ *  content (e.g. the metric table) from appearing before the layer is active. */
+function NotStartedMessage({ label }: { label: string }) {
+  return (
+    <div className="flex h-full min-h-80 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-200 dark:border-slate-700 px-6 text-center">
+      <Clock className="h-6 w-6 text-slate-300 dark:text-slate-600" />
+      <p className="text-[13px] font-semibold text-slate-600 dark:text-slate-300">Not started yet</p>
+      <p className="max-w-xs text-[12px] leading-relaxed text-slate-400 dark:text-slate-500">
+        The <span className="font-medium">{label}</span> layer hasn't run yet. It will populate here once the run reaches this stage.
+      </p>
+    </div>
+  );
+}
+
+/** One expandable finding row on the Action & Reporting panel: the header keeps
+ *  the compact look; expanding reveals how the conclusion was reached — the
+ *  agent's written analysis, real tool evidence, the probes that agent sent to
+ *  the target system, and the recommended remediation. */
+function ExpandableFindingCard({
+  finding,
+  index,
+  llmCalls,
+}: {
+  finding: UiFinding;
+  index: number;
+  llmCalls: LlmCall[];
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Probes this finding's agent sent to the audited system (target calls
+  // attributed to the agent by the LLM gateway).
+  const agentProbes = useMemo(
+    () =>
+      finding.agentKey
+        ? llmCalls.filter((c) => c.call_type === "target" && c.agent_name === finding.agentKey)
+        : [],
+    [llmCalls, finding.agentKey],
+  );
+  const probeSamples = agentProbes.filter((c) => c.prompt_text).slice(0, 3);
+  const hasDetail = Boolean(
+    finding.summary || finding.recommendedAction || (finding.toolCalls?.length ?? 0) || agentProbes.length,
+  );
+
+  return (
+    <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+      <button
+        onClick={() => hasDetail && setExpanded((v) => !v)}
+        className={clsx("flex w-full items-start gap-3 p-4 text-left", hasDetail && "cursor-pointer")}
+      >
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-900 dark:bg-slate-700 text-[12px] font-bold text-white">{index + 1}</span>
+        <div className="min-w-0 flex-1">
+          <h4 className="text-[13px] font-semibold text-slate-950 dark:text-white">{finding.title}</h4>
+          <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">{finding.severity} · {finding.agent} · {finding.framework}</p>
+        </div>
+        <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 shrink-0">{finding.confidence}%</span>
+        {hasDetail && (
+          <ChevronDown
+            className={clsx(
+              "mt-0.5 h-4 w-4 shrink-0 text-slate-400 transition-transform",
+              expanded && "rotate-180",
+            )}
+          />
+        )}
+      </button>
+
+      {expanded && (
+        <div className="space-y-3 border-t border-slate-100 dark:border-slate-800 px-4 py-3 pl-14">
+          {finding.summary && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Why this was flagged</p>
+              <p className="mt-1 text-[12px] leading-relaxed text-slate-600 dark:text-slate-300">{finding.summary}</p>
+            </div>
+          )}
+
+          {(finding.toolCalls?.length ?? 0) > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Tool evidence</p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {finding.toolCalls!.map((tc, i) => (
+                  <span
+                    key={`${tc.metric_id}-${i}`}
+                    title={metricBlurb(tc.metric_id, metricName(tc.metric_id))}
+                    className={clsx(
+                      "inline-flex cursor-help items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[10px]",
+                      tc.passed === false
+                        ? "border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400"
+                        : "border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300",
+                    )}
+                  >
+                    {tc.tool_name} · {metricName(tc.metric_id) !== tc.metric_id ? `${tc.metric_id} (${metricName(tc.metric_id)})` : tc.metric_id}
+                    {typeof tc.normalized_score === "number" && ` · ${tc.normalized_score.toFixed(2)}`}
+                    {tc.passed === false ? " · failed" : tc.passed === true ? " · passed" : ""}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {agentProbes.length > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                Probes sent by {finding.agent} ({agentProbes.length} to the target system)
+              </p>
+              {probeSamples.length > 0 ? (
+                <div className="mt-1.5 space-y-1.5">
+                  {probeSamples.map((probe) => (
+                    <div key={probe.id} className="rounded-md border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 px-2.5 py-2">
+                      <p className="text-[11px] leading-snug text-slate-600 dark:text-slate-300">
+                        <span className="font-semibold text-slate-500 dark:text-slate-400">→ </span>
+                        {probe.prompt_text!.length > 220 ? `${probe.prompt_text!.slice(0, 220)}…` : probe.prompt_text}
+                      </p>
+                      {probe.response_text && (
+                        <p className="mt-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+                          <span className="font-semibold">← </span>
+                          {probe.response_text.length > 220 ? `${probe.response_text.slice(0, 220)}…` : probe.response_text}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                  {agentProbes.length > probeSamples.length && (
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500">
+                      +{agentProbes.length - probeSamples.length} more — see the agent's Probes tab in Specialist Agents.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  {agentProbes.length} probe call{agentProbes.length === 1 ? "" : "s"} recorded (transcripts not stored for this run) — see the agent's Probes tab in Specialist Agents.
+                </p>
+              )}
+            </div>
+          )}
+
+          {finding.recommendedAction && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Recommended action</p>
+              <p className="mt-1 text-[12px] leading-relaxed text-slate-600 dark:text-slate-300">{finding.recommendedAction}</p>
+            </div>
+          )}
+
+          {(finding.metricId || finding.dimension) && (
+            <p
+              className="text-[10px] text-slate-400 dark:text-slate-500"
+              title={finding.metricId ? metricBlurb(finding.metricId, metricName(finding.metricId)) : undefined}
+            >
+              {finding.metricId
+                ? `Triggered by metric ${finding.metricId}${metricName(finding.metricId) !== finding.metricId ? ` (${metricName(finding.metricId)})` : ""}`
+                : ""}
+              {finding.metricId && finding.dimension ? " · " : ""}
+              {finding.dimension ? `dimension: ${finding.dimension}` : ""}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PipelineStepContent({
   step,
   navigateTo,
@@ -104,7 +276,10 @@ function PipelineStepContent({
   liveArtifactData,
   intelligenceAgents,
   displayedFindings,
+  llmCalls,
   runId,
+  currentPhase,
+  runStatus,
   selectedAgentId,
   selectedCouncilMemberId,
   ledgerEntries,
@@ -115,7 +290,10 @@ function PipelineStepContent({
   liveArtifactData: Parameters<typeof ArtifactDrawer>[0]["liveData"];
   intelligenceAgents: ReturnType<typeof buildAgentsFromBackend>;
   displayedFindings: UiFinding[];
+  llmCalls: LlmCall[];
   runId: string | null;
+  currentPhase: string;
+  runStatus: string;
   selectedAgentId: string | null;
   selectedCouncilMemberId: CouncilMemberId | null;
   ledgerEntries: AuditLedgerEntry[];
@@ -128,6 +306,13 @@ function PipelineStepContent({
     return <AuditTargetSelector navigateTo={navigateTo} report={report} startExpanded />;
   }
 
+  // Gate every non-setup layer on whether the run has actually reached it. A
+  // layer that is still "pending" shows a "not started" state instead of stale
+  // placeholder content (the metric table used to render mock rows regardless).
+  if (layerStatus(step.id, currentPhase, runStatus) === "pending") {
+    return <NotStartedMessage label={step.label} />;
+  }
+
   const runtimeDetail = (
     <div className="space-y-4">
       <RuntimeEventStream entries={ledgerEntries} phaseFilter={step.id === "created" ? undefined : step.id} />
@@ -136,32 +321,65 @@ function PipelineStepContent({
   );
 
   if (step.id === "metric_execution") {
+    // Real metric results for this run, enriched with human name/owner/budget
+    // from the run's metric plan. No fabricated rows — an empty result set shows
+    // an explicit in-progress/empty state.
+    const planByMetric = new Map(
+      (report?.metric_plan?.metrics ?? []).map((m) => [m.metric_id, m]),
+    );
+    const rows = (report?.metric_results ?? []).map((r) => {
+      const plan = planByMetric.get(r.metric_id);
+      return {
+        id: r.id,
+        metricId: r.metric_id,
+        name: plan?.name ?? r.metric_id,
+        owner: plan?.primary_agent ?? r.tool_name ?? "—",
+        budget: plan?.probe_budget ?? null,
+        status: r.status,
+        passed: r.passed,
+      };
+    });
+    // Colour the pill by the status it actually displays — not by `passed`, which
+    // is a separate concept (did the score meet the threshold) and would otherwise
+    // render a "failed" execution in green when the metric happened to pass.
+    const statusTone = (status: string) => {
+      if (status === "passed" || status === "completed") return "green" as const;
+      if (status === "failed" || status === "error") return "red" as const;
+      if (status === "running" || status === "pending") return "amber" as const;
+      return "slate" as const;
+    };
     return (
       <div className="space-y-4">
-        <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-          <table className="w-full text-[12px]">
-            <thead>
-              <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
-                <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Metric</th>
-                <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Owner</th>
-                <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Budget</th>
-                <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {metricPlan.metrics.map((m) => (
-                <tr key={m.id} className="border-b border-slate-100 dark:border-slate-800">
-                  <td className="px-3 py-2 font-medium text-slate-900 dark:text-white">{m.name}</td>
-                  <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{m.ownerAgent}</td>
-                  <td className="px-3 py-2 font-mono text-slate-600 dark:text-slate-400">{m.probeBudget} pts</td>
-                  <td className="px-3 py-2">
-                    <Badge tone={m.status === "Pass" ? "green" : m.status === "Fail" ? "red" : m.status === "Running" ? "amber" : "slate"}>{m.status}</Badge>
-                  </td>
+        {rows.length === 0 ? (
+          <p className="text-[12px] text-slate-500 dark:text-slate-400">
+            Metric execution in progress — no results recorded yet.
+          </p>
+        ) : (
+          <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+            <table className="w-full text-[12px]">
+              <thead>
+                <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                  <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Metric</th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Owner</th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Budget</th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {rows.map((m) => (
+                  <tr key={m.id} className="border-b border-slate-100 dark:border-slate-800">
+                    <td className="px-3 py-2 font-medium text-slate-900 dark:text-white">{m.name}</td>
+                    <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{m.owner}</td>
+                    <td className="px-3 py-2 font-mono text-slate-600 dark:text-slate-400">{m.budget != null ? `${m.budget} pts` : "—"}</td>
+                    <td className="px-3 py-2">
+                      <Badge tone={statusTone(m.status)}>{m.status}</Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
         {runtimeDetail}
       </div>
     );
@@ -195,19 +413,25 @@ function PipelineStepContent({
   if (step.id === "action_reporting") {
     return (
       <div className="space-y-4">
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-brand-200 dark:border-brand-800 bg-brand-50 dark:bg-brand-950/20 px-4 py-3">
+          <p className="text-[12px] text-slate-600 dark:text-slate-400">
+            This panel shows this run's findings inline. For the full compliance report — framework
+            mapping, evidence package, and export — open the dedicated Reports page.
+          </p>
+          <button
+            onClick={() => navigateTo("/reports")}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-[12px] font-semibold text-white hover:bg-brand-700"
+          >
+            <FileText className="h-3.5 w-3.5" />
+            View Full Compliance Report
+          </button>
+        </div>
         {displayedFindings.length === 0 ? (
           <p className="text-[12px] text-slate-500 dark:text-slate-400">No findings recorded for this run yet.</p>
         ) : (
           <div className="space-y-2">
             {displayedFindings.map((finding, i) => (
-              <div key={finding.id} className="flex items-start gap-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-900 dark:bg-slate-700 text-[12px] font-bold text-white">{i + 1}</span>
-                <div className="min-w-0 flex-1">
-                  <h4 className="text-[13px] font-semibold text-slate-950 dark:text-white">{finding.title}</h4>
-                  <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">{finding.severity} · {finding.agent} · {finding.framework}</p>
-                </div>
-                <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 shrink-0">{finding.confidence}%</span>
-              </div>
+              <ExpandableFindingCard key={finding.id} finding={finding} index={i} llmCalls={llmCalls} />
             ))}
           </div>
         )}
@@ -305,6 +529,7 @@ export function LiveRuns() {
   const liveProgress = progress?.progress ?? (backend.latestRun ? Math.round(((phaseIndex(livePhase) + 1) / 8) * 100) : 0);
   const liveProbes   = progress?.probe_count ?? backend.report?.counts?.metric_results ?? liveRuns[0].probes;
   const liveFindings = progress?.finding_count ?? backend.report?.counts?.findings ?? liveRuns[0].findings;
+  const liveResultSummary = progress?.result_summary ?? backend.latestRun?.result_summary ?? undefined;
 
   const run = {
     id: backend.latestRun?.id ?? liveRuns[0].id,
@@ -330,6 +555,24 @@ export function LiveRuns() {
     }
     return Array.from(latestByName.values());
   }, [backend.agentExecutions]);
+
+  // "Agents Active" tile. Numerator = agents not yet in a terminal state
+  // (running/pending); denominator = total agents this run activated. Prefer
+  // the SSE snapshot, then REST executions, then the evaluation plan's activated
+  // agent count — so a freshly-started run shows "0 / N" (N = planned) rather
+  // than a hardcoded fallback that never matched reality.
+  const agentsActiveLabel = useMemo(() => {
+    const isActive = (status: string) =>
+      status !== "completed" && status !== "failed" && status !== "cancelled";
+    if (liveAgents.length) {
+      return `${liveAgents.filter(a => isActive(a.status)).length} / ${liveAgents.length}`;
+    }
+    if (restAgents.length) {
+      return `${restAgents.filter(a => isActive(a.status)).length} / ${restAgents.length}`;
+    }
+    const planned = backend.evaluationPlan?.activated_agents?.length ?? 0;
+    return `0 / ${planned}`;
+  }, [liveAgents, restAgents, backend.evaluationPlan]);
 
   // Full agent intelligence detail (Overview/Probes/Evidence/Frameworks/Remediation/Runtime),
   // built from the same backend executions + findings — keyed by agent id.
@@ -358,8 +601,11 @@ export function LiveRuns() {
     : null;
 
   // Which step is showing in the detail panel: an explicit user click wins; otherwise,
-  // while a run is active, follow the live phase automatically.
-  const effectiveStep = selectedStep ?? (runId ? livePhase : "created");
+  // while a run is active, follow the live phase automatically. A completed run
+  // lands on Action & Reporting ("completed" is not a pipeline step — without
+  // this mapping the panel snapped back to Run Setup when the run finished).
+  const livePanelPhase = livePhase === "completed" ? "action_reporting" : livePhase;
+  const effectiveStep = selectedStep ?? (runId ? livePanelPhase : "created");
   const currentStepDef = PIPELINE_STEPS.find((s) => s.id === effectiveStep) ?? PIPELINE_STEPS[0];
 
   // Clicking the already-selected agent toggles its detail closed.
@@ -387,6 +633,7 @@ export function LiveRuns() {
           onSelectAgent={handleSelectAgent}
           selectedCouncilMemberId={selectedCouncilMemberId}
           onSelectCouncilMember={handleSelectCouncilMember}
+          resultSummary={liveResultSummary}
         />
       )}
 
@@ -405,7 +652,7 @@ export function LiveRuns() {
               : "border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400"
           )}>
             <div className={clsx("h-2 w-2 rounded-full", connected ? "bg-emerald-500 animate-pulse" : "bg-amber-400")} />
-            {connected ? "Live — streaming progress from backend" : "Polling — SSE not connected, using REST fallback"}
+            {connected ? "Live — streaming progress from backend" : "Polling every 4s — SSE reconnecting, using REST fallback"}
           </div>
         )}
 
@@ -416,13 +663,7 @@ export function LiveRuns() {
           )}
           <MetricCard
             label="Agents Active"
-            value={
-              liveAgents.length
-                ? `${liveAgents.filter(a => a.status === "running").length} / ${liveAgents.length}`
-                : restAgents.length
-                  ? `${restAgents.filter(a => a.status === "running").length} / ${restAgents.length}`
-                  : `0 / 7`
-            }
+            value={agentsActiveLabel}
             icon={Bot}
             tone="amber"
           />
@@ -442,6 +683,7 @@ export function LiveRuns() {
             onSelectAgent={handleSelectAgent}
             selectedCouncilMemberId={selectedCouncilMemberId}
             onSelectCouncilMember={handleSelectCouncilMember}
+            resultSummary={liveResultSummary}
           />
         </div>
 
@@ -456,7 +698,10 @@ export function LiveRuns() {
               liveArtifactData={liveArtifactData}
               intelligenceAgents={intelligenceAgents}
               displayedFindings={displayedFindings}
+              llmCalls={backend.llmCalls}
               runId={runId}
+              currentPhase={livePhase}
+              runStatus={liveStatus}
               selectedAgentId={selectedAgentId}
               selectedCouncilMemberId={selectedCouncilMemberId}
               ledgerEntries={backend.ledgerEntries}

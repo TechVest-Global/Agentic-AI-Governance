@@ -23,6 +23,12 @@ class EvaluationRun(TimestampMixin, UUIDPrimaryKey, table=True):
         default_factory=list,
         sa_column=Column(JSON, nullable=False),
     )
+    # Audit scope: capability endpoint_refs to probe (e.g. ["parse-resume",
+    # "rank-candidates"]). Empty = audit the whole application (base endpoint).
+    selected_capabilities: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False),
+    )
     started_at: datetime | None = None
     completed_at: datetime | None = None
     created_by: str | None = Field(default=None, max_length=200)

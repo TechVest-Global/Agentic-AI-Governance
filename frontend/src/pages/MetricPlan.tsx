@@ -8,6 +8,7 @@ import { ProgressBar } from "@/components/ui/RunStatus";
 import { useAppStore } from "@/store/useAppStore";
 import { metricPlan, dimensionTone, type MetricDimension, type MetricPlan as MetricPlanShape, type MetricStatus, type PlannedMetric } from "@/data/metricPlan";
 import { getRunMetricPlan, listAISystems, type EvaluationRun } from "@/api/governanceApi";
+import { metricBlurb } from "@/data/metricCatalog";
 import { useActiveRun } from "@/hooks/useActiveRun";
 
 const statusTone: Record<MetricStatus, "green" | "amber" | "red" | "slate" | "blue"> = {
@@ -45,7 +46,7 @@ async function loadLivePlan(run: EvaluationRun): Promise<MetricPlanShape | null>
       id: m.metric_id,
       name: m.name,
       dimension: normalizeDimension(m.dimension),
-      description: `Owned by ${m.primary_agent ?? "specialist agent"} · framework refs: ${m.framework_ids.join(", ") || "—"}.`,
+      description: `${metricBlurb(m.metric_id, m.name)} Owned by ${m.primary_agent ?? "specialist agent"} · framework refs: ${m.framework_ids.join(", ") || "—"}.`,
       tool: m.tool_name ?? "—",
       toolMode: "live",
       ownerAgent: m.primary_agent ?? "—",
@@ -113,8 +114,11 @@ export function MetricPlan() {
                 {plan.metrics.length} metrics selected for {plan.systemName}
               </h2>
               <p className="mt-2 max-w-3xl text-[13px] leading-5 text-slate-600 dark:text-slate-400">
-                The orchestrator selected these metrics based on the system type, <span className="font-medium">{plan.riskTier}</span> risk tier,
-                and {plan.selectedFrameworks.length} selected frameworks. Review the plan before the run executes.
+                The orchestrator selected these metrics based on the system&apos;s declared capabilities and modality
+                and its {plan.selectedFrameworks.length} selected frameworks, excluding metrics that don&apos;t
+                structurally apply (e.g. retrieval-quality checks for a non-retrieval system). The{" "}
+                <span className="font-medium">{plan.riskTier}</span> risk tier scales probe depth, not which metrics run.
+                Review the plan before the run executes.
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <Badge tone={source === "live" ? "green" : "amber"}>

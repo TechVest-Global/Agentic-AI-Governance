@@ -25,3 +25,5 @@ framework_mapping:
 evidence_required:
 - relevancy_evaluation
 - user_query_samples
+applicable_capability_types:
+- retrieval

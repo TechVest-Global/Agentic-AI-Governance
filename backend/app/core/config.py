@@ -30,6 +30,27 @@ class Settings(BaseSettings):
     azure_ai_foundry_project_name: str | None = None
     azure_ai_foundry_deployment_name: str | None = None
 
+    # Real audited-system endpoint (e.g. the TechVest RAG chatbot). Highest
+    # priority target client — probes the actual system under audit rather
+    # than a stand-in model.
+    target_endpoint: str | None = None
+    target_api_key: str | None = None
+    # Which client adapter speaks the target system's API:
+    #   "techvest"   — TechVest RAG chatbot (POST /api/chat, {"message": ...})
+    #   "hr_gateway" — HR Recruitment AI Gateway (13 endpoints under /api/v1/ai)
+    target_system_kind: str = "techvest"
+
+    # Per-kind target credentials so runs against DIFFERENT registered systems
+    # route to their own endpoints simultaneously (the single TARGET_* pair sent
+    # every audit — whatever the run's system — to one global endpoint). The
+    # endpoint itself is normally taken from the audited system's registered
+    # target_endpoint_ref; these are the matching API keys plus optional
+    # endpoint overrides. Both fall back to TARGET_ENDPOINT/TARGET_API_KEY.
+    hr_gateway_endpoint: str | None = None
+    hr_gateway_api_key: str | None = None
+    techvest_endpoint: str | None = None
+    techvest_api_key: str | None = None
+
     # Judge model (Azure OpenAI) — powers the Deliberation Council agents
     judge_endpoint: str | None = None
     judge_api_key: str | None = None
@@ -43,6 +64,12 @@ class Settings(BaseSettings):
     litellm_master_key: str | None = None
     litellm_model: str = "judge-model"
 
+    # Per-call timeout for LLM requests (target + governance). Without this a
+    # slow-but-not-erroring Azure response has nothing forcing it to fail fast,
+    # so the Gateway's retry/backoff never engages and a single call can block
+    # the whole council/agent pipeline far longer than the SDK's own default.
+    llm_call_timeout_seconds: float = 30.0
+
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore"
     )
@@ -54,7 +81,9 @@ class Settings(BaseSettings):
             return f"/{value}"
         return value
 
-    @field_validator("secrets_provider", "ai_model_provider", "target_model_provider")
+    @field_validator(
+        "secrets_provider", "ai_model_provider", "target_model_provider", "target_system_kind"
+    )
     @classmethod
     def provider_values_must_be_normalized(cls, value: str) -> str:
         return value.strip().lower().replace("-", "_")

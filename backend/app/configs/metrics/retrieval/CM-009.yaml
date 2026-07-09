@@ -25,3 +25,5 @@ framework_mapping:
 evidence_required:
 - ground_truth_relevant_chunks
 - retrieved_chunk_log
+applicable_capability_types:
+- retrieval

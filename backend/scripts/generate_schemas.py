@@ -1,6 +1,7 @@
 """
 Schema generation script.
 
+
 Run from the repo root:
     python backend/scripts/generate_schemas.py
 
@@ -17,6 +18,8 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+
+
 
 # Ensure the backend package is importable when the script is run from the repo root.
 REPO_ROOT = Path(__file__).resolve().parents[2]

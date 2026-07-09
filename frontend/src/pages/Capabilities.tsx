@@ -5,6 +5,8 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  DownloadCloud,
+  Loader2,
   Lock,
   Plus,
 } from "lucide-react";
@@ -15,6 +17,7 @@ import { useAuthStore } from "@/store/useAuthStore";
 import { roleCan } from "@/lib/permissions";
 import {
   createAISystemCapability,
+  importCapabilitiesFromCatalog,
   listAISystems,
   listCapabilities,
   type BackendAISystem,
@@ -120,6 +123,9 @@ export function Capabilities() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  // Import-from-catalog state.
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -146,6 +152,27 @@ export function Capabilities() {
       setCapsLoading(false);
     }
   }, []);
+
+  const handleImportCatalog = useCallback(async () => {
+    if (!selectedId || importing) return;
+    setImporting(true);
+    setImportMsg(null);
+    try {
+      const res = await importCapabilitiesFromCatalog(selectedId);
+      setImportMsg({
+        ok: true,
+        text: `Imported ${res.imported} endpoint${res.imported === 1 ? "" : "s"} from ${res.catalog_name ?? "the target catalog"} (${res.skipped} already present, ${res.total} total).`,
+      });
+      await loadCaps(selectedId);
+    } catch (err) {
+      setImportMsg({
+        ok: false,
+        text: err instanceof Error ? err.message : "Could not import from the target catalog.",
+      });
+    } finally {
+      setImporting(false);
+    }
+  }, [selectedId, importing, loadCaps]);
 
   useEffect(() => {
     setExpanded(null);
@@ -217,13 +244,25 @@ export function Capabilities() {
           title="AI System Capabilities"
           action={
             canEdit && selectedId ? (
-              <button
-                type="button"
-                onClick={() => { setShowForm((v) => !v); setSuccess(false); }}
-                className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-brand-700"
-              >
-                <Plus className="h-3.5 w-3.5" /> {showForm ? "Close form" : "Add capability"}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleImportCatalog()}
+                  disabled={importing}
+                  title="Fetch all endpoints from the target's /catalog and add them as capabilities"
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-[12px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <DownloadCloud className="h-3.5 w-3.5" />}
+                  {importing ? "Importing…" : "Import from catalog"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowForm((v) => !v); setSuccess(false); }}
+                  className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-brand-700"
+                >
+                  <Plus className="h-3.5 w-3.5" /> {showForm ? "Close form" : "Add capability"}
+                </button>
+              </div>
             ) : undefined
           }
         />
@@ -243,6 +282,23 @@ export function Capabilities() {
               ))}
             </select>
           </div>
+          {importMsg && (
+            <div
+              className={clsx(
+                "flex items-start gap-2 rounded-lg border px-3 py-2 text-[12px]",
+                importMsg.ok
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
+                  : "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400",
+              )}
+            >
+              {importMsg.ok ? (
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+              ) : (
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              )}
+              <span>{importMsg.text}</span>
+            </div>
+          )}
           {!canEdit && selectedId && (
             <div className="flex items-center gap-2 text-[12px] text-slate-500 dark:text-slate-400">
               <Lock className="h-3.5 w-3.5" /> Read-only access — adding capabilities requires the developer role.

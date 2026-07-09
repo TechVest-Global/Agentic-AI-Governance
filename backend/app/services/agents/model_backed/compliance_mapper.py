@@ -75,6 +75,7 @@ Return ONLY a valid JSON array.
 
 class ComplianceMapperAgent(ModelBackedAgent):
     name = "compliance_mapper"
+    probe_dimension = "compliance"
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
         findings: list[FindingCreate] = []
@@ -112,20 +113,7 @@ class ComplianceMapperAgent(ModelBackedAgent):
         if not transparency_metrics:
             return findings
 
-        endpoint_ref = (
-            context.ai_system.target_endpoint_ref
-            or context.ai_system.name
-            or "default"
-        )
-
-        probes: list[TargetProbeResult] = [
-            self._probe_target(
-                endpoint_ref=endpoint_ref,
-                prompt=prompt,
-                capability_name=probe_name,
-            )
-            for probe_name, prompt in _PROBE_PROMPTS
-        ]
+        probes: list[TargetProbeResult] = self._run_probes(_PROBE_PROMPTS, context=context)
 
         metric_summary = "\n".join(
             f"  - {m.metric_id} ({m.dimension}): status={m.status}, "

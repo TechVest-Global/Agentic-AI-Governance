@@ -18,7 +18,6 @@ const routeMatchers: Array<[RegExp, PageId]> = [
   [/^\/reports(?:\/.*)?$/, "reports"],
   [/^\/evidence(?:\/.*)?$/, "evidence"],
   [/^\/ledger(?:\/.*)?$/, "ledger"],
-  [/^\/system-setup(?:\/.*)?$/, "system-setup"],
   [/^\/context-profiles(?:\/.*)?$/, "context-profiles"],
   [/^\/capabilities(?:\/.*)?$/, "capabilities"],
   [/^\/metrics-config(?:\/.*)?$/, "metrics-config"],

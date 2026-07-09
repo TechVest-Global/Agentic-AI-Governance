@@ -8,6 +8,7 @@ import { cancelRun } from "@/api/governanceApi";
 import { Card } from "@/components/ui/Card";
 import { PIPELINE_STEPS, layerStatus } from "@/pages/pipelineSteps";
 import { AgentGlyph, type IntelligenceAgent } from "@/components/execution/AgentDetailCard";
+import { StartAuditModal } from "@/components/execution/StartAuditModal";
 
 function riskBadgeTone(tier: string): string {
   const t = tier.toLowerCase();
@@ -24,6 +25,9 @@ export const COUNCIL_MEMBERS: Array<{ id: CouncilMemberId; name: string; color: 
   { id: "verdict", name: "Verdict Agent", color: "#0d9488" },
 ];
 
+// The council loop caps at 3 iterations (backend: remediation_router.MAX_ITERATIONS).
+const COUNCIL_MAX_ITERATIONS = 3;
+
 export function LiveRunSidebar({
   currentPhase,
   runStatus,
@@ -34,6 +38,7 @@ export function LiveRunSidebar({
   onSelectAgent,
   selectedCouncilMemberId,
   onSelectCouncilMember,
+  resultSummary,
 }: {
   currentPhase: string;
   runStatus: string;
@@ -44,8 +49,9 @@ export function LiveRunSidebar({
   onSelectAgent: (id: string) => void;
   selectedCouncilMemberId: CouncilMemberId | null;
   onSelectCouncilMember: (id: CouncilMemberId) => void;
+  resultSummary?: Record<string, unknown>;
 }) {
-  const { systems, runId, setRunId, refresh } = useActiveRun();
+  const { systems, runId, run, setRunId, refresh } = useActiveRun();
   const runner = useEvaluationRunner();
   const { active: isRunning } = useIsRunActive();
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -55,6 +61,8 @@ export function LiveRunSidebar({
   // without deselecting.
   const [agentsExpanded, setAgentsExpanded] = useState(false);
   const [councilExpanded, setCouncilExpanded] = useState(false);
+  // Open the scope picker before starting an audit (whole app vs functions).
+  const [showStartAudit, setShowStartAudit] = useState(false);
 
   // Auto-expand the nested list whenever a step becomes selected via any path
   // (an explicit click, or the live-phase auto-follow) — the user can still collapse it.
@@ -65,17 +73,26 @@ export function LiveRunSidebar({
 
   const targetSystem = systems.find((s) => s.id === runner.runningSystemId) ?? systems[0] ?? null;
   const [selectedSystemId, setSelectedSystemId] = useState<string | null>(targetSystem?.id ?? null);
+
+  // Follow the system actually being audited: the viewed run's system wins, then
+  // a run the runner just started. Without this the selector kept its mount-time
+  // default (the first registered system), so an HR audit displayed the RAG
+  // chatbot as the target. A manual dropdown pick still applies between runs.
+  useEffect(() => {
+    const auditedSystemId = run?.ai_system_id ?? runner.runningSystemId;
+    if (auditedSystemId) setSelectedSystemId(auditedSystemId);
+  }, [run?.ai_system_id, runner.runningSystemId]);
+
   const activeSystem = systems.find((s) => s.id === selectedSystemId) ?? targetSystem;
 
   const hasStarted = runStatus !== "created";
 
-  async function handleRunAudit() {
+  function handleRunAudit() {
     if (!activeSystem) return;
     setSwitcherOpen(false);
-    const result = await runner.run(activeSystem, {
-      onRunCreated: (run) => setRunId(run.id),
-    });
-    if (result) refresh();
+    // Open the scope picker; the actual run is started from the modal so the
+    // auditor can choose whole-app or specific functions.
+    setShowStartAudit(true);
   }
 
   async function handlePauseAudit() {
@@ -97,6 +114,16 @@ export function LiveRunSidebar({
   }
 
   return (
+    <>
+    {showStartAudit && activeSystem && (
+      <StartAuditModal
+        system={activeSystem}
+        runner={runner}
+        onClose={() => setShowStartAudit(false)}
+        onRunCreated={(run) => setRunId(run.id)}
+        onStarted={() => { setShowStartAudit(false); refresh(); }}
+      />
+    )}
     <Card className="sticky top-20 self-start overflow-visible">
       {/* Target system switcher */}
       <div className="p-3 border-b border-slate-100 dark:border-slate-700/50">
@@ -233,7 +260,16 @@ export function LiveRunSidebar({
                 )}>
                   {step.label}
                 </span>
-                {status === "active" && <Loader2 className="ml-auto h-3.5 w-3.5 shrink-0 animate-spin text-blue-600" />}
+                {isCouncil && status === "active" && (
+                  <span className="ml-auto shrink-0 rounded-full bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 text-[10px] font-bold text-blue-700 dark:text-blue-400">
+                    iteration {Math.min(
+                      Number(resultSummary?.["_council_iteration_count"] ?? 0) + 1,
+                      COUNCIL_MAX_ITERATIONS
+                    )}/{COUNCIL_MAX_ITERATIONS}
+                  </span>
+                )}
+                {status === "active" && !isCouncil && <Loader2 className="ml-auto h-3.5 w-3.5 shrink-0 animate-spin text-blue-600" />}
+                {isCouncil && status === "active" && <Loader2 className="ml-2 h-3.5 w-3.5 shrink-0 animate-spin text-blue-600" />}
                 {hasNestedItems && (
                   isSelected && isExpanded
                     ? <ChevronDown className="ml-auto h-3.5 w-3.5 shrink-0 text-slate-400" />
@@ -304,5 +340,6 @@ export function LiveRunSidebar({
         })}
       </div>
     </Card>
+    </>
   );
 }

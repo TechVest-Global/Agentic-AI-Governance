@@ -169,15 +169,19 @@ def test_orchestrate_runs_activated_agents_when_unspecified(client: TestClient) 
     system = create_system(client, risk_tier="medium")
     run = create_run(client, system["id"], metrics=["CM-005", "CM-017"])
 
+    # Fire-and-forget orchestration (202); pipeline runs as a background task
+    # (synchronous under TestClient) and persists the plan + agent executions.
     response = client.post(
         f"/api/v1/evaluation-runs/{run['id']}/orchestrate",
         json={"mock_score": 1.0},
     )
-    assert response.status_code == 200
-    body = response.json()
+    assert response.status_code == 202
 
-    assert body["evaluation_plan"] is not None
-    planned_agents = {a["agent_name"] for a in body["evaluation_plan"]["activated_agents"]}
-    ran_agents = {a["agent_name"] for a in body["agent_run"]["agents_run"]}
+    plan = client.get(f"/api/v1/evaluation-runs/{run['id']}/evaluation-plan").json()
+    assert plan is not None
+    planned_agents = {a["agent_name"] for a in plan["activated_agents"]}
+
+    executions = client.get(f"/api/v1/evaluation-runs/{run['id']}/agents/executions").json()
+    ran_agents = {a["agent_name"] for a in executions}
     # With no explicit agent_names, the plan's activated agents are exactly the ones run.
     assert ran_agents == planned_agents == {"explainability_agent", "bias_agent"}

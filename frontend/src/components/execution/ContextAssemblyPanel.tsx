@@ -39,9 +39,18 @@ export function ContextAssemblyPanel({ runId }: { runId: string | null }) {
 
   const log = ctx.log_analysis;
   const reg = ctx.regulatory_context;
+  const synthesized = Boolean(ctx.notes?.toLowerCase().includes("synthesized"));
 
   return (
     <div>
+      {synthesized && (
+        <div className="mb-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-[11.5px] leading-relaxed text-amber-800 dark:text-amber-300">
+          No production logs were uploaded for this run, so the analysis below is based on a{" "}
+          <span className="font-semibold">synthesized sample</span> derived deterministically from
+          this system's profile ({ctx.notes}). Upload real logs when creating a run to analyze
+          actual traffic.
+        </div>
+      )}
       <DrawerSection label="Production log analysis">
         {log.empty ? (
           <p className="text-[12.5px] text-slate-500 dark:text-slate-400">No production logs available for this system.</p>
@@ -87,8 +96,13 @@ export function ContextAssemblyPanel({ runId }: { runId: string | null }) {
           <p className="text-[12.5px] text-slate-500 dark:text-slate-400">No coverage gaps detected.</p>
         ) : (
           <DrawerTable
-            columns={["Dimension", "Severity", "Description"]}
-            rows={ctx.coverage_gaps.map((g) => [titleCase(g.dimension), <SeverityPill key={g.gap_id} severity={g.severity} />, g.description])}
+            columns={["Dimension", "Framework", "Severity", "Description"]}
+            rows={ctx.coverage_gaps.map((g) => [
+              titleCase(g.dimension),
+              g.framework_id.replace(/_/g, " ").toUpperCase(),
+              <SeverityPill key={g.gap_id} severity={g.severity} />,
+              g.description,
+            ])}
           />
         )}
       </DrawerSection>

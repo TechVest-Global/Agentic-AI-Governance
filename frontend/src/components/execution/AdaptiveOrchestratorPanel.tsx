@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, ScanSearch } from "lucide-react";
 import { getEvaluationPlan, type AgentPlanItem, type EvaluationPlanRead } from "@/api/governanceApi";
+import { metricBlurb, metricName } from "@/data/metricCatalog";
 import { BarRow, DrawerHeader, DrawerNote, DrawerSection, DrawerTable, ReceivesList, StatGrid } from "@/components/execution/DrawerPrimitives";
 
 const AGENT_LABELS: Record<string, string> = {
@@ -159,12 +160,29 @@ function AgentAllocationDetail({
           <ReceivesList
             items={[
               `${agent.target_dimensions.length} target dimension(s): ${agent.target_dimensions.join(", ") || "none"}`,
-              `${agent.assigned_metric_ids.length} assigned metric(s): ${agent.assigned_metric_ids.join(", ") || "none"}`,
+              `${agent.assigned_metric_ids.length} assigned metric(s) — listed below`,
               `${agent.coverage_gap_ids.length} coverage gap(s) to prioritize`,
               `${agent.target_controls.length} target control(s): ${agent.target_controls.slice(0, 4).join(", ")}${agent.target_controls.length > 4 ? "…" : ""}`,
             ]}
           />
         </DrawerSection>
+
+        {agent.assigned_metric_ids.length > 0 && (
+          <DrawerSection label="Assigned metrics">
+            <div className="flex flex-wrap gap-1.5">
+              {agent.assigned_metric_ids.map((id) => (
+                <span
+                  key={id}
+                  title={metricBlurb(id, metricName(id))}
+                  className="inline-flex cursor-help items-center rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 text-[11px] text-slate-700 dark:text-slate-300"
+                >
+                  <span className="font-mono font-semibold">{id}</span>
+                  {metricName(id) !== id && <span className="ml-1.5">{metricName(id)}</span>}
+                </span>
+              ))}
+            </div>
+          </DrawerSection>
+        )}
 
         <DrawerSection label="At a glance">
           <StatGrid

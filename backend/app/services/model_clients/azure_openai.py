@@ -39,6 +39,7 @@ class AzureOpenAIGovernanceModelClient:
         api_key: str,
         deployment_name: str,
         api_version: str = "2025-01-01-preview",
+        timeout: float = 30.0,
     ) -> None:
         self.deployment_name = deployment_name
         self.credential_ref = "JUDGE_API_KEY"
@@ -46,6 +47,7 @@ class AzureOpenAIGovernanceModelClient:
             azure_endpoint=endpoint,
             api_key=api_key,
             api_version=api_version,
+            timeout=timeout,
         )
 
     def complete(self, request: GovernanceModelRequest) -> GovernanceModelResponse:
@@ -99,6 +101,7 @@ class AzureOpenAITargetModelClient:
         api_key: str,
         deployment_name: str,
         api_version: str = "2025-01-01-preview",
+        timeout: float = 30.0,
     ) -> None:
         self.deployment_name = deployment_name
         self.credential_ref = "JUDGE_API_KEY"
@@ -106,6 +109,7 @@ class AzureOpenAITargetModelClient:
             azure_endpoint=endpoint,
             api_key=api_key,
             api_version=api_version,
+            timeout=timeout,
         )
 
     def invoke(self, request: TargetModelRequest) -> TargetModelResponse:

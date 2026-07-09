@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { listMetricConfigs, type MetricConfigFull } from "@/api/governanceApi";
+import { metricBlurb } from "@/data/metricCatalog";
 
 function labelize(value: string): string {
   return value.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -154,8 +155,8 @@ export function MetricsConfiguration() {
                       <td className="px-3 py-3 text-slate-400">
                         {open ? <ChevronDown className="h-4 w-4 text-brand-600" /> : <ChevronRight className="h-4 w-4 group-hover:text-slate-700 dark:group-hover:text-slate-300" />}
                       </td>
-                      <td className="px-3 py-3 font-mono text-[11px] text-slate-700 dark:text-slate-300">{m.metric_id}</td>
-                      <td className="px-3 py-3 text-[13px] font-medium text-slate-900 dark:text-white">{m.name}</td>
+                      <td className="px-3 py-3 font-mono text-[11px] text-slate-700 dark:text-slate-300" title={metricBlurb(m.metric_id, m.name)}>{m.metric_id}</td>
+                      <td className="px-3 py-3 text-[13px] font-medium text-slate-900 dark:text-white" title={metricBlurb(m.metric_id, m.name)}>{m.name}</td>
                       <td className="px-3 py-3"><Badge tone={dimensionTone.get(m.dimension) ?? "slate"}>{labelize(m.dimension)}</Badge></td>
                       <td className="px-3 py-3 text-[12px] text-slate-700 dark:text-slate-300">{m.primary_agent ? labelize(m.primary_agent) : "—"}</td>
                       <td className="px-3 py-3 font-mono text-[11px] text-slate-600 dark:text-slate-400">{m.tool_name ?? "—"}</td>

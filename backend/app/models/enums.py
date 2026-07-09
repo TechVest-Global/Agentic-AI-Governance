@@ -23,11 +23,35 @@ class CapabilityType(StrEnum):
     other = "other"
 
 
+class Modality(StrEnum):
+    text = "text"
+    audio = "audio"
+    video = "video"
+    image = "image"
+
+
 class SideEffectLevel(StrEnum):
     none = "none"
     read = "read"
     write = "write"
     destructive = "destructive"
+
+
+class ApplicabilityType(StrEnum):
+    """How a governance framework applies to a registered AI system."""
+
+    mandatory = "mandatory"
+    voluntary = "voluntary"
+    unsure = "unsure"
+
+
+class EndpointStatus(StrEnum):
+    """Operational status of a registered target API endpoint."""
+
+    draft = "draft"
+    active = "active"
+    disabled = "disabled"
+    deprecated = "deprecated"
 
 
 class RunStatus(StrEnum):
@@ -52,6 +76,7 @@ class RunPhase(StrEnum):
     specialist_agents = "specialist_agents"
     deliberation_council = "deliberation_council"
     action_reporting = "action_reporting"
+    completed = "completed"
 
 
 class Severity(StrEnum):
