@@ -8,6 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
+from app.db import session as db_session
 from app.db.session import get_session
 from app.models.agent import AgentExecution
 from app.models.base import utc_now
@@ -225,58 +226,63 @@ def get_llm_call_logs(
 
 
 @router.get("/{run_id}/progress/stream")
-async def stream_run_progress(
-    run_id: UUID,
-    session: SessionDependency,
-) -> StreamingResponse:
-    """SSE endpoint — emits a progress snapshot every 2 s until the run is terminal."""
+async def stream_run_progress(run_id: UUID) -> StreamingResponse:
+    """SSE endpoint — emits a progress snapshot every 2 s until the run is terminal.
+
+    Each tick opens its OWN short-lived session. The stream used to loop on the
+    request-scoped session, whose identity map kept returning the FIRST snapshot
+    of the run row — so status/phase never advanced, the progress bar froze at
+    whatever phase the stream connected during, and the stream never saw a
+    terminal status (it also pinned a pool connection for the run's lifetime).
+    """
 
     async def event_generator() -> AsyncGenerator[str, None]:
         terminal = {"completed", "failed", "cancelled"}
         while True:
-            run = session.get(EvaluationRun, run_id)
-            if run is None:
-                yield _sse({"error": "run not found"})
-                break
+            with Session(db_session.engine) as tick_session:
+                run = tick_session.get(EvaluationRun, run_id)
+                if run is None:
+                    yield _sse({"error": "run not found"})
+                    break
 
-            executions = list(
-                session.exec(
-                    select(AgentExecution)
-                    .where(AgentExecution.run_id == run_id)
-                    .order_by(AgentExecution.created_at.asc())
+                executions = list(
+                    tick_session.exec(
+                        select(AgentExecution)
+                        .where(AgentExecution.run_id == run_id)
+                        .order_by(AgentExecution.created_at.asc())
+                    ).all()
+                )
+                finding_count = tick_session.exec(
+                    select(Finding).where(Finding.run_id == run_id)
                 ).all()
-            )
-            finding_count = session.exec(
-                select(Finding).where(Finding.run_id == run_id)
-            ).all()
 
-            probe_count = sum(
-                (e.metadata_json or {}).get("probe_count", 0)
-                for e in executions
-            )
-
-            payload = {
-                "run_id": str(run_id),
-                "status": run.status,
-                "current_phase": run.current_phase,
-                "progress": _phase_progress(run.current_phase),
-                "agents": [
-                    {
-                        "name": e.agent_name,
-                        "status": e.status,
-                        "finding_count": e.finding_count or 0,
-                        "started_at": e.started_at.isoformat() if e.started_at else None,
-                        "completed_at": e.completed_at.isoformat() if e.completed_at else None,
-                    }
+                probe_count = sum(
+                    (e.metadata_json or {}).get("probe_count", 0)
                     for e in executions
-                ],
-                "probe_count": probe_count,
-                "finding_count": len(finding_count),
-                "result_summary": run.result_summary or {},
-            }
+                )
+
+                payload = {
+                    "run_id": str(run_id),
+                    "status": run.status,
+                    "current_phase": run.current_phase,
+                    "progress": _phase_progress(run.current_phase),
+                    "agents": [
+                        {
+                            "name": e.agent_name,
+                            "status": e.status,
+                            "finding_count": e.finding_count or 0,
+                            "started_at": e.started_at.isoformat() if e.started_at else None,
+                            "completed_at": e.completed_at.isoformat() if e.completed_at else None,
+                        }
+                        for e in executions
+                    ],
+                    "probe_count": probe_count,
+                    "finding_count": len(finding_count),
+                    "result_summary": run.result_summary or {},
+                }
             yield _sse(payload)
 
-            if run.status in terminal:
+            if payload["status"] in terminal:
                 break
 
             await asyncio.sleep(2)

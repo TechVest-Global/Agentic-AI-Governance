@@ -59,6 +59,25 @@ def drain_log_capture() -> list[dict]:
     return buf
 
 
+def get_log_buffer() -> list[dict] | None:
+    """Return the live capture buffer for this context (None when not capturing)."""
+    return _log_buffer.get(None)
+
+
+def bind_log_capture(buffer: list[dict] | None, agent_name: str | None = None) -> None:
+    """Attach an existing capture buffer to THIS thread/context.
+
+    contextvars do not propagate into ThreadPoolExecutor workers, so LLM calls
+    made on worker threads (parallel metric evaluation, parallel agent probes)
+    were invisible to the audit capture. Workers call this with the parent's
+    buffer (list append is thread-safe under the GIL) so their calls land in
+    the same per-run audit log.
+    """
+    _log_buffer.set(buffer)
+    if agent_name is not None:
+        _current_agent.set(agent_name)
+
+
 def set_current_agent(agent_name: str | None) -> None:
     """Attribute subsequent captured LLM calls to this agent (or None to clear)."""
     _current_agent.set(agent_name)

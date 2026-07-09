@@ -128,6 +128,7 @@ def assemble_context(
         gap_count=len(coverage_gaps),
         highest_gap_severity=highest,
         counts=counts,
+        notes=payload.notes,
     )
 
 
@@ -155,6 +156,7 @@ def get_latest_context(session: Session, *, run_id: UUID) -> ContextAssemblyRead
         gap_count=payload.get("gap_count", 0),
         highest_gap_severity=payload.get("highest_gap_severity"),
         counts=payload.get("counts", {}),
+        notes=payload.get("notes"),
     )
 
 

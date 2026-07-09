@@ -379,8 +379,9 @@ export function ApplicationContextProfiles() {
           />
           <div className="space-y-4 px-5 py-5">
             <p className="text-[12px] text-slate-500 dark:text-slate-400">
-              Attach a document (policy, FAQ, knowledge-base article) or paste text. It is stored as a
-              retrieval-context document for this system and used by RAG groundedness evaluation (RAGAS) at run time.
+              Attach a document (policy, FAQ, knowledge-base article) or paste text. PDF and Word (.docx)
+              files are supported — their text is extracted server-side. The document is stored as
+              retrieval context for this system and used by RAG groundedness evaluation (RAGAS) at run time.
             </p>
 
             <div className="grid gap-4 lg:grid-cols-2">
@@ -388,7 +389,7 @@ export function ApplicationContextProfiles() {
                 <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300">File</label>
                 <input
                   type="file"
-                  accept=".txt,.md,.json,.csv,.log,text/*"
+                  accept=".pdf,.docx,.txt,.md,.json,.csv,.log,text/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                   disabled={!canEdit || uploading}
                   onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
                   className="block w-full text-[12px] text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-50 file:px-3 file:py-2 file:text-[12px] file:font-semibold file:text-brand-700 hover:file:bg-brand-100 dark:text-slate-300 dark:file:bg-brand-950/40 dark:file:text-brand-300"

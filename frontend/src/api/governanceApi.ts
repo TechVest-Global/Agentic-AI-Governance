@@ -561,15 +561,23 @@ export async function createEvaluationRun(payload: EvaluationRunCreatePayload): 
   });
 }
 
-export async function orchestrateRun(runId: string, mockScore = 0.3): Promise<{ run_id: string; status: string }> {
+export async function orchestrateRun(runId: string): Promise<{ run_id: string; status: string }> {
   return request<{ run_id: string; status: string }>(`/evaluation-runs/${runId}/orchestrate`, {
     method: "POST",
-    // logs: [] (rather than omitted) makes the backend actually run Context Assembly —
-    // an explicit empty list still executes the layer, just with nothing to analyze.
+    // logs omitted here: the backend synthesizes a deterministic, system-specific
+    // production-log sample when a run supplies none, so Context Assembly and the
+    // adaptive orchestrator get real per-system evidence instead of an empty result.
+    // (A user-uploaded log sample would be passed here to override the synthesizer.)
     // evaluator_name: "auto" routes each metric to the real tool its own config names
     // (garak/presidio/ragas/deepeval), falling back to deterministic threshold scoring
     // for metrics whose tool has no real integration yet (langfuse/evidently/promptfoo).
-    body: JSON.stringify({ mock_score: mockScore, force_metric_status: "failed", evaluator_name: "auto", requested_by: "frontend", notes: "Triggered from UI.", logs: [] }),
+    //
+    // No force_metric_status: each metric now reports its REAL status (passed/failed
+    // from score-vs-threshold) instead of every result being forced to "failed".
+    // mock_score: 0.5 is the threshold evaluator's "no external score supplied"
+    // sentinel — it derives a conservative score from each metric's own threshold so
+    // fallback metrics surface as borderline rather than a blanket pass or fail.
+    body: JSON.stringify({ mock_score: 0.5, evaluator_name: "auto", requested_by: "frontend", notes: "Triggered from UI." }),
   });
 }
 
@@ -844,6 +852,8 @@ export type ContextAssemblyRead = {
   gap_count: number;
   highest_gap_severity?: string | null;
   counts: Record<string, number>;
+  /** Provenance, e.g. "Log source: synthesized (12 record(s))." when no logs were uploaded. */
+  notes?: string | null;
 };
 
 export async function getContextAssembly(runId: string): Promise<ContextAssemblyRead | null> {
