@@ -629,6 +629,9 @@ class ContextAssemblyRead(APIModel):
     gap_count: int
     highest_gap_severity: Severity | None = None
     counts: dict[str, int] = Field(default_factory=dict)
+    # Provenance annotation, e.g. "Log source: synthesized (12 record(s))." when
+    # no logs were uploaded and a deterministic sample was generated instead.
+    notes: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -680,6 +683,10 @@ class EvaluationPlanRead(APIModel):
     priority_targets: list[PriorityTarget] = Field(default_factory=list)
     risk_rationale: str
     counts: dict[str, int] = Field(default_factory=dict)
+    # LLM review of the deterministic plan (None when the governance model was
+    # unavailable or returned an unusable response): {"reviewed", "model",
+    # "dropped": [{"metric_id", "reason"}], "rationale"}.
+    llm_review: dict[str, Any] | None = None
 
 
 class GovernancePipelineRunCreate(APIModel):

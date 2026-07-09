@@ -51,7 +51,7 @@ export function LiveRunSidebar({
   onSelectCouncilMember: (id: CouncilMemberId) => void;
   resultSummary?: Record<string, unknown>;
 }) {
-  const { systems, runId, setRunId, refresh } = useActiveRun();
+  const { systems, runId, run, setRunId, refresh } = useActiveRun();
   const runner = useEvaluationRunner();
   const { active: isRunning } = useIsRunActive();
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -73,6 +73,16 @@ export function LiveRunSidebar({
 
   const targetSystem = systems.find((s) => s.id === runner.runningSystemId) ?? systems[0] ?? null;
   const [selectedSystemId, setSelectedSystemId] = useState<string | null>(targetSystem?.id ?? null);
+
+  // Follow the system actually being audited: the viewed run's system wins, then
+  // a run the runner just started. Without this the selector kept its mount-time
+  // default (the first registered system), so an HR audit displayed the RAG
+  // chatbot as the target. A manual dropdown pick still applies between runs.
+  useEffect(() => {
+    const auditedSystemId = run?.ai_system_id ?? runner.runningSystemId;
+    if (auditedSystemId) setSelectedSystemId(auditedSystemId);
+  }, [run?.ai_system_id, runner.runningSystemId]);
+
   const activeSystem = systems.find((s) => s.id === selectedSystemId) ?? targetSystem;
 
   const hasStarted = runStatus !== "created";

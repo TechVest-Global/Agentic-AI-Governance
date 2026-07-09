@@ -32,7 +32,8 @@ import { exportJSON, exportCSV, exportPDF, exportLedger, exportEvidenceBundle } 
 import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
 import { useRunProgress, phaseIndex, type AgentProgress } from "@/hooks/useRunProgress";
 import { PIPELINE_STEPS, layerStatus } from "@/pages/pipelineSteps";
-import type { AuditLedgerEntry, GovernanceReport } from "@/api/governanceApi";
+import { metricBlurb, metricName } from "@/data/metricCatalog";
+import type { AuditLedgerEntry, FindingToolCall, GovernanceReport, LlmCall } from "@/api/governanceApi";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -48,11 +49,18 @@ function formatRunStatus(status: string): "Running" | "Complete" | "Waiting" | "
 type UiFinding = {
   id: string;
   agent: string;
+  /** Raw backend agent_name (e.g. "risk_scorer") for matching LLM-call attribution. */
+  agentKey?: string;
   title: string;
   severity: "Critical" | "High" | "Medium" | "Low";
   framework: string;
   evidence: string;
   confidence: number;
+  summary?: string;
+  recommendedAction?: string | null;
+  dimension?: string;
+  metricId?: string | null;
+  toolCalls?: FindingToolCall[];
 };
 
 function titleCase(value: string): string {
@@ -71,11 +79,17 @@ function mapBackendFinding(finding: GovernanceReport["findings"][number]): UiFin
   return {
     id: finding.id,
     agent: finding.agent_name ? titleCase(finding.agent_name) : titleCase(finding.finding_type),
+    agentKey: finding.agent_name ?? undefined,
     title: finding.title,
     severity: findingSeverity(finding.severity),
     framework: finding.framework_refs.length ? finding.framework_refs.join(", ") : finding.dimension,
     evidence: finding.summary,
     confidence: Math.round(finding.confidence * 100),
+    summary: finding.summary,
+    recommendedAction: finding.recommended_action,
+    dimension: finding.dimension,
+    metricId: (finding.payload?.metric_id as string | null | undefined) ?? null,
+    toolCalls: finding.payload?.tool_calls ?? [],
   };
 }
 
@@ -111,6 +125,150 @@ function NotStartedMessage({ label }: { label: string }) {
   );
 }
 
+/** One expandable finding row on the Action & Reporting panel: the header keeps
+ *  the compact look; expanding reveals how the conclusion was reached — the
+ *  agent's written analysis, real tool evidence, the probes that agent sent to
+ *  the target system, and the recommended remediation. */
+function ExpandableFindingCard({
+  finding,
+  index,
+  llmCalls,
+}: {
+  finding: UiFinding;
+  index: number;
+  llmCalls: LlmCall[];
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Probes this finding's agent sent to the audited system (target calls
+  // attributed to the agent by the LLM gateway).
+  const agentProbes = useMemo(
+    () =>
+      finding.agentKey
+        ? llmCalls.filter((c) => c.call_type === "target" && c.agent_name === finding.agentKey)
+        : [],
+    [llmCalls, finding.agentKey],
+  );
+  const probeSamples = agentProbes.filter((c) => c.prompt_text).slice(0, 3);
+  const hasDetail = Boolean(
+    finding.summary || finding.recommendedAction || (finding.toolCalls?.length ?? 0) || agentProbes.length,
+  );
+
+  return (
+    <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+      <button
+        onClick={() => hasDetail && setExpanded((v) => !v)}
+        className={clsx("flex w-full items-start gap-3 p-4 text-left", hasDetail && "cursor-pointer")}
+      >
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-900 dark:bg-slate-700 text-[12px] font-bold text-white">{index + 1}</span>
+        <div className="min-w-0 flex-1">
+          <h4 className="text-[13px] font-semibold text-slate-950 dark:text-white">{finding.title}</h4>
+          <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">{finding.severity} · {finding.agent} · {finding.framework}</p>
+        </div>
+        <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 shrink-0">{finding.confidence}%</span>
+        {hasDetail && (
+          <ChevronDown
+            className={clsx(
+              "mt-0.5 h-4 w-4 shrink-0 text-slate-400 transition-transform",
+              expanded && "rotate-180",
+            )}
+          />
+        )}
+      </button>
+
+      {expanded && (
+        <div className="space-y-3 border-t border-slate-100 dark:border-slate-800 px-4 py-3 pl-14">
+          {finding.summary && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Why this was flagged</p>
+              <p className="mt-1 text-[12px] leading-relaxed text-slate-600 dark:text-slate-300">{finding.summary}</p>
+            </div>
+          )}
+
+          {(finding.toolCalls?.length ?? 0) > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Tool evidence</p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {finding.toolCalls!.map((tc, i) => (
+                  <span
+                    key={`${tc.metric_id}-${i}`}
+                    title={metricBlurb(tc.metric_id, metricName(tc.metric_id))}
+                    className={clsx(
+                      "inline-flex cursor-help items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[10px]",
+                      tc.passed === false
+                        ? "border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400"
+                        : "border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300",
+                    )}
+                  >
+                    {tc.tool_name} · {metricName(tc.metric_id) !== tc.metric_id ? `${tc.metric_id} (${metricName(tc.metric_id)})` : tc.metric_id}
+                    {typeof tc.normalized_score === "number" && ` · ${tc.normalized_score.toFixed(2)}`}
+                    {tc.passed === false ? " · failed" : tc.passed === true ? " · passed" : ""}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {agentProbes.length > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                Probes sent by {finding.agent} ({agentProbes.length} to the target system)
+              </p>
+              {probeSamples.length > 0 ? (
+                <div className="mt-1.5 space-y-1.5">
+                  {probeSamples.map((probe) => (
+                    <div key={probe.id} className="rounded-md border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 px-2.5 py-2">
+                      <p className="text-[11px] leading-snug text-slate-600 dark:text-slate-300">
+                        <span className="font-semibold text-slate-500 dark:text-slate-400">→ </span>
+                        {probe.prompt_text!.length > 220 ? `${probe.prompt_text!.slice(0, 220)}…` : probe.prompt_text}
+                      </p>
+                      {probe.response_text && (
+                        <p className="mt-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+                          <span className="font-semibold">← </span>
+                          {probe.response_text.length > 220 ? `${probe.response_text.slice(0, 220)}…` : probe.response_text}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                  {agentProbes.length > probeSamples.length && (
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500">
+                      +{agentProbes.length - probeSamples.length} more — see the agent's Probes tab in Specialist Agents.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  {agentProbes.length} probe call{agentProbes.length === 1 ? "" : "s"} recorded (transcripts not stored for this run) — see the agent's Probes tab in Specialist Agents.
+                </p>
+              )}
+            </div>
+          )}
+
+          {finding.recommendedAction && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Recommended action</p>
+              <p className="mt-1 text-[12px] leading-relaxed text-slate-600 dark:text-slate-300">{finding.recommendedAction}</p>
+            </div>
+          )}
+
+          {(finding.metricId || finding.dimension) && (
+            <p
+              className="text-[10px] text-slate-400 dark:text-slate-500"
+              title={finding.metricId ? metricBlurb(finding.metricId, metricName(finding.metricId)) : undefined}
+            >
+              {finding.metricId
+                ? `Triggered by metric ${finding.metricId}${metricName(finding.metricId) !== finding.metricId ? ` (${metricName(finding.metricId)})` : ""}`
+                : ""}
+              {finding.metricId && finding.dimension ? " · " : ""}
+              {finding.dimension ? `dimension: ${finding.dimension}` : ""}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PipelineStepContent({
   step,
   navigateTo,
@@ -118,6 +276,7 @@ function PipelineStepContent({
   liveArtifactData,
   intelligenceAgents,
   displayedFindings,
+  llmCalls,
   runId,
   currentPhase,
   runStatus,
@@ -131,6 +290,7 @@ function PipelineStepContent({
   liveArtifactData: Parameters<typeof ArtifactDrawer>[0]["liveData"];
   intelligenceAgents: ReturnType<typeof buildAgentsFromBackend>;
   displayedFindings: UiFinding[];
+  llmCalls: LlmCall[];
   runId: string | null;
   currentPhase: string;
   runStatus: string;
@@ -179,9 +339,12 @@ function PipelineStepContent({
         passed: r.passed,
       };
     });
-    const statusTone = (status: string, passed: boolean | null | undefined) => {
-      if (passed === true || status === "passed") return "green" as const;
-      if (passed === false || status === "failed") return "red" as const;
+    // Colour the pill by the status it actually displays — not by `passed`, which
+    // is a separate concept (did the score meet the threshold) and would otherwise
+    // render a "failed" execution in green when the metric happened to pass.
+    const statusTone = (status: string) => {
+      if (status === "passed" || status === "completed") return "green" as const;
+      if (status === "failed" || status === "error") return "red" as const;
       if (status === "running" || status === "pending") return "amber" as const;
       return "slate" as const;
     };
@@ -209,7 +372,7 @@ function PipelineStepContent({
                     <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{m.owner}</td>
                     <td className="px-3 py-2 font-mono text-slate-600 dark:text-slate-400">{m.budget != null ? `${m.budget} pts` : "—"}</td>
                     <td className="px-3 py-2">
-                      <Badge tone={statusTone(m.status, m.passed)}>{m.status}</Badge>
+                      <Badge tone={statusTone(m.status)}>{m.status}</Badge>
                     </td>
                   </tr>
                 ))}
@@ -268,14 +431,7 @@ function PipelineStepContent({
         ) : (
           <div className="space-y-2">
             {displayedFindings.map((finding, i) => (
-              <div key={finding.id} className="flex items-start gap-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-900 dark:bg-slate-700 text-[12px] font-bold text-white">{i + 1}</span>
-                <div className="min-w-0 flex-1">
-                  <h4 className="text-[13px] font-semibold text-slate-950 dark:text-white">{finding.title}</h4>
-                  <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">{finding.severity} · {finding.agent} · {finding.framework}</p>
-                </div>
-                <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 shrink-0">{finding.confidence}%</span>
-              </div>
+              <ExpandableFindingCard key={finding.id} finding={finding} index={i} llmCalls={llmCalls} />
             ))}
           </div>
         )}
@@ -445,8 +601,11 @@ export function LiveRuns() {
     : null;
 
   // Which step is showing in the detail panel: an explicit user click wins; otherwise,
-  // while a run is active, follow the live phase automatically.
-  const effectiveStep = selectedStep ?? (runId ? livePhase : "created");
+  // while a run is active, follow the live phase automatically. A completed run
+  // lands on Action & Reporting ("completed" is not a pipeline step — without
+  // this mapping the panel snapped back to Run Setup when the run finished).
+  const livePanelPhase = livePhase === "completed" ? "action_reporting" : livePhase;
+  const effectiveStep = selectedStep ?? (runId ? livePanelPhase : "created");
   const currentStepDef = PIPELINE_STEPS.find((s) => s.id === effectiveStep) ?? PIPELINE_STEPS[0];
 
   // Clicking the already-selected agent toggles its detail closed.
@@ -539,6 +698,7 @@ export function LiveRuns() {
               liveArtifactData={liveArtifactData}
               intelligenceAgents={intelligenceAgents}
               displayedFindings={displayedFindings}
+              llmCalls={backend.llmCalls}
               runId={runId}
               currentPhase={livePhase}
               runStatus={liveStatus}

@@ -4,6 +4,7 @@ from uuid import UUID
 from sqlmodel import Session
 
 from app.db import session as db_session
+from app.models.ai_system import AISystem
 from app.models.base import utc_now
 from app.models.enums import LedgerActorType, RunPhase, RunStatus
 from app.schemas.governance import (
@@ -25,6 +26,7 @@ from app.services import (
     governance_state,
 )
 from app.services.action_reporting import reports
+from app.services.context_assembly.log_synthesizer import synthesize_logs_for_system
 from app.services.deliberation_council import deliberation as council
 from app.services.run_validation import get_run_or_raise
 from app.services.specialist_agents import agent_execution, metric_execution
@@ -44,24 +46,54 @@ def run_governance_pipeline_job(
     waiting instead of hanging on a non-terminal status. Must NOT reuse the
     request-scoped session (it is closed once the response is sent).
     """
-    with Session(db_session.engine) as session:
-        try:
+    try:
+        with Session(db_session.engine) as session:
             run_governance_pipeline(session, run_id=run_id, payload=payload)
-        except Exception as exc:  # noqa: BLE001 — background job: never let it crash silently
-            logger.exception("Background orchestration failed for run %s", run_id)
-            try:
-                run = get_run_or_raise(session, run_id)
-                run.status = RunStatus.failed
-                run.completed_at = run.completed_at or utc_now()
-                run.updated_at = utc_now()
+    except Exception as exc:  # noqa: BLE001 — background job: never let it crash silently
+        logger.exception("Background orchestration failed for run %s", run_id)
+        _finalize_run(run_id, status=RunStatus.failed, error=exc)
+    else:
+        # Safety net: finalize on a FRESH session. The pipeline marks the run
+        # completed itself, but if its session is poisoned late in the flow
+        # (observed once: the final completed UPDATE flushed, then rolled back),
+        # the run would otherwise be parked at council_running forever and the
+        # Live Run view would hang on the council stage.
+        _finalize_run(run_id, status=RunStatus.completed)
+
+
+def _finalize_run(
+    run_id: UUID,
+    *,
+    status: RunStatus,
+    error: Exception | None = None,
+) -> None:
+    """Force the run to a terminal state on a dedicated session.
+
+    Uses its own session/connection so a poisoned pipeline session can never
+    prevent the run from reaching a terminal status (the frontend polls until
+    it sees one). No-ops when the run is already terminal.
+    """
+    terminal = {RunStatus.completed, RunStatus.failed, RunStatus.cancelled}
+    try:
+        with Session(db_session.engine) as session:
+            run = get_run_or_raise(session, run_id)
+            if run.status in terminal:
+                return
+            run.status = status
+            if status == RunStatus.completed:
+                run.current_phase = RunPhase.completed
+            if error is not None:
                 run.error_summary = {
-                    "error_type": exc.__class__.__name__,
-                    "message": str(exc),
+                    "error_type": error.__class__.__name__,
+                    "message": str(error),
                 }
-                session.add(run)
-                session.commit()
-            except Exception:  # noqa: BLE001
-                logger.exception("Could not mark run %s as failed", run_id)
+            run.completed_at = run.completed_at or utc_now()
+            run.updated_at = utc_now()
+            session.add(run)
+            session.commit()
+            logger.info("Finalized run %s as %s", run_id, status)
+    except Exception:  # noqa: BLE001
+        logger.exception("Could not finalize run %s as %s", run_id, status)
 
 
 def run_governance_pipeline(
@@ -70,22 +102,31 @@ def run_governance_pipeline(
     run_id: UUID,
     payload: GovernancePipelineRunCreate,
 ) -> GovernancePipelineRunRead:
-    get_run_or_raise(session, run_id)
+    run = get_run_or_raise(session, run_id)
 
-    context_result: ContextAssemblyRead | None = None
-    if payload.logs:
-        # Layer 1 runs first so the state chain captures context assembly and the
-        # run progresses through phases in the spec-mandated order. The assembler
-        # records its own GovernanceState and audit-ledger entries.
-        context_result = context_assembly.assemble_context(
-            session,
-            run_id=run_id,
-            payload=ContextAssemblyCreate(
-                logs=payload.logs,
-                requested_by=payload.requested_by,
-                notes=payload.notes,
-            ),
-        )
+    # Layer 1 always runs so the state chain captures context assembly and the run
+    # progresses through phases in the spec-mandated order. Prefer explicit logs
+    # (real logs or a user upload); when none are supplied, synthesize a
+    # deterministic, system-specific sample so the analyzer and the downstream
+    # orchestrator have real, per-system evidence to work with instead of an empty
+    # "everything missing" result. The assembler records its own GovernanceState
+    # and audit-ledger entries.
+    logs = payload.logs
+    logs_source = "payload"
+    if not logs:
+        ai_system = session.get(AISystem, run.ai_system_id)
+        if ai_system is not None:
+            logs = synthesize_logs_for_system(ai_system)
+            logs_source = "synthesized"
+    context_result: ContextAssemblyRead | None = context_assembly.assemble_context(
+        session,
+        run_id=run_id,
+        payload=ContextAssemblyCreate(
+            logs=logs,
+            requested_by=payload.requested_by,
+            notes=_context_notes(payload.notes, logs_source, len(logs)),
+        ),
+    )
 
     # Layer 2: build and persist the evaluation plan before any execution so the
     # state chain records the plan and the run passes through the 'planned' phase.
@@ -181,6 +222,17 @@ def run_governance_pipeline(
         },
     )
 
+    # Make the Action & Reporting stage observable: without this transition the
+    # run jumps deliberation_council -> completed and the frontend's Action &
+    # Reporting stage never activates during a live run. Only the phase moves;
+    # the status stays non-terminal (report_ready would stop frontend polling
+    # before the completed status lands).
+    run = get_run_or_raise(session, run_id)
+    run.current_phase = RunPhase.action_reporting
+    run.updated_at = utc_now()
+    session.add(run)
+    session.commit()
+
     report = reports.build_governance_report(session, run_id=run_id)
     _record_pipeline_step(
         session,
@@ -217,6 +269,18 @@ def run_governance_pipeline(
         council=council_result,
         report=report,
     )
+
+
+def _context_notes(notes: str | None, source: str, count: int) -> str | None:
+    """Annotate context-assembly notes with the log provenance for the audit trail."""
+    provenance = (
+        f"Log source: {source} ({count} record(s))."
+        if source == "synthesized"
+        else None
+    )
+    if notes and provenance:
+        return f"{notes} {provenance}"
+    return notes or provenance
 
 
 def _record_pipeline_step(
