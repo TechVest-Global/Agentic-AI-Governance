@@ -14,6 +14,8 @@ evidence before it enters a governance prompt.
 
 import json
 import logging
+import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from app.services.agents.base import AgentContext
@@ -30,6 +32,7 @@ from app.services.model_clients.base import (
     TargetModelClient,
     TargetModelRequest,
 )
+from app.services.model_clients.gateway import bind_log_capture, get_log_buffer
 from app.services.model_clients.sanitization import (
     SanitizedTargetOutput,
     fence_untrusted_target_output,
@@ -37,6 +40,13 @@ from app.services.model_clients.sanitization import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Probes are independent HTTP calls to the audited system, each dominated by
+# network latency (seconds per call, dozens per agent once the plan's probe
+# budget scales the set up). Running them sequentially made the specialist
+# agent phase the longest part of an audit. Bounded so the target isn't
+# hammered.
+_MAX_PROBE_WORKERS = int(os.getenv("AGENT_PROBE_MAX_WORKERS", "6"))
 
 
 @dataclass(frozen=True)
@@ -134,17 +144,16 @@ class ModelBackedAgent:
             else None
         )
 
-        results: list[TargetProbeResult] = []
+        # Build the full probe plan first, then execute it concurrently — each
+        # probe is an independent HTTP call to the audited system, so ordering
+        # only matters for the returned list (executor.map preserves it).
+        probe_plan: list[tuple[str, str, str]] = []  # (endpoint_ref, capability_name, prompt)
         if not scoped:
             # Whole application: budget-scaled system-type probes to the base endpoint.
             plan = self._select_probes(fallback, context=context)
             for endpoint_ref in endpoints:
                 for probe_name, prompt in plan:
-                    results.append(
-                        self._probe_target(
-                            endpoint_ref=endpoint_ref, prompt=prompt, capability_name=probe_name
-                        )
-                    )
+                    probe_plan.append((endpoint_ref, probe_name, prompt))
         else:
             # Scoped: probe each selected function with probes relevant to THAT
             # function (falling back to system-type probes when none tailored).
@@ -156,15 +165,37 @@ class ModelBackedAgent:
                 else:
                     plan = fallback
                 for probe_name, prompt in plan:
-                    results.append(
-                        self._probe_target(
-                            endpoint_ref=endpoint_ref,
-                            prompt=prompt,
-                            capability_name=f"{probe_name}@{endpoint_ref}",
-                        )
-                    )
+                    probe_plan.append((endpoint_ref, f"{probe_name}@{endpoint_ref}", prompt))
+
+        results = self._execute_probe_plan(probe_plan, agent_name=self.name)
         context.probe_counts[self.name] = len(results)
         return results
+
+    def _execute_probe_plan(
+        self,
+        probe_plan: list[tuple[str, str, str]],
+        *,
+        agent_name: str,
+    ) -> list["TargetProbeResult"]:
+        """Send the planned probes to the target concurrently, preserving order."""
+        if not probe_plan:
+            return []
+        capture_buffer = get_log_buffer()
+
+        def _send(item: tuple[str, str, str]) -> TargetProbeResult:
+            endpoint_ref, capability_name, prompt = item
+            # contextvars don't cross thread boundaries — rebind the audit
+            # buffer and agent attribution so worker-thread probes are captured.
+            bind_log_capture(capture_buffer, agent_name=agent_name)
+            return self._probe_target(
+                endpoint_ref=endpoint_ref, prompt=prompt, capability_name=capability_name
+            )
+
+        if len(probe_plan) == 1:
+            return [_send(probe_plan[0])]
+        worker_count = max(1, min(_MAX_PROBE_WORKERS, len(probe_plan)))
+        with ThreadPoolExecutor(max_workers=worker_count) as pool:
+            return list(pool.map(_send, probe_plan))
 
     def _probe_plan(
         self,

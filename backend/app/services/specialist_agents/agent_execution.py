@@ -18,7 +18,7 @@ from app.services.model_clients.gateway import (
     set_current_agent,
     start_log_capture,
 )
-from app.services.model_clients.registry import get_target_model_client
+from app.services.model_clients.registry import get_target_model_client_for_system
 from app.services.run_validation import get_run_or_raise
 from app.services.specialist_agents.metric_plans import build_metric_plan
 
@@ -68,7 +68,7 @@ def run_agents(
         probe_budgets=probe_budgets,
         metric_plan_items=build_metric_plan(session, run_id=run_id).metrics,
         session=session,
-        target_client=get_target_model_client(),
+        target_client=get_target_model_client_for_system(ai_system),
         probe_counts={},
         selected_capabilities=list(run.selected_capabilities or []),
     )

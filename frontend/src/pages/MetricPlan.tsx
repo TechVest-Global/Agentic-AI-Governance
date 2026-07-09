@@ -8,6 +8,7 @@ import { ProgressBar } from "@/components/ui/RunStatus";
 import { useAppStore } from "@/store/useAppStore";
 import { metricPlan, dimensionTone, type MetricDimension, type MetricPlan as MetricPlanShape, type MetricStatus, type PlannedMetric } from "@/data/metricPlan";
 import { getRunMetricPlan, listAISystems, type EvaluationRun } from "@/api/governanceApi";
+import { metricBlurb } from "@/data/metricCatalog";
 import { useActiveRun } from "@/hooks/useActiveRun";
 
 const statusTone: Record<MetricStatus, "green" | "amber" | "red" | "slate" | "blue"> = {
@@ -45,7 +46,7 @@ async function loadLivePlan(run: EvaluationRun): Promise<MetricPlanShape | null>
       id: m.metric_id,
       name: m.name,
       dimension: normalizeDimension(m.dimension),
-      description: `Owned by ${m.primary_agent ?? "specialist agent"} · framework refs: ${m.framework_ids.join(", ") || "—"}.`,
+      description: `${metricBlurb(m.metric_id, m.name)} Owned by ${m.primary_agent ?? "specialist agent"} · framework refs: ${m.framework_ids.join(", ") || "—"}.`,
       tool: m.tool_name ?? "—",
       toolMode: "live",
       ownerAgent: m.primary_agent ?? "—",

@@ -32,6 +32,7 @@ import {
   createAISystem,
   createAISystemCapability,
   deleteAISystem,
+  getContextProfile,
   getRegistrationOptions,
   listAISystems,
   listRegistrationFrameworks,
@@ -39,6 +40,7 @@ import {
   type BackendAISystem,
   type BackendAISystemCapabilityCreate,
   type BackendAISystemCreate,
+  type ContextProfile,
   type OptionItem,
   type RegistrationFrameworkOption,
   type RegistrationOptions,
@@ -1042,9 +1044,73 @@ function SystemDetail({
   );
 }
 
+/** Render one context-profile value (string / list / nested object) as compact text. */
+function acpFieldValue(value: unknown): string {
+  if (value == null) return "—";
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map((v) => acpFieldValue(v)).join("; ");
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([k, v]) => `${k}: ${acpFieldValue(v)}`)
+      .join(" · ");
+  }
+  return String(value);
+}
+
+const ACP_SECTION_META: Array<{ letter: string; title: string; key: keyof ContextProfile; owner: string }> = [
+  { letter: "A", title: "Identity & Purpose", key: "identity_purpose", owner: "System owner" },
+  { letter: "B", title: "Pre-Model Controls", key: "pre_model_controls", owner: "Governance engineering" },
+  { letter: "C", title: "Model Configuration", key: "model_configuration", owner: "ML engineering" },
+  { letter: "D", title: "Post-Model Controls", key: "post_model_controls", owner: "Governance engineering" },
+  { letter: "E", title: "Integration Context", key: "integration_context", owner: "Platform engineering" },
+];
+
+/** Map a real backend profile onto the section shape the panel renders. */
+function sectionsFromBackendProfile(profile: ContextProfile) {
+  return ACP_SECTION_META.map((meta) => ({
+    letter: meta.letter,
+    title: meta.title,
+    owner: meta.owner,
+    fields: Object.entries((profile[meta.key] as Record<string, unknown>) ?? {}).map(
+      ([key, value]) => [key.replace(/_/g, " "), acpFieldValue(value)] as [string, string],
+    ),
+  }));
+}
+
 function AcpPanel({ systemId }: { systemId: string }) {
   const [activeSection, setActiveSection] = useState<string>("A");
-  const acp = applicationContextProfiles.find((p) => p.systemId === systemId);
+  const [backendProfile, setBackendProfile] = useState<ContextProfile | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(true);
+
+  // The registered profile lives in the backend; the mockData lookup is only a
+  // fallback for demo systems that were never registered through the API.
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingProfile(true);
+    getContextProfile(systemId)
+      .then((profile) => {
+        if (!cancelled) setBackendProfile(profile);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingProfile(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [systemId]);
+
+  const mockAcp = applicationContextProfiles.find((p) => p.systemId === systemId);
+  const acp = backendProfile
+    ? { sections: sectionsFromBackendProfile(backendProfile), frameworks: mockAcp?.frameworks ?? [] }
+    : mockAcp;
+
+  if (loadingProfile && !acp) {
+    return (
+      <div className="rounded border border-dashed border-slate-300 dark:border-slate-600 p-6 text-center">
+        <p className="text-[12px] text-slate-500 dark:text-slate-400">Loading context profile…</p>
+      </div>
+    );
+  }
 
   if (!acp) {
     return (
@@ -1107,9 +1173,9 @@ function AcpPanel({ systemId }: { systemId: string }) {
             </div>
             <div className="grid gap-1.5 sm:grid-cols-2">
               {sec.fields.map(([key, val]) => (
-                <div key={key} className="flex items-start justify-between gap-3 rounded border border-slate-100 dark:border-slate-700/60 bg-slate-50 dark:bg-slate-800/50 px-3 py-2">
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">{key}</p>
-                  <p className="text-right text-[11px] font-medium text-slate-900 dark:text-white">{val}</p>
+                <div key={key} className="rounded border border-slate-100 dark:border-slate-700/60 bg-slate-50 dark:bg-slate-800/50 px-3 py-2">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 capitalize">{key}</p>
+                  <p className="mt-0.5 text-[11px] font-medium leading-relaxed text-slate-900 dark:text-white wrap-break-word">{val}</p>
                 </div>
               ))}
             </div>
@@ -1117,6 +1183,7 @@ function AcpPanel({ systemId }: { systemId: string }) {
         </div>
 
         {/* Frameworks footer */}
+        {acp.frameworks.length > 0 && (
         <div className="border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">Governance Frameworks</p>
           <div className="flex flex-wrap gap-2">
@@ -1134,6 +1201,7 @@ function AcpPanel({ systemId }: { systemId: string }) {
             ))}
           </div>
         </div>
+        )}
       </div>
     </div>
   );

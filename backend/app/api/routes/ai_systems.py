@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from sqlmodel import Session
 
+from app.core.exceptions import ApplicationError
 from app.db.session import get_session
 from app.schemas.governance import (
     AISystemCapabilityCreate,
@@ -211,15 +212,16 @@ async def upload_retrieval_context_document(
 
     Lets users add context by upload instead of hand-typing JSON. The stored
     document is what RAG groundedness evaluation (RAGAS) reads at run time.
-    Accepts a multipart file or a raw ``text`` field; ``tags`` is a
-    comma-separated string.
+    Accepts a multipart file (.pdf / .docx / plain text formats) or a raw
+    ``text`` field; ``tags`` is a comma-separated string.
     """
-    raw = b""
     filename = None
     if file is not None:
         raw = await file.read()
         filename = file.filename
-    content = raw.decode("utf-8", errors="replace") if raw else (text or "")
+        content = _extract_document_text(raw, filename)
+    else:
+        content = text or ""
     tag_list = [t.strip() for t in (tags or "").split(",") if t.strip()]
     return service.ingest_context_document(
         session,
@@ -229,6 +231,73 @@ async def upload_retrieval_context_document(
         source_filename=filename,
         tags=tag_list,
     )
+
+
+def _extract_document_text(raw: bytes, filename: str | None) -> str:
+    """Extract plain text from an uploaded document by its extension.
+
+    PDFs and DOCX were previously decoded as UTF-8, storing binary mojibake as
+    "context" that then poisoned RAG groundedness evaluation. Anything without
+    a known binary extension is treated as plain text.
+    """
+    import io
+
+    suffix = (filename or "").rsplit(".", 1)[-1].lower() if filename and "." in filename else ""
+
+    if suffix == "pdf":
+        try:
+            from pypdf import PdfReader
+
+            reader = PdfReader(io.BytesIO(raw))
+            pages = [page.extract_text() or "" for page in reader.pages]
+            content = "\n\n".join(part.strip() for part in pages if part.strip())
+        except Exception as exc:
+            raise ApplicationError(
+                status_code=422,
+                code="VALIDATION_ERROR",
+                message=f"Could not read the PDF file: {exc}",
+            ) from exc
+        if not content.strip():
+            raise ApplicationError(
+                status_code=422,
+                code="VALIDATION_ERROR",
+                message=(
+                    "The PDF contains no extractable text (it may be scanned images). "
+                    "Paste the text instead."
+                ),
+            )
+        return content
+
+    if suffix in {"docx", "doc"}:
+        try:
+            from docx import Document
+
+            document = Document(io.BytesIO(raw))
+            parts = [p.text for p in document.paragraphs if p.text.strip()]
+            for table in document.tables:
+                for row in table.rows:
+                    cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                    if cells:
+                        parts.append(" | ".join(cells))
+            content = "\n".join(parts)
+        except Exception as exc:
+            raise ApplicationError(
+                status_code=422,
+                code="VALIDATION_ERROR",
+                message=(
+                    f"Could not read the Word document: {exc}. Legacy .doc files are "
+                    "not supported — save as .docx and retry."
+                ),
+            ) from exc
+        if not content.strip():
+            raise ApplicationError(
+                status_code=422,
+                code="VALIDATION_ERROR",
+                message="The Word document contains no extractable text.",
+            )
+        return content
+
+    return raw.decode("utf-8", errors="replace")
 
 
 @router.get(

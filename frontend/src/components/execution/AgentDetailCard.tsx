@@ -33,6 +33,7 @@ import {
   complianceMapperDetail,
   driftAnalystDetail,
 } from "@/data/executionLayerData";
+import { metricBlurb, metricName } from "@/data/metricCatalog";
 
 export type AgentTab = "Overview" | "Probes" | "Evidence" | "Frameworks" | "Remediation" | "Runtime";
 
@@ -56,6 +57,24 @@ export type IntelligenceAgent = {
 };
 
 export const AGENT_TABS: AgentTab[] = ["Overview", "Probes", "Evidence", "Frameworks", "Remediation", "Runtime"];
+
+/**
+ * Turn a raw probe identifier into a readable title, keeping the pass number as
+ * a suffix. e.g. "demographic_parity_matched_pair_pass2" → "Demographic Parity
+ * Matched Pair (pass 2)"; "proxy_discrimination" → "Proxy Discrimination".
+ */
+function humanizeProbeTitle(raw: string | null | undefined): string {
+  if (!raw) return "Probe";
+  // Pull a trailing pass number (pass2 / _pass_3) out to a parenthetical suffix.
+  const passMatch = raw.match(/_?pass[_-]?(\d+)$/i);
+  const pass = passMatch ? ` (pass ${passMatch[1]})` : "";
+  const core = passMatch ? raw.slice(0, passMatch.index) : raw;
+  const words = core
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return `${words || "Probe"}${pass}`;
+}
 
 // Curated, agent-type reference metadata (purpose / checks / methods / frameworks /
 // default remediation). The live run supplies the rest — status, findings, evidence.
@@ -177,7 +196,9 @@ function describeProbeDesign(plan: AgentPlanItem | null): string {
   if (!plan) return "No evaluation plan entry recorded for this agent on this run.";
   if (!plan.activated) return `Not activated for this run. ${plan.rationale}`.trim();
   const metrics = plan.assigned_metric_ids.length
-    ? `Assigned metric${plan.assigned_metric_ids.length === 1 ? "" : "s"}: ${plan.assigned_metric_ids.join(", ")}.`
+    ? `Assigned metric${plan.assigned_metric_ids.length === 1 ? "" : "s"}: ${plan.assigned_metric_ids
+        .map((id) => (metricName(id) !== id ? `${id} (${metricName(id)})` : id))
+        .join(", ")}.`
     : "No metrics assigned.";
   return `Priority ${plan.priority} · probe budget ${plan.probe_budget}. ${metrics} ${plan.rationale}`.trim();
 }
@@ -565,8 +586,8 @@ function ProbesTab({ agent, runId }: { agent: IntelligenceAgent; runId: string |
                     </span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[12px] font-semibold text-slate-900 dark:text-white font-mono">
-                          {call.task ?? "probe"}
+                        <span className="text-[12px] font-semibold text-slate-900 dark:text-white">
+                          {humanizeProbeTitle(call.task)}
                         </span>
                         <span className={clsx(
                           "rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
@@ -580,6 +601,11 @@ function ProbesTab({ agent, runId }: { agent: IntelligenceAgent; runId: string |
                           target
                         </span>
                       </div>
+                      {call.task && (
+                        <div className="mt-0.5 font-mono text-[10px] text-slate-400 dark:text-slate-500 truncate">
+                          {call.task}
+                        </div>
+                      )}
                       <div className="mt-0.5 flex items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400">
                         {call.latency_ms != null && (
                           <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{call.latency_ms} ms</span>
@@ -1022,14 +1048,21 @@ function ToolCallList({ toolCalls }: { toolCalls: FindingToolCall[] }) {
                 : "border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/20"
             )}
           >
-            <div className="flex items-center gap-2.5 min-w-0">
-              <Wrench className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500" />
+            <div className="flex items-start gap-2.5 min-w-0">
+              <Wrench className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500" />
               <div className="min-w-0">
                 <p className="text-[12px] font-semibold text-slate-900 dark:text-white">
-                  {TOOL_LABELS[call.tool_name] ?? call.tool_name}
-                  <span className="ml-1.5 font-normal text-slate-500 dark:text-slate-400">
-                    · {call.formula} ({call.metric_id})
+                  {metricName(call.metric_id)}
+                  <span className="ml-1.5 font-mono text-[11px] font-normal text-slate-400 dark:text-slate-500">
+                    {call.metric_id}
                   </span>
+                </p>
+                <p className="mt-0.5 text-[11.5px] leading-snug text-slate-500 dark:text-slate-400">
+                  {metricBlurb(call.metric_id)}
+                </p>
+                <p className="mt-0.5 text-[10.5px] text-slate-400 dark:text-slate-500">
+                  Scored by {TOOL_LABELS[call.tool_name] ?? call.tool_name}
+                  {call.formula ? ` · ${call.formula}` : ""}
                 </p>
               </div>
             </div>

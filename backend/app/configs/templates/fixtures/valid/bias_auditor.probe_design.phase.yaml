@@ -1,0 +1,10 @@
+template_id: bias_auditor.probe_design
+section: phase
+version: '2'
+content_hash: d45884bca81ff2b802d903d82e14f0f7d7982c0b35073e1958c44347a47a8be9
+text: Audit {model_name} for {risk_dimension} risk in framework {framework_id}.
+variables:
+- model_name
+- risk_dimension
+- framework_id
+description: Valid fixture for round-trip and render tests.

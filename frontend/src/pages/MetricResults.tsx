@@ -6,7 +6,13 @@ import { MetricCard } from "@/components/ui/MetricCard";
 import { Badge } from "@/components/ui/Badge";
 import { useAppStore } from "@/store/useAppStore";
 import { useActiveRun } from "@/hooks/useActiveRun";
-import { listMetricResults, type MetricResult } from "@/api/governanceApi";
+import { metricBlurb, metricName } from "@/data/metricCatalog";
+import {
+  listCapabilities,
+  listMetricResults,
+  type BackendAISystemCapability,
+  type MetricResult,
+} from "@/api/governanceApi";
 
 type PassFilter = "all" | "passed" | "failed" | "review";
 
@@ -47,8 +53,9 @@ function passedLabel(passed: boolean | null | undefined): string {
 
 export function MetricResults() {
   const navigateTo = useAppStore((s) => s.navigateTo);
-  const { runId, loading: runsLoading } = useActiveRun();
+  const { runId, run, systems, loading: runsLoading } = useActiveRun();
   const [results, setResults] = useState<MetricResult[]>([]);
+  const [capabilities, setCapabilities] = useState<BackendAISystemCapability[]>([]);
   const [resultsLoading, setResultsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -77,6 +84,59 @@ export function MetricResults() {
     };
   }, [runId]);
 
+  // Capabilities of the audited system — their registration metadata declares
+  // which LLM deployment each endpoint calls.
+  useEffect(() => {
+    const systemId = run?.ai_system_id;
+    if (!systemId) {
+      setCapabilities([]);
+      return;
+    }
+    let cancelled = false;
+    listCapabilities(systemId)
+      .then((caps) => {
+        if (!cancelled) setCapabilities(caps);
+      })
+      .catch(() => {
+        if (!cancelled) setCapabilities([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [run?.ai_system_id]);
+
+  const system = useMemo(
+    () => systems.find((s) => s.id === run?.ai_system_id) ?? null,
+    [systems, run?.ai_system_id],
+  );
+
+  const capabilityById = useMemo(() => {
+    const map = new Map<string, { name: string; model: string | null }>();
+    for (const c of capabilities) {
+      const meta = c.metadata_json ?? {};
+      const model =
+        (typeof meta.deployment === "string" && meta.deployment) ||
+        (typeof meta.model === "string" && meta.model) ||
+        null;
+      map.set(c.id, { name: c.name, model });
+    }
+    return map;
+  }, [capabilities]);
+
+  const modelFor = (r: MetricResult): { model: string | null; source: string } => {
+    const cap = r.ai_system_capability_id ? capabilityById.get(r.ai_system_capability_id) : undefined;
+    if (cap?.model) {
+      return { model: cap.model, source: `Deployment registered for capability "${cap.name}"` };
+    }
+    if (system?.model_name) {
+      return {
+        model: system.model_name,
+        source: `System default model from registration (${humanize(system.model_provider)})`,
+      };
+    }
+    return { model: null, source: "No model recorded at registration" };
+  };
+
   const counts = useMemo(() => {
     let passed = 0;
     let failed = 0;
@@ -95,14 +155,18 @@ export function MetricResults() {
   );
 
   const filtered = useMemo(() => {
-    return results.filter((r) => {
-      if (dimensionFilter !== "all" && r.dimension !== dimensionFilter) return false;
-      if (passFilter === "passed") return r.passed === true;
-      if (passFilter === "failed") return r.passed === false;
-      if (passFilter === "review") return r.passed === null || r.passed === undefined;
-      return true;
-    });
-  }, [results, dimensionFilter, passFilter]);
+    const capName = (r: MetricResult) =>
+      (r.ai_system_capability_id && capabilityById.get(r.ai_system_capability_id)?.name) || "";
+    return results
+      .filter((r) => {
+        if (dimensionFilter !== "all" && r.dimension !== dimensionFilter) return false;
+        if (passFilter === "passed") return r.passed === true;
+        if (passFilter === "failed") return r.passed === false;
+        if (passFilter === "review") return r.passed === null || r.passed === undefined;
+        return true;
+      })
+      .sort((a, b) => a.metric_id.localeCompare(b.metric_id) || capName(a).localeCompare(capName(b)));
+  }, [results, dimensionFilter, passFilter, capabilityById]);
 
   const passPills: Array<{ key: PassFilter; label: string }> = [
     { key: "all", label: "All" },
@@ -214,6 +278,7 @@ export function MetricResults() {
                   <th className="px-4 py-2.5">Passed</th>
                   <th className="px-4 py-2.5">Evidence</th>
                   <th className="px-4 py-2.5">Capability</th>
+                  <th className="px-4 py-2.5">Model</th>
                 </tr>
               </thead>
               <tbody>
@@ -222,8 +287,11 @@ export function MetricResults() {
                     key={r.id}
                     className="border-b border-slate-100 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-800/60"
                   >
-                    <td className="px-4 py-3 font-mono text-[11px] font-semibold text-slate-950 dark:text-white">
-                      {r.metric_id}
+                    <td className="px-4 py-3 cursor-help" title={metricBlurb(r.metric_id, metricName(r.metric_id))}>
+                      <span className="font-mono text-[11px] font-semibold text-slate-950 dark:text-white">{r.metric_id}</span>
+                      {metricName(r.metric_id) !== r.metric_id && (
+                        <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">{metricName(r.metric_id)}</p>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <Badge tone="violet">{humanize(r.dimension)}</Badge>
@@ -258,9 +326,26 @@ export function MetricResults() {
                         <span className="text-[11px] text-slate-400">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 font-mono text-[11px] text-slate-600 dark:text-slate-400">
-                      {r.ai_system_capability_id ? shortId(r.ai_system_capability_id) : "—"}
+                    <td
+                      className="px-4 py-3 text-[11px] text-slate-600 dark:text-slate-400"
+                      title={r.ai_system_capability_id ?? undefined}
+                    >
+                      {r.ai_system_capability_id
+                        ? (capabilityById.get(r.ai_system_capability_id)?.name ??
+                          shortId(r.ai_system_capability_id))
+                        : "—"}
                     </td>
+                    {(() => {
+                      const { model, source } = modelFor(r);
+                      return (
+                        <td
+                          className="cursor-help px-4 py-3 font-mono text-[11px] text-slate-700 dark:text-slate-300"
+                          title={source}
+                        >
+                          {model ?? "—"}
+                        </td>
+                      );
+                    })()}
                   </tr>
                 ))}
               </tbody>

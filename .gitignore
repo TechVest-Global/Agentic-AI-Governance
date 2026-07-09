@@ -76,3 +76,5 @@ coverage.xml
 # Temporary script outputs and scratchpad files
 *.tmp
 *.bak
+
+.deepeval/
