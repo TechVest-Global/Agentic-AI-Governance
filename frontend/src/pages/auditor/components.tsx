@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Info, RefreshCw, ServerCrash } from "lucide-react";
+import { FlaskConical, Info, RefreshCw, ServerCrash, X } from "lucide-react";
 import clsx from "clsx";
 import { useEffect } from "react";
 import type { ReactNode } from "react";
@@ -212,4 +212,112 @@ export function VerdictTag({ label }: { label: string }) {
 
 export function humanize(text: string): string {
   return text.replace(/[_-]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/* ───────────────────────────────────────────── priority + modal ── */
+
+const PRIORITY_TONE: Record<string, string> = {
+  high: "bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-400",
+  medium: "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400",
+  low: "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300",
+};
+
+export function PriorityTag({ priority }: { priority: string }) {
+  const key = priority.toLowerCase();
+  return (
+    <span className={clsx("shrink-0 rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide", PRIORITY_TONE[key] ?? PRIORITY_TONE.low)}>
+      {priority}
+    </span>
+  );
+}
+
+/**
+ * Honest disclosure that a surface is a local-only interactive preview. Used on
+ * My Assignments and Notes & Queries, which have no backend entity yet — the
+ * auditor can genuinely use them, but the data lives in this browser only.
+ */
+export function DemoDataBanner({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50/70 dark:bg-amber-950/30 px-3.5 py-2.5 text-[12px] leading-5 text-amber-800 dark:text-amber-300">
+      <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+      <span>{children}</span>
+    </div>
+  );
+}
+
+/** Lightweight centered modal shell shared by the auditor collaboration pages. */
+export function AuditorModal({
+  title,
+  subtitle,
+  onClose,
+  children,
+  footer,
+  maxWidth = "max-w-lg",
+}: {
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+  children: ReactNode;
+  footer?: ReactNode;
+  maxWidth?: string;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[3px]" onClick={onClose} />
+      <div className={clsx("relative z-10 flex max-h-[85vh] w-full flex-col rounded-xl bg-white shadow-2xl ring-1 ring-black/10 dark:bg-slate-900 dark:ring-white/10", maxWidth)}>
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+          <div>
+            <p className="text-[15px] font-semibold text-slate-950 dark:text-white">{title}</p>
+            {subtitle && <p className="text-[11px] text-slate-500 dark:text-slate-400">{subtitle}</p>}
+          </div>
+          <button
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        {footer && (
+          <div className="flex gap-2 border-t border-slate-200 px-5 py-3.5 dark:border-slate-700">{footer}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────── time helpers ── */
+
+/** Short relative time ("just now", "3h ago", "2d ago", else a date). */
+export function timeAgo(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const secs = Math.floor((Date.now() - then) / 1000);
+  if (secs < 45) return "just now";
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+  if (secs < 604800) return `${Math.floor(secs / 86400)}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+/** Format a yyyy-mm-dd due date for display; null → "No due date". */
+export function formatDueDate(date: string | null): string {
+  if (!date) return "No due date";
+  const d = new Date(date + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return date;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+/** A due date is overdue when it is strictly before today (local). */
+export function isOverdue(date: string | null): boolean {
+  if (!date) return false;
+  const d = new Date(date + "T00:00:00").getTime();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return !Number.isNaN(d) && d < today.getTime();
+}
+
+/** First 8 chars of a run id, for compact display. */
+export function shortId(id: string): string {
+  return id.length > 8 ? id.slice(0, 8) : id;
 }

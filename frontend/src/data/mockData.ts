@@ -10,18 +10,15 @@ import {
   FileText,
   Gauge,
   GitBranch,
-  Inbox,
   Layers,
   LayoutDashboard,
   ListChecks,
-  MessagesSquare,
   Network,
   Scale,
   ShieldCheck,
   SlidersHorizontal,
   Split,
   Terminal,
-  Wrench,
 } from "lucide-react";
 import type { AgentStatus, AiSystem, AuditEvent, Finding, GovernanceRun, NavigationItem } from "@/types";
 
@@ -33,21 +30,19 @@ export const navigation: NavigationItem[] = [
   // of the developer engine — no developer controls (registration, endpoint
   // config, credentials, metric config, agent execution) ever appear here.
   // ══════════════════════════════════════════════════════════════════════
-  // ── My Workspace ──────────────────────────────────────────────────────
-  { id: "overview", label: "Overview", section: "My Workspace", path: "/overview", icon: LayoutDashboard, personas: ["auditor"] },
-  { id: "my-assignments", label: "My Assignments", section: "My Workspace", path: "/my-assignments", icon: Inbox, personas: ["auditor"] },
-  { id: "review-queue", label: "Review Queue", section: "My Workspace", path: "/review-queue", icon: ListChecks, personas: ["auditor"] },
-  // ── Review ────────────────────────────────────────────────────────────
-  { id: "audit-systems", label: "AI Systems", section: "Review", path: "/audit-systems", icon: ShieldCheck, personas: ["auditor"] },
-  { id: "evidence-review", label: "Evidence Review", section: "Review", path: "/evidence-review", icon: FileSearch, personas: ["auditor"] },
-  { id: "findings-review", label: "Findings Review", section: "Review", path: "/findings-review", icon: AlertTriangle, personas: ["auditor"] },
-  { id: "verdict-review", label: "Verdict Review", section: "Review", path: "/verdict-review", icon: GitBranch, personas: ["auditor"] },
-  // ── Compliance & Reporting ──────────────────────────────────────────────
-  { id: "compliance-reports", label: "Compliance Reports", section: "Compliance & Reporting", path: "/compliance-reports", icon: FileText, personas: ["auditor"] },
-  { id: "audit-ledger", label: "Audit Ledger", section: "Compliance & Reporting", path: "/audit-ledger", icon: BookOpen, personas: ["auditor"] },
-  { id: "remediation", label: "Remediation", section: "Compliance & Reporting", path: "/remediation", icon: Wrench, personas: ["auditor"] },
-  // ── Collaboration ─────────────────────────────────────────────────────
-  { id: "notes-queries", label: "Notes & Queries", section: "Collaboration", path: "/notes-queries", icon: MessagesSquare, personas: ["auditor"] },
+  // Client-facing assurance window — a calm three-item rail. Everything else
+  // (assignments, review queue, standalone evidence/findings/verdict, notes,
+  // remediation queue) is retired from the auditor nav per the auditor-UI
+  // refactor spec; their components remain in the repo but are no longer
+  // surfaced here. Evidence/Findings/Verdict now live as read-only tabs inside
+  // an Application record; the audit ledger is demoted to a quiet linked view.
+  { id: "applications", label: "Applications", section: "My Workspace", path: "/applications", icon: Boxes, personas: ["auditor"] },
+  { id: "compliance", label: "Compliance", section: "Compliance & Reporting", path: "/compliance", icon: Scale, personas: ["auditor"] },
+  { id: "client-reports", label: "Reports", section: "Compliance & Reporting", path: "/client-reports", icon: FileText, personas: ["auditor"] },
+  // Reachable, not listed in the rail: the application record detail and the
+  // demoted activity ledger (linked from Reports).
+  { id: "application-detail", label: "Application", section: "My Workspace", path: "/application", icon: ShieldCheck, personas: ["auditor"], hidden: true },
+  { id: "audit-ledger", label: "Activity ledger", section: "Compliance & Reporting", path: "/audit-ledger", icon: BookOpen, personas: ["auditor"], hidden: true },
 
   // ══════════════════════════════════════════════════════════════════════
   // DEVELOPER ENGINE (unchanged)

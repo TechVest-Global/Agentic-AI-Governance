@@ -4,7 +4,12 @@ import type { PageId } from "@/types";
 export type GlobalRunnerStatus = "idle" | "running" | "done" | "error";
 
 const routeMatchers: Array<[RegExp, PageId]> = [
-  // ── Auditor workspace (matched before the shared/developer routes) ──
+  // ── Auditor / client assurance window (matched before shared/developer) ──
+  [/^\/applications(?:\/.*)?$/, "applications"],
+  [/^\/application(?:\/.*)?$/, "application-detail"],
+  [/^\/compliance(?:\/.*)?$/, "compliance"],
+  [/^\/client-reports(?:\/.*)?$/, "client-reports"],
+  // ── Auditor workspace — retired routes (kept resolvable, not in nav) ──
   [/^\/overview(?:\/.*)?$/, "overview"],
   [/^\/my-assignments(?:\/.*)?$/, "my-assignments"],
   [/^\/review-queue(?:\/.*)?$/, "review-queue"],

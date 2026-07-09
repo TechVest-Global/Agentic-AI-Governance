@@ -52,6 +52,46 @@ def create_app() -> FastAPI:
                 conn.execute(text("ALTER TABLE llm_call_logs ADD COLUMN response_text TEXT"))
             conn.commit()
 
+    @app.on_event("startup")
+    def _migrate_runphase_enum() -> None:
+        """Ensure the runphase enum includes 'completed'.
+
+        Python's RunPhase has `completed` but early migrations created the DB
+        enum without it, so the pipeline's finalize step (current_phase ->
+        completed) threw on commit and left runs stuck at council_running. Add
+        the value if missing. ALTER TYPE ... ADD VALUE must run outside a
+        transaction, hence AUTOCOMMIT. Runs before reconciliation, which relies
+        on this value.
+        """
+        from sqlalchemy import text
+        from app.db.session import engine as _engine
+
+        with _engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TYPE runphase ADD VALUE IF NOT EXISTS 'completed'"))
+
+    @app.on_event("startup")
+    def _reconcile_interrupted_runs() -> None:
+        """Finalize runs orphaned by a prior worker restart.
+
+        The governance pipeline runs as a FastAPI BackgroundTask and does not
+        survive a process restart, so any run mid-pipeline when the server
+        stopped is left non-terminal with no task to finish it. Reconcile them
+        on startup so watchers stop hanging and the auditor/developer views show
+        the true final state.
+        """
+        import logging
+
+        from sqlmodel import Session
+
+        from app.db.session import engine as _engine
+        from app.services.orchestration import reconcile_interrupted_runs
+
+        try:
+            with Session(_engine) as session:
+                reconcile_interrupted_runs(session)
+        except Exception:  # noqa: BLE001 — never block startup on reconciliation
+            logging.getLogger(__name__).exception("Startup run reconciliation failed")
+
     return app
 
 

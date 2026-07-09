@@ -362,7 +362,14 @@ const pageDescriptions: Record<PageId, string> = {
   "security-tools": "Security tool adapters — Custom Boundary Test, garak, PyRIT, Inspect AI, CyberSecEval, prompt-injection scanners, tracing, and policy tests.",
   "governance-state": "Append-only GovernanceState chain — sequence, phase, source, payload, and hash linkage. The reconstruction record for any run.",
   "api-debug":    "Integration status — API health, route-to-endpoint mapping, role permissions, and request/response inspection for the FastAPI backend.",
-  // ── Auditor workspace ──
+  // ── Auditor / client assurance window ──
+  // (These pages render their own headers via AuditorPageHeader, so these
+  // strings are never shown — they exist only to satisfy Record<PageId>.)
+  applications:        "The AI applications in your portfolio and their assurance status.",
+  "application-detail":"Assurance detail for a single application.",
+  compliance:          "Framework compliance across your applications.",
+  "client-reports":    "Assurance reports available to download or read in-app.",
+  // ── Retired auditor screens ──
   overview:            "Your assurance priorities across every AI system in scope — pending reviews, critical findings, verdicts, sign-offs, and remediation.",
   "my-assignments":    "AI systems and reviews assigned specifically to you.",
   "review-queue":      "Governance runs awaiting your review. Open one to focus the whole workspace on that run.",

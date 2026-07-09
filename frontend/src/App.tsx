@@ -27,8 +27,13 @@ import { GovernanceStatePage } from "@/pages/GovernanceStatePage";
 import { APIDebug } from "@/pages/APIDebug";
 import { SignIn } from "@/pages/SignIn";
 import { SignUp } from "@/pages/SignUp";
-// Auditor workspace pages. Evidence / FindingsReview / Reports / AuditLedger
-// are shared, read-only components reused here under auditor routes.
+// Auditor / client assurance window (refactored 3-item structure).
+import { Applications } from "@/pages/auditor/Applications";
+import { ApplicationRecord } from "@/pages/auditor/ApplicationRecord";
+import { Compliance } from "@/pages/auditor/Compliance";
+import { ClientReports } from "@/pages/auditor/ClientReports";
+// Retired auditor screens — retained (components still routable if linked) but
+// no longer in the auditor nav. Kept mapped so PageId coverage stays complete.
 import { AuditorOverview } from "@/pages/auditor/AuditorOverview";
 import { MyAssignments } from "@/pages/auditor/MyAssignments";
 import { ReviewQueue } from "@/pages/auditor/ReviewQueue";
@@ -60,16 +65,21 @@ const pages = {
   "security-tools": SecurityToolAdapters,
   "governance-state": GovernanceStatePage,
   "api-debug": APIDebug,
-  // ── Auditor workspace ──
+  // ── Auditor / client assurance window (3-item structure) ──
+  applications: Applications,
+  "application-detail": ApplicationRecord,
+  compliance: Compliance,
+  "client-reports": ClientReports,
+  "audit-ledger": AuditLedger,          // demoted, reachable via Reports link
+  // ── Retired auditor screens (kept mapped, no longer in nav) ──
   overview: AuditorOverview,
   "my-assignments": MyAssignments,
   "review-queue": ReviewQueue,
   "audit-systems": AuditorSystems,
-  "evidence-review": Evidence,          // reuse shared read-only Evidence page
-  "findings-review": FindingsReview,    // reuse shared auditor findings workspace
+  "evidence-review": Evidence,
+  "findings-review": FindingsReview,
   "verdict-review": VerdictReview,
-  "compliance-reports": Reports,        // reuse shared compliance reports page
-  "audit-ledger": AuditLedger,          // reuse shared audit ledger page
+  "compliance-reports": Reports,
   remediation: Remediation,
   "notes-queries": NotesQueries,
 } satisfies Record<PageId, React.ComponentType>;

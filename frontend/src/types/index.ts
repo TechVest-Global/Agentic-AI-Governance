@@ -24,7 +24,12 @@ export type PageId =
   // Developer · Operate
   | "governance-state"
   | "api-debug"
-  // Auditor workspace (assurance / compliance / review — no engine internals)
+  // Auditor / client assurance window (3-item rail + record detail)
+  | "applications"
+  | "application-detail"
+  | "compliance"
+  | "client-reports"
+  // Auditor workspace — retired from nav (components retained, no longer surfaced)
   | "overview"
   | "my-assignments"
   | "review-queue"

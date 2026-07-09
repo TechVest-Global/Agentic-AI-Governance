@@ -33,9 +33,10 @@ class TechVestTargetModelClient:
 
     provider = "techvest_chatbot"
 
-    def __init__(self, *, endpoint: str, api_key: str) -> None:
+    def __init__(self, *, endpoint: str, api_key: str, timeout: float = 60.0) -> None:
         self._endpoint = endpoint.rstrip("/")
         self._api_key = api_key
+        self._timeout = timeout
         self.credential_ref = "TARGET_API_KEY"
 
     def invoke(self, request: TargetModelRequest) -> TargetModelResponse:
@@ -59,7 +60,7 @@ class TechVestTargetModelClient:
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
                 body = json.loads(resp.read().decode())
             raw_output = body.get("response", "")
         except Exception as exc:
