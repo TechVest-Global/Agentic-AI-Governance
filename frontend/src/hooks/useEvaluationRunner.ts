@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createEvaluationRun,
+  isAwaitingApproval,
   orchestrateRun,
   waitForRunCompletion,
   type BackendAISystem,
@@ -9,7 +10,9 @@ import {
 import { useAppStore } from "@/store/useAppStore";
 import { useSelectionStore } from "@/store/useSelectionStore";
 
-export type RunnerStatus = "idle" | "running" | "done" | "error";
+// "awaiting" = the run paused for human metric-plan approval (parked at 'planned').
+// It is not done — the reviewer must approve it on the Metric Plan page to resume.
+export type RunnerStatus = "idle" | "running" | "awaiting" | "done" | "error";
 
 export type EvaluationRunnerState = {
   status: RunnerStatus;
@@ -87,14 +90,18 @@ export function useEvaluationRunner() {
       // Fire-and-forget: orchestrate returns 202 immediately
       await orchestrateRun(evaluationRun.id);
 
-      // Poll until the run reaches a terminal state
+      // Poll until the run reaches a terminal state OR pauses for plan approval.
       const completedRun = await waitForRunCompletion(
         evaluationRun.id,
         undefined,
         ac.signal,
       );
 
-      setRunnerState({ status: "done", runningSystemId: null, result: completedRun, error: null });
+      // A gated run stops at 'planned' awaiting a reviewer's approval — surface
+      // that as its own status so the UI can prompt approval instead of implying
+      // the audit finished.
+      const status = isAwaitingApproval(completedRun) ? "awaiting" : "done";
+      setRunnerState({ status, runningSystemId: null, result: completedRun, error: null });
       return completedRun;
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {

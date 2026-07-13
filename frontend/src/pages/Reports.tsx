@@ -5,6 +5,12 @@ import { complianceRows } from "@/data/mockData";
 import { Badge, toneForStatus } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
+import {
+  buildComplianceReport,
+  exportReportCSV,
+  exportReportJSON,
+  exportReportPDF,
+} from "@/utils/complianceReport";
 
 type Framework = string;
 type ReportRow = {
@@ -106,6 +112,19 @@ export function Reports() {
     }, {});
   }, [backend.frameworkMap]);
 
+  // Structured, per-system report assembled from live backend data (falls back
+  // to prototype data when the backend is unavailable). Drives every export.
+  const complianceReport = useMemo(
+    () => buildComplianceReport(backend.report, backend.frameworkMap),
+    [backend.report, backend.frameworkMap],
+  );
+
+  const handleExport = (format: "PDF" | "JSON" | "CSV") => {
+    if (format === "PDF") exportReportPDF(complianceReport);
+    else if (format === "JSON") exportReportJSON(complianceReport);
+    else exportReportCSV(complianceReport);
+  };
+
   const tabOptions = Object.keys(backendRowsByFramework).length
     ? Object.keys(backendRowsByFramework)
     : frameworkTabs;
@@ -177,10 +196,11 @@ export function Reports() {
           <p className="text-[11px] text-slate-400 dark:text-slate-500">Click rows to expand evidence and clause definition · Switch frameworks using the tabs above the table</p>
         </div>
         <div className="flex shrink-0 gap-2">
-          {["PDF", "JSON", "CSV"].map((format) => (
+          {(["PDF", "JSON", "CSV"] as const).map((format) => (
             <button
               key={format}
-              title={`Export this compliance report as ${format}`}
+              onClick={() => handleExport(format)}
+              title={`Export the ${reportSystemName} compliance report as ${format}`}
               className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-[12px] font-medium text-slate-800 dark:text-slate-200 transition-colors hover:border-slate-400 dark:hover:border-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700"
             >
               <Download className="h-4 w-4" /> {format}

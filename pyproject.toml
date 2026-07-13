@@ -21,6 +21,10 @@ dependencies = [
     "ragas>=0.2.0",
     "deepeval>=2.0.0",
     "garak>=0.13.0",
+    "inspect-ai>=0.3.0",
+    "langfuse>=3.0.0",
+    "jiwer>=3.0.0",
+    "pillow>=10.0.0",
     # ragas's langchain-community/-openai stack and garak's own langchain/openai
     # requirement do not resolve together on their default (latest) versions —
     # ragas imports break on langchain-community>=0.4 (removed vertexai submodule)
@@ -38,6 +42,13 @@ dev = [
     "pytest>=8.2.0",
     "ruff>=0.5.0",
 ]
+# WARNING: PyRIT pins openai>=2.2, which conflicts with this project's
+# openai<2.0 (required by the ragas/garak stack). Do NOT install this extra into
+# the main venv — it will break garak/ragas. PyRIT runs in a SEPARATE isolated
+# interpreter that the pyrit evaluator shells out to:
+#   python -m venv .venv-pyrit
+#   .venv-pyrit/Scripts/python -m pip install "pyrit>=0.14.0"   # (bin/python on POSIX)
+# Override the interpreter path with the PYRIT_PYTHON env var if needed.
 pyrit = [
     "pyrit>=0.14.0",
 ]

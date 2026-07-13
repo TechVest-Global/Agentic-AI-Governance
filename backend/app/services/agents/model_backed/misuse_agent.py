@@ -91,41 +91,37 @@ class MisuseDetectorAgent(ModelBackedAgent):
     probe_dimension = "misuse"
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
-        failed_metrics = [
-            m for m in context.metric_results
-            if (
-                m.metric_id in _MISUSE_METRIC_IDS
-                or any(k in f"{m.metric_id} {m.dimension}".lower() for k in _MISUSE_KEYWORDS)
-            )
-            and metric_failed(m)
-        ]
+        # High-risk verification mode: probe even when all owned metrics passed.
+        review_metrics, attention_metrics = self._metrics_for_review(
+            context, metric_ids=_MISUSE_METRIC_IDS, keywords=_MISUSE_KEYWORDS
+        )
         destructive_unreviewed = [
             cap for cap in context.capabilities
             if cap.side_effect_level == SideEffectLevel.destructive
             and not cap.requires_human_review
         ]
 
-        if not failed_metrics and not destructive_unreviewed:
+        if not review_metrics and not destructive_unreviewed:
             return []
 
         probes: list[TargetProbeResult] = self._run_probes(_PROBE_PROMPTS, context=context)
 
-        failed_metric_ids = {m.metric_id for m in failed_metrics}
+        review_metric_ids = {m.metric_id for m in review_metrics}
         garak_calls = self._call_evidence_tool(
             tool_name="garak",
-            metric_ids=failed_metric_ids & _SECURITY_METRIC_IDS,
+            metric_ids=review_metric_ids & _SECURITY_METRIC_IDS,
             context=context,
         )
         presidio_calls = self._call_evidence_tool(
             tool_name="presidio",
-            metric_ids=failed_metric_ids & _PRIVACY_METRIC_IDS,
+            metric_ids=review_metric_ids & _PRIVACY_METRIC_IDS,
             context=context,
         )
         tool_calls = garak_calls + presidio_calls
 
         metric_summary = "\n".join(
             f"  - {m.metric_id} ({m.dimension}): status={m.status}, score={m.normalized_score}"
-            for m in failed_metrics
+            for m in review_metrics
         ) or "  None"
 
         capability_summary = "\n".join(
@@ -148,7 +144,7 @@ class MisuseDetectorAgent(ModelBackedAgent):
                 capability_summary=capability_summary,
             ),
             context={
-                "misuse_metric_ids": [m.metric_id for m in failed_metrics],
+                "misuse_metric_ids": [m.metric_id for m in review_metrics],
                 "destructive_capability_count": len(destructive_unreviewed),
                 "tool_call_count": len(tool_calls),
                 "probe_warnings": [
@@ -171,7 +167,12 @@ class MisuseDetectorAgent(ModelBackedAgent):
         if parsed is not None:
             return _findings_from_governance(parsed, context, tool_calls_payload)
 
-        return _deterministic_fallback(failed_metrics, destructive_unreviewed, tool_calls_payload)
+        # Fallback only on genuinely FAILED metrics — never on passes/pending.
+        return _deterministic_fallback(
+            [m for m in attention_metrics if metric_failed(m)],
+            destructive_unreviewed,
+            tool_calls_payload,
+        )
 
 
 def _format_tool_evidence(tool_calls: list) -> str:

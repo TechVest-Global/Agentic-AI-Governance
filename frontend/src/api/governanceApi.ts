@@ -341,6 +341,10 @@ export type EvaluationRun = {
   completed_at?: string | null;
   result_summary?: Record<string, unknown> | null;
   error_summary?: Record<string, unknown> | null;
+  // Metric-plan approval gate: set once a reviewer approves a paused run.
+  // A run awaiting approval has status === "planned" and plan_approved_at == null.
+  plan_approved_at?: string | null;
+  plan_approved_by?: string | null;
   created_at: string;
   updated_at?: string | null;
 };
@@ -577,7 +581,35 @@ export async function orchestrateRun(runId: string): Promise<{ run_id: string; s
     // mock_score: 0.5 is the threshold evaluator's "no external score supplied"
     // sentinel — it derives a conservative score from each metric's own threshold so
     // fallback metrics surface as borderline rather than a blanket pass or fail.
-    body: JSON.stringify({ mock_score: 0.5, evaluator_name: "auto", requested_by: "frontend", notes: "Triggered from UI." }),
+    // require_plan_approval: pause after the orchestrator builds the metric plan
+    // so a human reviews & approves it (POST approve-plan) before probes run. This
+    // is the human-in-the-loop oversight gate surfaced on the Metric Plan page.
+    body: JSON.stringify({ mock_score: 0.5, evaluator_name: "auto", requested_by: "frontend", notes: "Triggered from UI.", require_plan_approval: true }),
+  });
+}
+
+/** A run paused for human plan approval: parked at 'planned', not yet approved. */
+export function isAwaitingApproval(run: Pick<EvaluationRun, "status" | "plan_approved_at">): boolean {
+  return run.status === "planned" && !run.plan_approved_at;
+}
+
+/**
+ * Approve a paused metric plan and resume the run's pipeline.
+ *
+ * Pass `selectedMetrics` to override the orchestrator's selection with a
+ * hand-picked subset (must be non-empty); omit it to approve the plan as-is.
+ */
+export async function approvePlan(
+  runId: string,
+  approval: { approvedBy?: string; notes?: string; selectedMetrics?: string[] } = {},
+): Promise<EvaluationRun> {
+  return request<EvaluationRun>(`/evaluation-runs/${runId}/approve-plan`, {
+    method: "POST",
+    body: JSON.stringify({
+      approved_by: approval.approvedBy,
+      notes: approval.notes,
+      selected_metrics: approval.selectedMetrics ?? null,
+    }),
   });
 }
 
@@ -1093,7 +1125,7 @@ export type SecurityAdapterStatus = {
   name: string;
   category: string;
   description: string;
-  kind: "real" | "mock" | "deterministic";
+  kind: "real" | "tracing" | "deterministic" | "not_wired";
   dependency: string | null;
   dependency_installed: boolean;
   configured: boolean;
@@ -1107,8 +1139,35 @@ export type SecurityToolsStatus = {
   summary: { total: number; available: number; real: number };
 };
 
-export async function getSecurityTools(): Promise<SecurityToolsStatus> {
-  return request<SecurityToolsStatus>(`/security-tools`);
+export async function getSecurityTools(aiSystemId?: string): Promise<SecurityToolsStatus> {
+  const query = aiSystemId ? `?ai_system_id=${encodeURIComponent(aiSystemId)}` : "";
+  return request<SecurityToolsStatus>(`/security-tools${query}`);
+}
+
+export type SecurityToolRunResult = {
+  adapter: string;
+  ran_at: string;
+  mode: "real";
+  status: "passed" | "failed" | "warnings" | "error";
+  raw_status: string;
+  summary: string;
+  findings_created: number;
+  normalized_score: number | null;
+  threshold: number | null;
+  system: { id: string; name: string };
+  formula: string;
+  payload: Record<string, unknown>;
+};
+
+/** Run one real adapter against the live target. Genuine probe, not a mock. */
+export async function runSecurityTool(
+  adapterKey: string,
+  aiSystemId?: string,
+): Promise<SecurityToolRunResult> {
+  return request<SecurityToolRunResult>(`/security-tools/${adapterKey}/run`, {
+    method: "POST",
+    body: JSON.stringify({ ai_system_id: aiSystemId ?? null }),
+  });
 }
 
 /* ─────────────────────────────────────────── LLM client boundary ── */
@@ -1194,7 +1253,10 @@ export async function waitForRunCompletion(
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const run = await getEvaluationRun(runId);
     onProgress?.(run);
-    if (TERMINAL_STATUSES.has(run.status)) return run;
+    // Stop polling when the run finishes OR pauses for plan approval — a gated
+    // run parks at 'planned' and would otherwise poll forever. Callers inspect
+    // isAwaitingApproval() on the returned run to route the user to approval.
+    if (TERMINAL_STATUSES.has(run.status) || isAwaitingApproval(run)) return run;
     await new Promise((res) => setTimeout(res, 3000));
   }
 }

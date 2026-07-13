@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { PageId } from "@/types";
 
-export type GlobalRunnerStatus = "idle" | "running" | "done" | "error";
+export type GlobalRunnerStatus = "idle" | "running" | "awaiting" | "done" | "error";
 
 const routeMatchers: Array<[RegExp, PageId]> = [
   [/^\/(?:dashboard)?$/, "dashboard"],

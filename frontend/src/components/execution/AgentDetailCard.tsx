@@ -1,15 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
   ChevronDown,
   ChevronRight,
-  CheckCircle2,
   Clock,
   ClipboardCheck,
   ExternalLink,
   FileText,
-  GitCompare,
+  FlaskConical,
   Layers,
   Loader2,
   MessageSquare,
@@ -28,12 +27,14 @@ import {
   type FindingToolCall,
   type LlmCall,
 } from "@/api/governanceApi";
-import {
-  agentRuntimeDetails,
-  complianceMapperDetail,
-  driftAnalystDetail,
-} from "@/data/executionLayerData";
 import { metricBlurb, metricName } from "@/data/metricCatalog";
+import {
+  experimentFor,
+  parseRankingScores,
+  probeMetaFor,
+  type CandidateScore,
+  type ProbeExperiment,
+} from "@/data/probeMeta";
 
 export type AgentTab = "Overview" | "Probes" | "Evidence" | "Frameworks" | "Remediation" | "Runtime";
 
@@ -378,7 +379,7 @@ function ExpandedTab({
   runId: string | null;
 }) {
   if (tab === "Runtime") {
-    return <RuntimeTab agentId={agent.id} />;
+    return <RuntimeTab agent={agent} runId={runId} />;
   }
 
   if (tab === "Overview") {
@@ -425,12 +426,9 @@ function ExpandedTab({
         <ChipGrid items={agent.evidence} tone="amber" />
         <div className="grid gap-3 md:grid-cols-3">
           <MiniMetric label="Findings" value={agent.findings} />
-          <MiniMetric label="Reproducibility" value={agent.id === "bias-auditor" ? "92%" : "In review"} />
+          <MiniMetric label="Tool Calls" value={agent.toolCalls.length || "—"} />
           <MiniMetric label="Confidence Impact" value={`${agent.confidenceImpact}%`} />
         </div>
-        {/* Agent-specific evidence detail */}
-        {agent.id === "compliance-mapper" && <ComplianceMapperDetail />}
-        {agent.id === "drift-analyst" && <DriftAnalystDetail />}
         <ActionRow />
       </div>
     );
@@ -450,8 +448,6 @@ function ExpandedTab({
         <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-4 text-[12px] leading-5 text-slate-600 dark:text-slate-400">
           Clause mappings are written to the run evidence package and carried into the Council Deliberation and Compliance Report views.
         </div>
-        {/* Compliance Mapper framework detail */}
-        {agent.id === "compliance-mapper" && <ComplianceMapperDetail />}
       </div>
     );
   }
@@ -506,6 +502,25 @@ function ProbesTab({ agent, runId }: { agent: IntelligenceAgent; runId: string |
 
   const targetCalls = calls ?? [];
 
+  // Group probes by the governance experiment they belong to, so the transcript
+  // reads as a set of designed experiments (matched pairs, single-variable
+  // variations, injection attempts) rather than a flat, seemingly-random list.
+  const probeGroups = useMemo(() => {
+    const order: string[] = [];
+    const byId = new Map<string, { experiment: ProbeExperiment; calls: { call: LlmCall; number: number }[] }>();
+    targetCalls.forEach((call, i) => {
+      const experiment = experimentFor(call.task);
+      let group = byId.get(experiment.id);
+      if (!group) {
+        group = { experiment, calls: [] };
+        byId.set(experiment.id, group);
+        order.push(experiment.id);
+      }
+      group.calls.push({ call, number: i + 1 });
+    });
+    return order.map((id) => byId.get(id)!);
+  }, [targetCalls]);
+
   return (
     <div className="space-y-5">
       {/* Probe methods header */}
@@ -513,11 +528,6 @@ function ProbesTab({ agent, runId }: { agent: IntelligenceAgent; runId: string |
         <div>
           <SectionTitle icon={SearchCheck} title="Probe Methods" />
           <ChipGrid items={agent.methods} tone="blue" />
-          <p className="mt-3 text-[11px] leading-5 text-slate-500 dark:text-slate-400">
-            Each probe is sent as a standalone message to the target model. Output is sanitized and fenced
-            before being passed to the governance reasoning layer — raw target content never enters
-            governance prompts unfenced.
-          </p>
         </div>
         <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 p-3 space-y-2">
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Execution summary</p>
@@ -562,113 +572,36 @@ function ProbesTab({ agent, runId }: { agent: IntelligenceAgent; runId: string |
           </div>
         )}
         {!loading && targetCalls.length > 0 && (
-          <div className="space-y-2">
-            {targetCalls.map((call, idx) => {
-              const isOpen = expanded === call.id;
-              const hasText = call.prompt_text || call.response_text;
-              return (
-                <div
-                  key={call.id}
-                  className={clsx(
-                    "rounded border overflow-hidden transition-colors",
-                    call.status === "success"
-                      ? "border-slate-200 dark:border-slate-700"
-                      : "border-red-200 dark:border-red-800",
-                  )}
-                >
-                  {/* Probe row header */}
-                  <button
-                    onClick={() => setExpanded(isOpen ? null : call.id)}
-                    className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60"
-                  >
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-slate-800 dark:bg-slate-600 text-[10px] font-bold text-white">
-                      {idx + 1}
+          <div className="space-y-5">
+            {probeGroups.map((group) => (
+              <div key={group.experiment.id} className="space-y-2">
+                {/* Experiment header — explains what this cluster of probes tests */}
+                <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 px-3 py-2.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <FlaskConical className="h-4 w-4 text-brand-600 dark:text-brand-400" />
+                    <p className="text-[12px] font-semibold text-slate-900 dark:text-white">{group.experiment.title}</p>
+                    <span className="rounded bg-brand-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-brand-700 dark:bg-brand-900/30 dark:text-brand-300">
+                      {group.experiment.method}
                     </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[12px] font-semibold text-slate-900 dark:text-white">
-                          {humanizeProbeTitle(call.task)}
-                        </span>
-                        <span className={clsx(
-                          "rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
-                          call.status === "success"
-                            ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400"
-                            : "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400",
-                        )}>
-                          {call.status}
-                        </span>
-                        <span className="rounded bg-blue-100 dark:bg-blue-900/30 px-1.5 py-0.5 text-[9px] font-semibold text-blue-700 dark:text-blue-400 uppercase">
-                          target
-                        </span>
-                      </div>
-                      {call.task && (
-                        <div className="mt-0.5 font-mono text-[10px] text-slate-400 dark:text-slate-500 truncate">
-                          {call.task}
-                        </div>
-                      )}
-                      <div className="mt-0.5 flex items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400">
-                        {call.latency_ms != null && (
-                          <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{call.latency_ms} ms</span>
-                        )}
-                        {call.request_chars != null && (
-                          <span>{call.request_chars} req chars</span>
-                        )}
-                        {call.response_chars != null && (
-                          <span>{call.response_chars} resp chars</span>
-                        )}
-                        {call.total_tokens != null && (
-                          <span>{call.total_tokens} tokens</span>
-                        )}
-                      </div>
-                    </div>
-                    {hasText
-                      ? isOpen ? <ChevronDown className="h-4 w-4 text-slate-400 shrink-0" /> : <ChevronRight className="h-4 w-4 text-slate-400 shrink-0" />
-                      : <span className="text-[10px] text-slate-300 dark:text-slate-600 shrink-0">metadata only</span>
-                    }
-                  </button>
-
-                  {/* Expanded transcript */}
-                  {isOpen && (
-                    <div className="border-t border-slate-100 dark:border-slate-700/50 divide-y divide-slate-100 dark:divide-slate-700/50">
-                      {call.prompt_text && (
-                        <div className="p-3 space-y-1.5">
-                          <div className="flex items-center gap-2">
-                            <MessageSquare className="h-3.5 w-3.5 text-blue-500 dark:text-blue-400" />
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-600 dark:text-blue-400">Probe sent to target</p>
-                          </div>
-                          <pre className="rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 text-[11px] leading-5 text-slate-800 dark:text-slate-200 whitespace-pre-wrap font-mono overflow-x-auto max-h-48 overflow-y-auto">
-                            {call.prompt_text}
-                          </pre>
-                        </div>
-                      )}
-                      {call.response_text && (
-                        <div className="p-3 space-y-1.5">
-                          <div className="flex items-center gap-2">
-                            <MessageSquare className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" />
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-600 dark:text-emerald-400">Response from target</p>
-                            <span className="ml-auto text-[10px] text-amber-600 dark:text-amber-400 font-medium">⚠ sanitized · fenced before governance use</span>
-                          </div>
-                          <pre className="rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 text-[11px] leading-5 text-slate-800 dark:text-slate-200 whitespace-pre-wrap font-mono overflow-x-auto max-h-48 overflow-y-auto">
-                            {call.response_text}
-                          </pre>
-                        </div>
-                      )}
-                      {!call.prompt_text && !call.response_text && (
-                        <div className="px-3 py-2 text-[11px] text-slate-500 dark:text-slate-400">
-                          Probe text not captured for this run (available from next run onwards).
-                        </div>
-                      )}
-                      {call.trace_id && (
-                        <div className="flex items-center gap-2 px-3 py-2 text-[11px] text-slate-500 dark:text-slate-400">
-                          <span className="font-semibold">Trace ID:</span>
-                          <span className="font-mono">{call.trace_id}</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                    <span className="ml-auto text-[10px] text-slate-400 dark:text-slate-500">
+                      {group.calls.length} probe{group.calls.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[11px] leading-5 text-slate-500 dark:text-slate-400">{group.experiment.description}</p>
                 </div>
-              );
-            })}
+                <div className="space-y-2">
+                  {group.calls.map(({ call, number }) => (
+                    <ProbeRow
+                      key={call.id}
+                      call={call}
+                      number={number}
+                      open={expanded === call.id}
+                      onToggle={() => setExpanded(expanded === call.id ? null : call.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -676,333 +609,256 @@ function ProbesTab({ agent, runId }: { agent: IntelligenceAgent; runId: string |
   );
 }
 
-// Runtime execution breakdown tab
-function RuntimeTab({ agentId }: { agentId: string }) {
-  const detail = agentRuntimeDetails.find((d) => d.agentId === agentId);
-  if (!detail) return <p className="text-[12px] text-slate-500">No runtime detail available.</p>;
+// One probe row: header + "why this probe" caption, expanding to the full
+// prompt/response transcript, a disparity strip for ranking probes, and a note
+// on what a failure means.
+function ProbeRow({
+  call,
+  number,
+  open,
+  onToggle,
+}: {
+  call: LlmCall;
+  number: number;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const meta = probeMetaFor(call.task);
+  const hasText = Boolean(call.prompt_text || call.response_text);
+  const rankingScores = open ? parseRankingScores(call.response_text) : null;
 
   return (
-    <div className="space-y-5">
-      {/* Agent Runtime Phases */}
-      <div>
-        <SectionTitle icon={Layers} title="Agent Runtime Phases" />
-        <div className="space-y-2">
-          {detail.phases.map((phase, idx) => (
-            <div key={phase.phase} className={clsx(
-              "flex items-start gap-3 rounded border p-3",
-              phase.status === "complete" ? "border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20" :
-              phase.status === "running" ? "border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20" :
-              "border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30"
-            )}>
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="flex h-5 w-5 items-center justify-center rounded bg-slate-800 dark:bg-slate-600 text-[10px] font-bold text-white">
-                  {idx + 1}
-                </span>
-                {phase.status === "complete" && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />}
-                {phase.status === "running" && <Loader2 className="h-3.5 w-3.5 text-blue-600 animate-spin" />}
-                {phase.status === "waiting" && <div className="h-3.5 w-3.5 rounded-full border-2 border-slate-300" />}
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="text-[12px] font-semibold text-slate-900 dark:text-white">{phase.phase}</p>
-                  {phase.duration && (
-                    <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500">{phase.duration}</span>
-                  )}
-                </div>
-                <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">{phase.detail}</p>
-              </div>
+    <div
+      className={clsx(
+        "rounded border overflow-hidden transition-colors",
+        call.status === "success" ? "border-slate-200 dark:border-slate-700" : "border-red-200 dark:border-red-800",
+      )}
+    >
+      <button
+        onClick={onToggle}
+        className="flex w-full items-start gap-3 px-3 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60"
+      >
+        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded bg-slate-800 dark:bg-slate-600 text-[10px] font-bold text-white">
+          {number}
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[12px] font-semibold text-slate-900 dark:text-white">
+              {humanizeProbeTitle(call.task)}
+            </span>
+            {meta?.role && (
+              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                {meta.role}
+              </span>
+            )}
+            <span
+              className={clsx(
+                "rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                call.status === "success"
+                  ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400"
+                  : "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400",
+              )}
+            >
+              {call.status}
+            </span>
+          </div>
+          {meta?.checks && (
+            <p className="mt-0.5 text-[11px] italic leading-4 text-slate-500 dark:text-slate-400">{meta.checks}</p>
+          )}
+          <div className="mt-0.5 flex items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400">
+            {call.latency_ms != null && (
+              <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{call.latency_ms} ms</span>
+            )}
+            {call.request_chars != null && <span>{call.request_chars} req chars</span>}
+            {call.response_chars != null && <span>{call.response_chars} resp chars</span>}
+          </div>
+        </div>
+        {hasText
+          ? open ? <ChevronDown className="mt-0.5 h-4 w-4 text-slate-400 shrink-0" /> : <ChevronRight className="mt-0.5 h-4 w-4 text-slate-400 shrink-0" />
+          : <span className="mt-1 text-[10px] text-slate-300 dark:text-slate-600 shrink-0">metadata only</span>}
+      </button>
+
+      {open && (
+        <div className="border-t border-slate-100 dark:border-slate-700/50 divide-y divide-slate-100 dark:divide-slate-700/50">
+          {rankingScores && (
+            <div className="p-3">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-brand-600 dark:text-brand-400">
+                Score spread across the cohort
+              </p>
+              <ScoreSpread scores={rankingScores} />
             </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Runtime Detail Grid */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <RuntimeDetail label="Evaluates" value={detail.evaluates} />
-        <RuntimeDetail label="Why Activated" value={detail.activationReason} />
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400 mb-2">Data Used</p>
-          <div className="space-y-1.5">
-            {detail.dataUsed.map((item) => (
-              <div key={item} className="flex items-start gap-2">
-                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-blue-400 shrink-0" />
-                <span className="text-[11px] text-slate-700 dark:text-slate-300">{item}</span>
+          )}
+          {call.prompt_text && (
+            <div className="p-3 space-y-1.5">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="h-3.5 w-3.5 text-blue-500 dark:text-blue-400" />
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-600 dark:text-blue-400">Probe sent to target</p>
               </div>
-            ))}
-          </div>
-        </div>
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400 mb-2">Probes Run</p>
-          <div className="space-y-1.5">
-            {detail.probesRun.map((item) => (
-              <div key={item} className="flex items-start gap-2">
-                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
-                <span className="text-[11px] text-slate-700 dark:text-slate-300">{item}</span>
+              <pre className="rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 text-[11px] leading-5 text-slate-800 dark:text-slate-200 whitespace-pre-wrap font-mono overflow-x-auto max-h-48 overflow-y-auto">
+                {call.prompt_text}
+              </pre>
+            </div>
+          )}
+          {call.response_text && (
+            <div className="p-3 space-y-1.5">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" />
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-600 dark:text-emerald-400">Response from target</p>
+                <span className="ml-auto text-[10px] text-amber-600 dark:text-amber-400 font-medium">⚠ sanitized · fenced before governance use</span>
               </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400 mb-2">Metrics Calculated</p>
-          <div className="space-y-1.5">
-            {detail.metricsCalculated.map((item) => (
-              <div key={item} className="flex items-start gap-2">
-                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />
-                <span className="text-[11px] font-mono text-slate-700 dark:text-slate-300">{item}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400 mb-2">Evidence Produced</p>
-          <div className="space-y-1.5">
-            {detail.evidenceProduced.map((item) => (
-              <div key={item} className="flex items-start gap-2">
-                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-purple-400 shrink-0" />
-                <span className="text-[11px] text-slate-700 dark:text-slate-300">{item}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Confidence + Artifact */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Confidence Impact</p>
-          <p className="mt-1 text-[14px] font-semibold text-red-700 dark:text-red-400">{detail.confidenceImpact}</p>
-        </div>
-        <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Artifact Emitted</p>
-          <p className="mt-1 text-[12px] font-mono text-slate-800 dark:text-slate-200">{detail.artifactEmitted}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function RuntimeDetail({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{label}</p>
-      <p className="mt-1.5 text-[12px] leading-5 text-slate-800 dark:text-slate-200">{value}</p>
-    </div>
-  );
-}
-
-// Compliance Mapper specific detail for the registered target system
-function ComplianceMapperDetail() {
-  const [expandedSection, setExpandedSection] = useState<string | null>("euAiActAnnexIV");
-  const d = complianceMapperDetail;
-
-  const sections = [
-    { key: "euAiActAnnexIV", data: d.euAiActAnnexIV },
-    { key: "sr117", data: d.sr117 },
-    { key: "nistAiRmf", data: d.nistAiRmf },
-    { key: "iso42001", data: d.iso42001 },
-  ];
-
-  return (
-    <div className="mt-4 space-y-3">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Chatbot Compliance Detail</p>
-
-      {sections.map(({ key, data }) => (
-        <div key={key} className="rounded border border-slate-200 dark:border-slate-700 overflow-hidden">
-          <button
-            onClick={() => setExpandedSection(expandedSection === key ? null : key)}
-            className="flex w-full items-center justify-between px-3 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60"
-          >
-            <p className="text-[12px] font-semibold text-slate-900 dark:text-white">{data.title}</p>
-            {expandedSection === key ? <ChevronDown className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" /> : <ChevronRight className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />}
-          </button>
-          {expandedSection === key && (
-            <div className="border-t border-slate-100 dark:border-slate-700/50 px-3 py-2.5">
-              <table className="w-full text-[11px]">
-                <thead>
-                  <tr className="border-b border-slate-100 dark:border-slate-700">
-                    <th className="pb-2 text-left font-semibold text-slate-500 dark:text-slate-400">Clause</th>
-                    <th className="pb-2 text-left font-semibold text-slate-500 dark:text-slate-400">Status</th>
-                    <th className="pb-2 text-left font-semibold text-slate-500 dark:text-slate-400">Detail</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.checks.map((check) => (
-                    <tr key={check.clause} className="border-b border-slate-50 dark:border-slate-800">
-                      <td className="py-2 pr-3 font-medium text-slate-800 dark:text-slate-200">{check.clause}</td>
-                      <td className="py-2 pr-3">
-                        <span className={clsx(
-                          "rounded px-1.5 py-0.5 text-[10px] font-semibold",
-                          check.status === "Pass" ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400" :
-                          check.status === "Fail" ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400" :
-                          "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400"
-                        )}>
-                          {check.status}
-                        </span>
-                      </td>
-                      <td className="py-2 text-slate-600 dark:text-slate-400">{check.detail}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <pre className="rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 text-[11px] leading-5 text-slate-800 dark:text-slate-200 whitespace-pre-wrap font-mono overflow-x-auto max-h-48 overflow-y-auto">
+                {call.response_text}
+              </pre>
+            </div>
+          )}
+          {!call.prompt_text && !call.response_text && (
+            <div className="px-3 py-2 text-[11px] text-slate-500 dark:text-slate-400">
+              Probe text not captured for this run (available from next run onwards).
+            </div>
+          )}
+          {call.trace_id && (
+            <div className="flex items-center gap-2 px-3 py-2 text-[11px] text-slate-500 dark:text-slate-400">
+              <span className="font-semibold">Trace ID:</span>
+              <span className="font-mono">{call.trace_id}</span>
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+// Horizontal score bars for a ranking probe's cohort, sorted high→low, with the
+// top–bottom spread called out — the disparity signal at a glance.
+function ScoreSpread({ scores }: { scores: CandidateScore[] }) {
+  const max = Math.max(...scores.map((s) => s.score), 1);
+  const spread = scores[0].score - scores[scores.length - 1].score;
+  return (
+    <div className="space-y-1.5">
+      {scores.map((s) => (
+        <div key={s.id} className="flex items-center gap-2">
+          <span className="w-36 shrink-0 truncate text-[11px] text-slate-600 dark:text-slate-300" title={s.label}>{s.label}</span>
+          <div className="h-3 flex-1 rounded bg-slate-100 dark:bg-slate-800">
+            <div
+              className="h-full rounded bg-brand-500 dark:bg-brand-400"
+              style={{ width: `${Math.max(2, (s.score / max) * 100)}%` }}
+            />
+          </div>
+          <span className="w-10 shrink-0 text-right font-mono text-[11px] tabular-nums text-slate-700 dark:text-slate-200">
+            {s.score.toFixed(1)}
+          </span>
+        </div>
       ))}
-
-      {/* Evidence correlation and missing items */}
-      <div className="grid gap-3 md:grid-cols-2">
-        <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Evidence-to-Control Correlation</p>
-          <p className="mt-1.5 text-[18px] font-semibold text-slate-900 dark:text-white">{d.evidenceToControlCorrelation}</p>
-          <div className="mt-2 h-2 rounded bg-slate-200 dark:bg-slate-700">
-            <div className="h-full rounded bg-amber-500" style={{ width: `${d.evidenceToControlCorrelation * 100}%` }} />
-          </div>
-        </div>
-        <div className="rounded border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-red-600 dark:text-red-400">Missing Items</p>
-          <div className="mt-1.5 space-y-1">
-            {d.missingItems.map((item) => (
-              <p key={item} className="text-[11px] text-red-800 dark:text-red-300">• {item}</p>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Remediation requirements */}
-      <div className="rounded border border-slate-200 dark:border-slate-700 p-3">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400 mb-2">Remediation Requirements</p>
-        {d.remediationRequirements.map((item, idx) => (
-          <div key={item} className="flex items-start gap-2 py-1">
-            <span className="flex h-4 w-4 items-center justify-center rounded bg-slate-800 dark:bg-slate-600 text-[9px] font-bold text-white shrink-0">{idx + 1}</span>
-            <p className="text-[11px] text-slate-700 dark:text-slate-300">{item}</p>
-          </div>
-        ))}
-      </div>
+      {scores.length > 1 && (
+        <p className="pt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+          Spread: <span className="font-semibold text-slate-700 dark:text-slate-200">{spread.toFixed(1)} pts</span> between
+          top and bottom of a cohort with comparable core qualifications.
+        </p>
+      )}
     </div>
   );
 }
 
-// Drift Analyst specific detail for TechVest RAG Chatbot
-function DriftAnalystDetail() {
-  const d = driftAnalystDetail;
+// Runtime execution breakdown — the real LLM/gateway calls this agent made
+// during the run (target probes + governance reasoning), from the run call log.
+// No mock phases: every row is an actual recorded call.
+function RuntimeTab({ agent, runId }: { agent: IntelligenceAgent; runId: string | null }) {
+  const [calls, setCalls] = useState<LlmCall[] | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!runId) return;
+    setLoading(true);
+    getLlmCalls(runId)
+      .then((log) => {
+        const anyAttributed = log.calls.some((c) => c.agent_name);
+        setCalls(
+          log.calls.filter((c) => (c.agent_name ? c.agent_name === agent.id : !anyAttributed)),
+        );
+      })
+      .catch(() => setCalls([]))
+      .finally(() => setLoading(false));
+  }, [runId, agent.id]);
+
+  if (!runId) {
+    return <p className="text-[12px] text-slate-500 dark:text-slate-400">No active run selected.</p>;
+  }
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 py-4 text-[12px] text-slate-500 dark:text-slate-400">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading runtime call log…
+      </div>
+    );
+  }
+
+  const agentCalls = calls ?? [];
+  if (agentCalls.length === 0) {
+    return (
+      <p className="text-[12px] text-slate-500 dark:text-slate-400">
+        No runtime calls recorded for this agent in this run.
+      </p>
+    );
+  }
+
+  const targetCalls = agentCalls.filter((c) => c.call_type === "target");
+  const governanceCalls = agentCalls.filter((c) => c.call_type !== "target");
+  const totalTokens = agentCalls.reduce((s, c) => s + (c.total_tokens ?? 0), 0);
+  const totalCost = agentCalls.reduce((s, c) => s + (c.estimated_cost_usd ?? 0), 0);
+  const errorCount = agentCalls.filter((c) => c.status !== "success").length;
 
   return (
-    <div className="mt-4 space-y-4">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Drift Analysis — TechVest RAG Chatbot vs baseline</p>
-
-      {/* Version comparison */}
-      <div className="grid gap-3 md:grid-cols-3">
-        <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Baseline Version</p>
-          <p className="mt-1 text-[13px] font-mono font-semibold text-slate-900 dark:text-white">{d.baselineVersion}</p>
-        </div>
-        <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Current Version</p>
-          <p className="mt-1 text-[13px] font-mono font-semibold text-slate-900 dark:text-white">{d.currentVersion}</p>
-        </div>
-        <div className={clsx(
-          "rounded border p-3",
-          d.thresholdComparison.score < d.thresholdComparison.threshold
-            ? "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30"
-            : "border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/20"
-        )}>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Threshold Status</p>
-          <p className={clsx("mt-1 text-[13px] font-semibold",
-            d.thresholdComparison.score < d.thresholdComparison.threshold ? "text-red-700 dark:text-red-400" : "text-emerald-700 dark:text-emerald-400"
-          )}>
-            {d.thresholdComparison.score} / {d.thresholdComparison.threshold} — {d.thresholdComparison.status}
-          </p>
-        </div>
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <MiniMetric label="Total Calls" value={agentCalls.length} />
+        <MiniMetric label="Target Probes" value={targetCalls.length} />
+        <MiniMetric label="Governance" value={governanceCalls.length} />
+        <MiniMetric label="Tokens" value={totalTokens || "—"} />
+        <MiniMetric label="Errors" value={errorCount} />
       </div>
-
-      {/* Benchmark replay results */}
-      <div className="rounded border border-slate-200 dark:border-slate-700 p-3">
-        <div className="flex items-center gap-2 mb-3">
-          <GitCompare className="h-4 w-4 text-slate-500 dark:text-slate-400" />
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Benchmark Replay Results ({d.benchmarkReplay.completed}/{d.benchmarkReplay.totalPrompts} complete)</p>
+      {totalCost > 0 && (
+        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+          Estimated LLM cost for this agent: ${totalCost.toFixed(4)}
+        </p>
+      )}
+      <div>
+        <SectionTitle icon={Layers} title="Call Sequence" />
+        <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-700">
+          <table className="w-full text-[11px]">
+            <thead>
+              <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">#</th>
+                <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Task</th>
+                <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Type</th>
+                <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Model</th>
+                <th className="px-3 py-2 text-right font-semibold text-slate-500 dark:text-slate-400">Latency</th>
+                <th className="px-3 py-2 text-right font-semibold text-slate-500 dark:text-slate-400">Tokens</th>
+                <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {agentCalls.map((call, idx) => (
+                <tr key={call.id} className="border-b border-slate-100 dark:border-slate-800">
+                  <td className="px-3 py-2 font-mono text-slate-400 dark:text-slate-500">{idx + 1}</td>
+                  <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">{humanizeProbeTitle(call.task)}</td>
+                  <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{call.call_type}</td>
+                  <td className="px-3 py-2 font-mono text-slate-600 dark:text-slate-400">{call.model ?? call.deployment_name ?? "—"}</td>
+                  <td className="px-3 py-2 text-right font-mono text-slate-600 dark:text-slate-400">{call.latency_ms != null ? `${call.latency_ms} ms` : "—"}</td>
+                  <td className="px-3 py-2 text-right font-mono text-slate-600 dark:text-slate-400">{call.total_tokens ?? "—"}</td>
+                  <td className="px-3 py-2">
+                    <span className={clsx(
+                      "rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase",
+                      call.status === "success"
+                        ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400"
+                        : "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400",
+                    )}>
+                      {call.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-        <div className="space-y-1.5">
-          {d.benchmarkReplay.distribution.map((item) => (
-            <div key={item.prompt} className="flex items-center gap-3">
-              <p className="flex-1 text-[11px] text-slate-700 dark:text-slate-300 truncate">{item.prompt}</p>
-              <div className="w-32 h-2 rounded bg-slate-200 dark:bg-slate-700">
-                <div
-                  className={clsx("h-full rounded", item.similarity >= 0.80 ? "bg-emerald-500" : item.similarity >= 0.60 ? "bg-amber-500" : "bg-red-500")}
-                  style={{ width: `${item.similarity * 100}%` }}
-                />
-              </div>
-              <span className={clsx(
-                "text-[11px] font-mono w-10 text-right",
-                item.similarity >= 0.80 ? "text-emerald-700 dark:text-emerald-400" : item.similarity >= 0.60 ? "text-amber-700 dark:text-amber-400" : "text-red-700 dark:text-red-400"
-              )}>
-                {item.similarity.toFixed(2)}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Output distribution drift */}
-      <div className="grid gap-3 md:grid-cols-3">
-        <DriftMetric label="Approval Rate" v40={d.outputDistributionDrift.approvalRate.v40} v42={d.outputDistributionDrift.approvalRate.v42} delta={d.outputDistributionDrift.approvalRate.delta} />
-        <DriftMetric label="Avg Confidence" v40={d.outputDistributionDrift.avgConfidence.v40} v42={d.outputDistributionDrift.avgConfidence.v42} delta={d.outputDistributionDrift.avgConfidence.delta} />
-        <DriftMetric label="Boundary Decisions" v40={d.outputDistributionDrift.boundaryDecisions.v40} v42={d.outputDistributionDrift.boundaryDecisions.v42} delta={d.outputDistributionDrift.boundaryDecisions.delta} />
-      </div>
-
-      {/* Explanation drift */}
-      <div className="rounded border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20 p-3">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-700 dark:text-amber-400">Explanation Drift (Consistency: {d.explanationDrift.consistencyScore})</p>
-        <div className="mt-2 space-y-1">
-          {d.explanationDrift.majorChanges.map((change) => (
-            <p key={change} className="text-[11px] text-amber-800 dark:text-amber-300">• {change}</p>
-          ))}
-        </div>
-      </div>
-
-      {/* Production telemetry */}
-      <div className="rounded border border-slate-200 dark:border-slate-700 p-3">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400 mb-2">Production Telemetry ({d.productionTelemetry.period})</p>
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <p className="text-[10px] text-slate-500 dark:text-slate-400">Avg Latency</p>
-            <p className="text-[11px] font-mono text-slate-800 dark:text-slate-200">{d.productionTelemetry.avgLatency.v40} → {d.productionTelemetry.avgLatency.v42}</p>
-          </div>
-          <div>
-            <p className="text-[10px] text-slate-500 dark:text-slate-400">Error Rate</p>
-            <p className="text-[11px] font-mono text-slate-800 dark:text-slate-200">{d.productionTelemetry.errorRate.v40} → {d.productionTelemetry.errorRate.v42}</p>
-          </div>
-          <div>
-            <p className="text-[10px] text-slate-500 dark:text-slate-400">Override Rate</p>
-            <p className="text-[11px] font-mono text-slate-800 dark:text-slate-200">{d.productionTelemetry.overrideRate.v40} → {d.productionTelemetry.overrideRate.v42}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Finding F-002 */}
-      <div className="rounded border-l-4 border-l-orange-400 border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/20 p-3">
-        <p className="text-[11px] font-semibold text-orange-800 dark:text-orange-300">Finding F-002: {d.findingF002.title}</p>
-        <p className="mt-1 text-[11px] leading-4.5 text-orange-700 dark:text-orange-400">{d.findingF002.detail}</p>
-      </div>
-    </div>
-  );
-}
-
-function DriftMetric({ label, v40, v42, delta }: { label: string; v40: string; v42: string; delta: string }) {
-  const isNegative = delta.startsWith("-");
-  return (
-    <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{label}</p>
-      <div className="mt-1.5 flex items-baseline gap-2">
-        <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{v40}</span>
-        <span className="text-[10px] text-slate-400 dark:text-slate-500">→</span>
-        <span className="text-[11px] font-mono text-slate-900 dark:text-white">{v42}</span>
-        <span className={clsx("text-[10px] font-semibold", isNegative ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400")}>({delta})</span>
       </div>
     </div>
   );

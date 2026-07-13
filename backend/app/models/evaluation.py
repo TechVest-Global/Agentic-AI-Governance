@@ -34,3 +34,11 @@ class EvaluationRun(TimestampMixin, UUIDPrimaryKey, table=True):
     created_by: str | None = Field(default=None, max_length=200)
     result_summary: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     error_summary: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
+    # Human-in-the-loop metric-plan approval gate. When a run is orchestrated with
+    # require_plan_approval, the pipeline pauses after the plan is built (the run
+    # parks at RunStatus.planned) until a reviewer approves. These record the
+    # decision; the pipeline payload is captured so the resume step replays exactly
+    # what was approved. All nullable — a run that never gates leaves them null.
+    plan_approved_at: datetime | None = None
+    plan_approved_by: str | None = Field(default=None, max_length=200)
+    pipeline_payload: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))

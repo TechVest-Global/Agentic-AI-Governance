@@ -11,9 +11,10 @@ import {
   ScanSearch,
   Send,
   ShieldAlert,
+  ShieldCheck,
 } from "lucide-react";
 import clsx from "clsx";
-import { findings as mockFindings, liveRuns, systems as mockSystems, applicationContextProfiles, type ApplicationContextProfile } from "@/data/mockData";
+import type { ApplicationContextProfile } from "@/data/mockData";
 import { Badge } from "@/components/ui/Badge";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { MetricCard } from "@/components/ui/MetricCard";
@@ -25,15 +26,23 @@ import { AdaptiveOrchestratorPanel } from "@/components/execution/AdaptiveOrches
 import { ContextAssemblyPanel } from "@/components/execution/ContextAssemblyPanel";
 import { DeliberationCouncilPanel } from "@/components/execution/DeliberationCouncilPanel";
 import { LiveRunSidebar, type CouncilMemberId } from "@/components/execution/LiveRunSidebar";
+import { MetricPlanApprovalModal } from "@/components/execution/MetricPlanApprovalModal";
 import { RunSwitcher } from "@/components/layout/RunSwitcher";
 import { RuntimeEventStream } from "@/components/execution/RuntimeEventStream";
 import { ArtifactDrawer } from "@/components/execution/ArtifactDrawer";
-import { exportJSON, exportCSV, exportPDF, exportLedger, exportEvidenceBundle } from "@/utils/exports";
+import {
+  buildComplianceReport,
+  exportAuditLedgerJSON,
+  exportEvidenceBundleJSON,
+  exportReportCSV,
+  exportReportJSON,
+  exportReportPDF,
+} from "@/utils/complianceReport";
 import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
 import { useRunProgress, phaseIndex, type AgentProgress } from "@/hooks/useRunProgress";
 import { PIPELINE_STEPS, layerStatus } from "@/pages/pipelineSteps";
 import { metricBlurb, metricName } from "@/data/metricCatalog";
-import type { AuditLedgerEntry, FindingToolCall, GovernanceReport, LlmCall } from "@/api/governanceApi";
+import type { AuditLedgerEntry, FindingToolCall, FrameworkComplianceMap, GovernanceReport, LlmCall } from "@/api/governanceApi";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -273,6 +282,7 @@ function PipelineStepContent({
   step,
   navigateTo,
   report,
+  frameworkMap,
   liveArtifactData,
   intelligenceAgents,
   displayedFindings,
@@ -287,6 +297,7 @@ function PipelineStepContent({
   step: (typeof PIPELINE_STEPS)[number];
   navigateTo: (path: string) => void;
   report: GovernanceReport | null;
+  frameworkMap: FrameworkComplianceMap | null;
   liveArtifactData: Parameters<typeof ArtifactDrawer>[0]["liveData"];
   intelligenceAgents: ReturnType<typeof buildAgentsFromBackend>;
   displayedFindings: UiFinding[];
@@ -435,7 +446,7 @@ function PipelineStepContent({
             ))}
           </div>
         )}
-        <ExportBar />
+        <ExportBar report={report} frameworkMap={frameworkMap} ledgerEntries={ledgerEntries} />
         {runtimeDetail}
       </div>
     );
@@ -459,22 +470,37 @@ function PipelineStepContent({
   );
 }
 
-function ExportBar() {
+/** Export buttons driven by the live run — every file reflects the selected
+ *  system/run, assembled from backend data (prototype fallback only when the
+ *  backend is entirely unavailable). */
+function ExportBar({
+  report,
+  frameworkMap,
+  ledgerEntries,
+}: {
+  report: GovernanceReport | null;
+  frameworkMap: FrameworkComplianceMap | null;
+  ledgerEntries: AuditLedgerEntry[];
+}) {
+  const structured = useMemo(
+    () => buildComplianceReport(report, frameworkMap),
+    [report, frameworkMap],
+  );
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <button onClick={exportPDF} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700">
+      <button onClick={() => exportReportPDF(structured)} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700">
         <FileText className="h-3 w-3" /> PDF
       </button>
-      <button onClick={exportJSON} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700">
+      <button onClick={() => exportReportJSON(structured)} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700">
         <FileJson className="h-3 w-3" /> JSON
       </button>
-      <button onClick={exportCSV} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700">
+      <button onClick={() => exportReportCSV(structured)} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700">
         <Download className="h-3 w-3" /> CSV
       </button>
-      <button onClick={exportLedger} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700">
+      <button onClick={() => exportAuditLedgerJSON(ledgerEntries, structured)} className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700">
         <Download className="h-3 w-3" /> Ledger
       </button>
-      <button onClick={exportEvidenceBundle} className="flex items-center gap-1.5 rounded border border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-950/40 px-2.5 py-1.5 text-[11px] font-medium text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40">
+      <button onClick={() => exportEvidenceBundleJSON(report, structured)} className="flex items-center gap-1.5 rounded border border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-950/40 px-2.5 py-1.5 text-[11px] font-medium text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40">
         <Download className="h-3 w-3" /> Evidence Bundle
       </button>
     </div>
@@ -510,6 +536,7 @@ function SelectedAgentDetail({
 export function LiveRuns() {
   const navigateTo = useAppStore((state) => state.navigateTo);
   const role = useAuthStore((state) => state.user?.role);
+  const approverName = useAuthStore((state) => state.user?.name) ?? null;
   // Auditors watch at altitude: agent status, findings, and progress — but not
   // the runtime traces, probe internals, or links into engine-only pages.
   const isDev = personaForRole(role) === "developer";
@@ -518,6 +545,9 @@ export function LiveRuns() {
   const [selectedStep, setSelectedStep]       = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [selectedCouncilMemberId, setSelectedCouncilMemberId] = useState<CouncilMemberId | null>(null);
+  // Metric-plan approval modal — opened from the awaiting-approval banner so the
+  // reviewer approves (or hand-picks metrics) without leaving the run canvas.
+  const [showApprovalModal, setShowApprovalModal] = useState(false);
 
   // SSE live progress — uses latest run ID from polling hook
   const runId = backend.latestRun?.id ?? null;
@@ -527,17 +557,18 @@ export function LiveRuns() {
   const liveStatus   = progress?.status ?? backend.latestRun?.status ?? "created";
   const livePhase    = progress?.current_phase ?? backend.latestRun?.current_phase ?? "created";
   const liveProgress = progress?.progress ?? (backend.latestRun ? Math.round(((phaseIndex(livePhase) + 1) / 8) * 100) : 0);
-  const liveProbes   = progress?.probe_count ?? backend.report?.counts?.metric_results ?? liveRuns[0].probes;
-  const liveFindings = progress?.finding_count ?? backend.report?.counts?.findings ?? liveRuns[0].findings;
+  // Live values only — no mock fallback. Without a run everything reads zero/empty.
+  const liveProbes   = progress?.probe_count ?? backend.report?.counts?.metric_results ?? 0;
+  const liveFindings = progress?.finding_count ?? backend.report?.counts?.findings ?? 0;
   const liveResultSummary = progress?.result_summary ?? backend.latestRun?.result_summary ?? undefined;
 
   const run = {
-    id: backend.latestRun?.id ?? liveRuns[0].id,
-    system: backend.report?.ai_system?.name ?? liveRuns[0].system,
-    framework: backend.latestRun?.selected_frameworks?.join(" + ") || liveRuns[0].framework,
+    id: backend.latestRun?.id ?? null,
+    system: backend.report?.ai_system?.name ?? "—",
+    framework: backend.latestRun?.selected_frameworks?.join(" + ") || "—",
     status: formatRunStatus(liveStatus),
     progress: liveProgress,
-    startedAt: backend.latestRun?.started_at ?? liveRuns[0].startedAt,
+    startedAt: backend.latestRun?.started_at ?? null,
     probes: liveProbes,
     findings: liveFindings,
   };
@@ -587,9 +618,8 @@ export function LiveRuns() {
     [backend.agentExecutions, backend.findings, backend.evaluationPlan, backend.contextAssembly, backend.llmCalls],
   );
 
-  const displayedFindings: UiFinding[] = backend.findings.length
-    ? backend.findings.map(mapBackendFinding)
-    : mockFindings;
+  // Live findings only — an empty run shows the explicit empty state, not mock rows.
+  const displayedFindings: UiFinding[] = backend.findings.map(mapBackendFinding);
 
   const liveArtifactData = backend.latestRun
     ? {
@@ -622,6 +652,20 @@ export function LiveRuns() {
 
   return (
     <div className={clsx("gap-5", isDev ? "xl:grid xl:grid-cols-[260px_1fr]" : "space-y-5")}>
+      {/* Metric-plan approval modal — in-canvas, no navigation. Rendered at the
+          root so it stays open across the run leaving the 'planned' state. */}
+      {showApprovalModal && backend.latestRun && (
+        <MetricPlanApprovalModal
+          run={backend.latestRun}
+          approverName={approverName}
+          onClose={() => setShowApprovalModal(false)}
+          onApproved={() => {
+            setShowApprovalModal(false);
+            backend.refresh();
+          }}
+        />
+      )}
+
       {isDev && (
         <LiveRunSidebar
           currentPhase={livePhase}
@@ -643,16 +687,56 @@ export function LiveRuns() {
           <RunSwitcher alwaysVisible />
         </div>
 
-        {/* Connection indicator */}
-        {runId && (
-          <div className={clsx(
-            "flex items-center gap-2 rounded-lg border px-3 py-2 text-[11px] font-medium",
-            connected
-              ? "border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400"
-              : "border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400"
-          )}>
-            <div className={clsx("h-2 w-2 rounded-full", connected ? "bg-emerald-500 animate-pulse" : "bg-amber-400")} />
-            {connected ? "Live — streaming progress from backend" : "Polling every 4s — SSE reconnecting, using REST fallback"}
+        {/* Connection indicator — reflects the live-stream state without alarming
+            copy when a run has simply finished (nothing left to stream). */}
+        {runId && (() => {
+          const isTerminal = ["completed", "failed", "cancelled"].includes(liveStatus);
+          const tone = connected ? "live" : isTerminal ? "done" : "polling";
+          const toneClass = {
+            live: "border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400",
+            done: "border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 text-slate-600 dark:text-slate-400",
+            polling: "border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400",
+          }[tone];
+          const dotClass = { live: "bg-emerald-500 animate-pulse", done: "bg-slate-400", polling: "bg-amber-400" }[tone];
+          const label = {
+            live: "Live — streaming progress from backend",
+            done: "Run complete — showing final results",
+            polling: "Refreshing every 4s — reconnecting to live updates",
+          }[tone];
+          return (
+            <div className={clsx(
+              "flex items-center gap-2 rounded-lg border px-3 py-2 text-[11px] font-medium",
+              toneClass,
+            )}>
+              <div className={clsx("h-2 w-2 rounded-full", dotClass)} />
+              {label}
+            </div>
+          );
+        })()}
+
+        {/* Metric-plan approval gate: the run paused after planning and needs a
+            reviewer's sign-off before probes run. Surface it prominently with a
+            jump to the Metric Plan page where the Approve action lives. */}
+        {runId && liveStatus === "planned" && !backend.latestRun?.plan_approved_at && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/40">
+            <div className="flex items-start gap-2.5">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+              <div>
+                <p className="text-[12px] font-semibold text-amber-800 dark:text-amber-300">
+                  Metric plan awaiting approval
+                </p>
+                <p className="text-[11px] text-amber-700 dark:text-amber-400/90">
+                  The orchestrator built this run&apos;s plan and paused. Review and approve it to start metric execution.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowApprovalModal(true)}
+              className="inline-flex items-center gap-1.5 rounded bg-amber-600 px-3 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-amber-700"
+            >
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Review &amp; approve plan
+            </button>
           </div>
         )}
 
@@ -695,6 +779,7 @@ export function LiveRuns() {
               step={currentStepDef}
               navigateTo={navigateTo}
               report={backend.report}
+              frameworkMap={backend.frameworkMap}
               liveArtifactData={liveArtifactData}
               intelligenceAgents={intelligenceAgents}
               displayedFindings={displayedFindings}
@@ -834,7 +919,7 @@ function AuditTargetSelector({
 }) {
   const backendSystem = report?.ai_system ?? null;
   const backendProfile = buildBackendContextProfile(report);
-  const [selectedId, setSelectedId] = useState<string>(backendSystem?.id ?? mockSystems[0]?.id ?? "");
+  const [selectedId, setSelectedId] = useState<string>(backendSystem?.id ?? "");
   const [expanded, setExpanded]     = useState(!!startExpanded);
   const [activeSection, setActiveSection] = useState<string>("A");
 
@@ -845,11 +930,12 @@ function AuditTargetSelector({
     }
   }, [backendSystem?.id]);
 
+  // Backend-registered systems only — no prototype fallback. Without a backend
+  // run there is nothing to audit, and the selector says so explicitly.
   const systemOptions = backendSystem
     ? [{ id: backendSystem.id, name: backendSystem.name, version: backendSystem.model_version ?? "v1" }]
-    : mockSystems.map((s) => ({ id: s.id, name: s.name, version: s.version }));
+    : [];
 
-  const fallbackSystem = mockSystems.find((s) => s.id === selectedId) ?? mockSystems[0];
   const system = backendSystem && selectedId === backendSystem.id
     ? {
         id: backendSystem.id,
@@ -859,11 +945,9 @@ function AuditTargetSelector({
         environment: titleCase(backendSystem.deployment_environment),
         applicationType: titleCase(backendSystem.system_type),
       }
-    : fallbackSystem;
+    : null;
   const acp: ApplicationContextProfile | undefined =
-    backendProfile && selectedId === backendProfile.systemId
-      ? backendProfile
-      : applicationContextProfiles.find((p) => p.systemId === selectedId);
+    backendProfile && selectedId === backendProfile.systemId ? backendProfile : undefined;
 
   return (
     <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
@@ -882,6 +966,9 @@ function AuditTargetSelector({
             onChange={(e) => { setSelectedId(e.target.value); setActiveSection("A"); }}
             className="w-full max-w-xs rounded border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 px-2 py-1 text-[13px] font-semibold text-slate-900 dark:text-white focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-300 dark:focus:ring-brand-700 transition-colors"
           >
+            {systemOptions.length === 0 && (
+              <option value="">No registered system loaded — start a run to populate</option>
+            )}
             {systemOptions.map((s) => (
               <option key={s.id} value={s.id}>{s.name} — {s.version}</option>
             ))}
