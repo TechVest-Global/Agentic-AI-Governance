@@ -89,7 +89,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const initials    = user?.initials ?? displayName.slice(0, 2).toUpperCase();
 
   return (
-    <div className="min-h-screen bg-[#f6f7fb] dark:bg-[#0c1120] text-ink dark:text-slate-200 transition-colors duration-200">
+    <div className={clsx(
+      "min-h-screen bg-[#f6f7fb] dark:bg-[#0c1120] text-ink dark:text-slate-200 transition-colors duration-200",
+      // Auditor workspace uses one consistent sans typeface (headings included);
+      // the developer engine keeps its editorial Newsreader serif display type.
+      persona === "auditor" && "ui-unified-type",
+    )}>
 
       {/* ── Sidebar ─────────────────────────────────────────────── */}
       <aside className={clsx(

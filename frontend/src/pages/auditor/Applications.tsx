@@ -5,9 +5,9 @@ import { useAppStore } from "@/store/useAppStore";
 import { useSelectionStore } from "@/store/useSelectionStore";
 import { useAuditorWorkspace, type ReviewItem } from "@/hooks/useAuditorWorkspace";
 import type { BackendAISystem } from "@/api/governanceApi";
-import { AuditorPageHeader, AuditorSkeleton, BackendError } from "./components";
+import { AuditorPageHeader, BackendError } from "./components";
 import {
-  RiskDot,
+  ChecksDonut,
   StatTile,
   VerdictPill,
   frameworkLabel,
@@ -33,6 +33,8 @@ type AppEntry = {
   runInFlight: boolean;
   verdictKey: ClientVerdictKey;
   openFindings: number;
+  /** Real metric-check breakdown from the assessed run (null when not assessed). */
+  metrics: ReviewItem["metrics"];
 };
 
 export function Applications() {
@@ -72,7 +74,14 @@ export function Applications() {
         hasTerminalRun: Boolean(assessed),
         runInFlight,
       }).key;
-      return { system, source, runInFlight, verdictKey, openFindings: assessed?.openFindings ?? 0 };
+      return {
+        system,
+        source,
+        runInFlight,
+        verdictKey,
+        openFindings: assessed?.openFindings ?? 0,
+        metrics: assessed?.metrics ?? null,
+      };
     });
   }, [ws.systemsInScope, ws.reviewItems]);
 
@@ -111,9 +120,18 @@ export function Applications() {
 
   if (ws.loading) {
     return (
-      <div className="space-y-5">
+      <div className="space-y-6">
         <AuditorPageHeader eyebrow="Assurance" title="Applications" description="The AI applications in your portfolio and their current assurance status." />
-        <AuditorSkeleton />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="h-[74px] animate-pulse rounded-xl border border-hairline dark:border-white/10 bg-slate-50 dark:bg-slate-800/40" />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="h-[248px] animate-pulse rounded-2xl border border-hairline dark:border-white/10 bg-slate-50 dark:bg-slate-800/40" />
+          ))}
+        </div>
       </div>
     );
   }
@@ -179,10 +197,12 @@ export function Applications() {
           </p>
         </div>
       ) : (
-        <div className="space-y-2.5">
-          {filtered.map((e) => (
-            <ApplicationCard key={e.system.id} entry={e} onOpen={() => open(e.system.id)} />
-          ))}
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {filtered.map((e) => (
+              <ApplicationCard key={e.system.id} entry={e} onOpen={() => open(e.system.id)} />
+            ))}
+          </div>
           <p className="pt-1 text-[12px] text-slate-400 dark:text-slate-500">
             {filtered.length} of {entries.length} application{entries.length === 1 ? "" : "s"}
           </p>
@@ -192,56 +212,121 @@ export function Applications() {
   );
 }
 
+const RISK_BADGE: Record<string, { label: string; cls: string }> = {
+  high: { label: "High risk", cls: "text-red-700 bg-red-50 dark:text-red-300 dark:bg-red-950/40" },
+  medium: { label: "Medium risk", cls: "text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-950/40" },
+  low: { label: "Low risk", cls: "text-emerald-700 bg-emerald-50 dark:text-emerald-300 dark:bg-emerald-950/40" },
+};
+
+function RiskBadge({ tier }: { tier: string }) {
+  const m = RISK_BADGE[tier?.toLowerCase()] ?? { label: tier || "Unknown risk", cls: "text-slate-500 bg-slate-100 dark:text-slate-400 dark:bg-slate-800" };
+  return (
+    <span className={clsx("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em]", m.cls)}>
+      {m.label}
+    </span>
+  );
+}
+
 function ApplicationCard({ entry, onOpen }: { entry: AppEntry; onOpen: () => void }) {
-  const { system, source, runInFlight, verdictKey, openFindings } = entry;
+  const { system, source, runInFlight, verdictKey, openFindings, metrics } = entry;
   const assessed = source?.verdict != null;
   const meta = verdictToClient(assessed ? source!.verdict!.label : null, {
     actionTier: assessed ? source!.verdict!.action_tier : null,
     hasTerminalRun: assessed,
     runInFlight,
   });
+  const frameworks = system.selected_frameworks ?? [];
+
   return (
     <button
       onClick={onOpen}
-      className="group flex w-full items-center gap-4 rounded-xl border border-hairline dark:border-white/10 bg-white dark:bg-slate-900 px-4 py-3.5 text-left transition-colors hover:border-brand-300 dark:hover:border-brand-700 hover:bg-slate-50/60 dark:hover:bg-slate-800/40"
+      className="group flex h-full w-full flex-col rounded-2xl border border-hairline dark:border-white/10 bg-white dark:bg-slate-900 p-5 text-left transition-all hover:border-brand-300 dark:hover:border-brand-700 hover:shadow-[0_8px_28px_-14px_rgba(15,23,42,0.18)]"
     >
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500">
-        <Boxes className="h-5 w-5" aria-hidden />
+      {/* identity: name + subtype/owner + risk */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-[15px] font-semibold leading-snug text-ink dark:text-white">{system.name}</p>
+          <p className="mt-1 truncate text-[12px] text-slate-500 dark:text-slate-400">
+            <span className="capitalize">{system.system_type.replace(/[_-]/g, " ")}</span>
+            {system.owner && <> · {system.owner}</>}
+          </p>
+        </div>
+        <RiskBadge tier={system.risk_tier} />
       </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="truncate text-[14px] font-semibold text-ink dark:text-white">{system.name}</p>
-          <VerdictPill meta={meta} size="sm" />
+
+      {/* verdict — the authoritative status */}
+      <div className="mt-3.5">
+        <VerdictPill meta={meta} size="sm" />
+      </div>
+
+      {/* score — one compact visual (donut) + calm counts; no redundant bar */}
+      {metrics ? (
+        <div className="mt-4 flex items-center gap-4">
+          <ChecksDonut metrics={metrics} size={62} />
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">Checks passed</p>
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <Count dot="bg-emerald-500" n={metrics.passed} label="passed" />
+              <Count dot="bg-red-500" n={metrics.failed} label="failed" />
+              <Count dot="bg-amber-500" n={metrics.needsReview} label="review" />
+            </div>
+            <p className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+              {metrics.passed} of {metrics.total} checks passed
+            </p>
+          </div>
         </div>
-        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-slate-500 dark:text-slate-400">
-          <span className="capitalize">{system.system_type.replace(/[_-]/g, " ")}</span>
-          <span aria-hidden className="opacity-40">·</span>
-          <RiskDot tier={system.risk_tier} />
-          {verdictKey !== "not_assessed" && openFindings > 0 && (
-            <>
-              <span aria-hidden className="opacity-40">·</span>
-              <span>{openFindings} open finding{openFindings === 1 ? "" : "s"}</span>
-            </>
-          )}
+      ) : (
+        <div className="mt-4 flex items-center gap-2.5 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 px-3.5 py-3.5 text-[12px] text-slate-400 dark:text-slate-500">
+          <Boxes className="h-4 w-4 shrink-0" aria-hidden />
+          {verdictKey === "in_progress" ? "Assessment in progress — checks pending." : "No checks assessed yet."}
         </div>
-        <div className="mt-2 flex flex-wrap gap-1">
-          {system.selected_frameworks.slice(0, 4).map((f) => (
-            <span key={f} className="rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:text-slate-400">
-              {frameworkLabel(f)}
-            </span>
-          ))}
-          {system.selected_frameworks.length > 4 && (
-            <span className="rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:text-slate-400">
-              +{system.selected_frameworks.length - 4}
-            </span>
-          )}
+      )}
+
+      {/* footer — frameworks, then a hairline-divided findings + Open row */}
+      <div className="mt-auto pt-4">
+        {frameworks.length > 0 && (
+          <div className="flex min-w-0 flex-wrap gap-1">
+            {frameworks.slice(0, 3).map((f) => <Chip key={f}>{frameworkLabel(f)}</Chip>)}
+            {frameworks.length > 3 && <Chip>+{frameworks.length - 3}</Chip>}
+          </div>
+        )}
+        <div className={clsx(
+          "flex items-center justify-between gap-3",
+          frameworks.length > 0 && "mt-3 border-t border-hairline dark:border-white/10 pt-3",
+        )}>
+          <span className="text-[11px] text-slate-400 dark:text-slate-500">
+            {verdictKey === "not_assessed"
+              ? " "
+              : openFindings > 0
+                ? `${openFindings} open finding${openFindings === 1 ? "" : "s"}`
+                : "No open findings"}
+          </span>
+          <span className="flex shrink-0 items-center gap-1 text-[12px] font-semibold text-brand-700 dark:text-brand-400">
+            Open
+            <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" aria-hidden />
+          </span>
         </div>
       </div>
-      <span className="flex shrink-0 items-center gap-1 text-[12px] font-medium text-brand-700 dark:text-brand-400">
-        Open
-        <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" aria-hidden />
-      </span>
     </button>
+  );
+}
+
+/** Compact "● 22 passed" count — small dot, bold figure, muted label. */
+function Count({ dot, n, label }: { dot: string; n: number; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+      <span className={clsx("h-1.5 w-1.5 rounded-full", dot)} aria-hidden />
+      <span className="font-semibold tabular-nums text-ink dark:text-slate-200">{n}</span>
+      {label}
+    </span>
+  );
+}
+
+function Chip({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="rounded-md bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:text-slate-400">
+      {children}
+    </span>
   );
 }
 

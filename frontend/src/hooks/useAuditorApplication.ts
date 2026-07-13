@@ -22,8 +22,6 @@ import {
  * surfaces the same current assessment the developer side sees.
  */
 
-// How many recent runs to probe (newest first) looking for a verdict.
-const VERDICT_PROBE_LIMIT = 6;
 const IN_FLIGHT = new Set([
   "created",
   "context_assembly",
@@ -89,14 +87,23 @@ export function useAuditorApplication(appId: string | null): AuditorApplication 
           .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
         const latestRun = runsForApp[0] ?? null;
 
-        // Walk newest → older until we find a run that produced a verdict.
+        // Resolve the assessed run: fetch every run's report in parallel and pick
+        // the newest that carries a verdict + metric results. A fixed "probe the
+        // newest N" window breaks the moment interrupted runs pile up newer than
+        // the last good run — they get reconciled to `failed` and never produce a
+        // verdict, pushing the real assessment out of the window (Compliance then
+        // reads "Not assessed" while the portfolio home shows real results). The
+        // run list is already capped at 50 by listEvaluationRuns, so this is bounded.
         let assessedRun: EvaluationRun | null = null;
         let report: GovernanceReport | null = null;
-        for (const run of runsForApp.slice(0, VERDICT_PROBE_LIMIT)) {
-          const r = await getGovernanceReport(run.id).catch(() => null);
-          if (cancelled) return;
+        const reports = await Promise.all(
+          runsForApp.map((run) => getGovernanceReport(run.id).catch(() => null)),
+        );
+        if (cancelled) return;
+        for (let i = 0; i < runsForApp.length; i++) {
+          const r = reports[i];
           if (r?.verdict && r.metric_results.length > 0) {
-            assessedRun = run;
+            assessedRun = runsForApp[i];
             report = r;
             break;
           }

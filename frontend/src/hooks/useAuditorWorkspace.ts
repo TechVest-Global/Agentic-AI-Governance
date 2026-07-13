@@ -9,6 +9,7 @@ import {
   type GovernanceReport,
   type Verdict,
 } from "@/api/governanceApi";
+import { metricOutcome } from "@/pages/auditor/clientComponents";
 
 /**
  * Aggregated, read-only data for the auditor workspace. Everything here is
@@ -45,6 +46,13 @@ export type ReviewItem = {
   verdictLabel: string | null;
   /** True when the run has a generated report an auditor could sign off. */
   hasReport: boolean;
+  /**
+   * Real metric-check breakdown for this run (from `report.metric_results`,
+   * using the canonical `metricOutcome` pass rule). `null` when the run has no
+   * report/results. This is a factual count of checks — NOT a synthetic
+   * conformance score (honesty rule §2/§7).
+   */
+  metrics: { passed: number; failed: number; needsReview: number; total: number } | null;
   createdAt: string;
 };
 
@@ -179,6 +187,16 @@ export function useAuditorWorkspace(): AuditorWorkspace {
           );
           const hasReport = COMPLETED_STATUSES.has(run.status);
 
+          const metricResults = report?.metric_results ?? [];
+          const metrics = metricResults.length
+            ? {
+                passed: metricResults.filter((m) => metricOutcome(m) === "passed").length,
+                failed: metricResults.filter((m) => metricOutcome(m) === "failed").length,
+                needsReview: metricResults.filter((m) => metricOutcome(m) === "needs_review").length,
+                total: metricResults.length,
+              }
+            : null;
+
           reviewItems.push({
             run,
             systemId: run.ai_system_id,
@@ -191,6 +209,7 @@ export function useAuditorWorkspace(): AuditorWorkspace {
             verdict,
             verdictLabel: verdict?.label ?? null,
             hasReport,
+            metrics,
             createdAt: run.created_at,
           });
 

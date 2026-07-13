@@ -1,9 +1,15 @@
 import { useEffect, useId, useMemo, useState } from "react";
-import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronRight, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronRight } from "lucide-react";
 import clsx from "clsx";
 import { listMetricConfigs, type FrameworkControlAssessment, type MetricConfigFull, type MetricResult } from "@/api/governanceApi";
-import { StatTile, frameworkLabel, humanizeDimension, metricOutcome, metricOutcomeMeta } from "./clientComponents";
-import { MetricDetailSections } from "./MetricDetail";
+import { frameworkLabel, humanizeDimension, metricOutcome, type MetricOutcome } from "./clientComponents";
+import { InfoBox, MetricDetailSections } from "./MetricDetail";
+
+const OUTCOME_PILL: Record<MetricOutcome, { label: string; cls: string; dot: string; edge: string }> = {
+  passed: { label: "Passed", cls: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300", dot: "bg-emerald-500", edge: "border-l-emerald-400" },
+  failed: { label: "Failed", cls: "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300", dot: "bg-red-500", edge: "border-l-red-400" },
+  needs_review: { label: "Needs review", cls: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300", dot: "bg-amber-500", edge: "border-l-amber-400" },
+};
 
 /**
  * FrameworkExplorer — the app-scoped, framework-routed compliance view shared by
@@ -52,6 +58,26 @@ export function frameworkDesc(id: string): string {
   return FRAMEWORK_DESC[id.toLowerCase()] ?? "Framework controls assessed against this application.";
 }
 
+/**
+ * How each framework organises the SAME underlying checks — its control
+ * structure. Shown as the card eyebrow so the auditor sees that the frameworks
+ * are lenses over one evidence set, not separate assessments.
+ */
+const FRAMEWORK_LENS: Record<string, string> = {
+  eu_ai_act: "Grouped by article",
+  iso_42001: "Grouped by control objective",
+  nist_ai_rmf: "Grouped by function",
+  oecd: "Grouped by principle",
+  owasp_llm_top_10: "Grouped by risk category",
+  sr_11_7: "Grouped by control area",
+  hipaa: "Grouped by safeguard",
+  mitre_atlas: "Grouped by tactic",
+};
+
+function frameworkLens(id: string): string {
+  return FRAMEWORK_LENS[id.toLowerCase()] ?? "Grouped by control";
+}
+
 /** The honest "same underlying checks, organised per framework" explainer. */
 export function FrameworkIntro() {
   return (
@@ -66,11 +92,19 @@ export function FrameworkExplorer({
   frameworks,
   controlsFor,
   intro = true,
+  heading,
 }: {
   frameworks: string[];
   controlsFor: (fw: string) => FrameworkControlAssessment[];
   /** Show the "same underlying checks" explainer above the grid. */
   intro?: boolean;
+  /**
+   * Optional app header for the grid landing: name + subtitle and an HONEST
+   * headline stat — the share of assessed checks that PASSED (a real ratio, not
+   * a synthetic "weighted conformance" score, per spec §7). If `checksPassed`
+   * is omitted it's derived from the framework-mapped metric results.
+   */
+  heading?: { name?: string; subtitle?: string; checksPassed?: { passed: number; total: number } };
 }) {
   // Which framework's clause detail is open. null = show the framework grid.
   const [selectedFw, setSelectedFw] = useState<string | null>(null);
@@ -120,15 +154,47 @@ export function FrameworkExplorer({
     return null;
   }, [frameworks, controlsByFw]);
 
+  // Per-framework counts are of the real METRIC CHECKS the framework's controls
+  // were assessed by (deduped across its controls) — the same evidence set,
+  // organised under this framework. `manual` = controls with no automated metric
+  // (documentary evidence), shown honestly rather than hidden (§2).
   function frameworkStats(fw: string) {
     const controls = controlsByFw.get(fw) ?? [];
-    return {
-      assessed: controls.length,
-      passed: controls.filter((c) => c.status === "passed").length,
-      failed: controls.filter((c) => c.status === "failed").length,
-      needsReview: controls.filter((c) => c.status === "needs_review").length,
-    };
+    const seen = new Set<string>();
+    let passed = 0;
+    let failed = 0;
+    let needsReview = 0;
+    for (const c of controls) {
+      for (const mr of c.metric_results ?? []) {
+        if (seen.has(mr.metric_id)) continue;
+        seen.add(mr.metric_id);
+        const o = metricOutcome(mr);
+        if (o === "passed") passed += 1;
+        else if (o === "failed") failed += 1;
+        else needsReview += 1;
+      }
+    }
+    const manual = controls.filter((c) => (c.metric_ids?.length ?? 0) === 0).length;
+    return { assessed: controls.length, passed, failed, needsReview, manual };
   }
+
+  // App-wide checks-passed ratio for the header stat: distinct metric checks
+  // across every framework-mapped control (falls back to caller-supplied count).
+  const appChecks = useMemo(() => {
+    if (heading?.checksPassed) return heading.checksPassed;
+    const seen = new Set<string>();
+    let passed = 0;
+    for (const fw of frameworks) {
+      for (const c of controlsByFw.get(fw) ?? []) {
+        for (const mr of c.metric_results ?? []) {
+          if (seen.has(mr.metric_id)) continue;
+          seen.add(mr.metric_id);
+          if (metricOutcome(mr) === "passed") passed += 1;
+        }
+      }
+    }
+    return { passed, total: seen.size };
+  }, [heading, frameworks, controlsByFw]);
 
   function openFramework(fw: string) {
     setSelectedFw(fw);
@@ -158,8 +224,25 @@ export function FrameworkExplorer({
 
   if (selectedFw === null) {
     /* ── framework selection: the auditor picks which framework to open ── */
+    const pct = appChecks.total ? Math.round((appChecks.passed / appChecks.total) * 100) : 0;
     return (
       <div className="space-y-5">
+        {/* app header + honest headline stat (checks passed — NOT conformance) */}
+        {heading && (
+          <div className="flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-hairline dark:border-white/10 bg-white dark:bg-slate-900 p-5">
+            <div className="min-w-0">
+              {heading.name && <h2 className="font-display text-[19px] leading-tight text-ink dark:text-white">{heading.name}</h2>}
+              {heading.subtitle && <p className="mt-0.5 text-[12px] text-slate-500 dark:text-slate-400">{heading.subtitle}</p>}
+            </div>
+            {appChecks.total > 0 && (
+              <div className="text-right">
+                <p className="font-display text-[26px] font-semibold leading-none text-ink dark:text-white tabular-nums">{pct}%</p>
+                <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">of {appChecks.total} checks passed</p>
+              </div>
+            )}
+          </div>
+        )}
+
         {intro && <FrameworkIntro />}
 
         {blocking ? (
@@ -180,17 +263,9 @@ export function FrameworkExplorer({
           </div>
         ) : null}
 
-        {/* summary tiles — app-wide across every framework */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatTile label="Clauses assessed" value={summary.total} />
-          <StatTile label="Fully satisfied" value={summary.satisfied} tone={summary.satisfied ? "good" : "default"} />
-          <StatTile label="Partially satisfied" value={summary.partial} tone={summary.partial ? "warn" : "default"} />
-          <StatTile label="Not satisfied" value={summary.notSatisfied} tone={summary.notSatisfied ? "danger" : "default"} />
-        </div>
-
         <div>
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Frameworks assessed</p>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {frameworks.map((fw) => (
               <FrameworkCard key={fw} fw={fw} stats={frameworkStats(fw)} onOpen={() => openFramework(fw)} />
             ))}
@@ -269,50 +344,57 @@ function FrameworkCard({
   fw, stats, onOpen,
 }: {
   fw: string;
-  stats: { assessed: number; passed: number; failed: number; needsReview: number };
+  stats: { assessed: number; passed: number; failed: number; needsReview: number; manual: number };
   onOpen: () => void;
 }) {
   const assessed = stats.assessed > 0;
   const status: ClauseStatus = stats.failed > 0 ? "failed" : stats.needsReview > 0 ? "needs_review" : assessed ? "passed" : "not_evaluated";
   const ui = STATUS_UI[status];
-  const statusLabel = !assessed ? "Not assessed" : stats.failed > 0 ? `${stats.failed} not satisfied` : stats.needsReview > 0 ? "Needs review" : "All satisfied";
   return (
     <button
       onClick={assessed ? onOpen : undefined}
       disabled={!assessed}
       className={clsx(
-        "flex flex-col items-start gap-3 rounded-xl border border-l-4 border-hairline dark:border-white/10 bg-white dark:bg-slate-900 p-4 text-left transition-colors",
+        "flex h-full flex-col rounded-2xl border border-l-4 border-hairline dark:border-white/10 bg-white dark:bg-slate-900 p-5 text-left transition-colors",
         ui.edge,
-        assessed ? "hover:bg-slate-50 dark:hover:bg-slate-800/60" : "opacity-70",
+        assessed ? "hover:bg-slate-50 dark:hover:bg-slate-800/60" : "cursor-default opacity-70",
       )}
     >
       <div className="flex w-full items-start justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-          <span className="text-[14px] font-semibold text-ink dark:text-white">{frameworkLabel(fw)}</span>
-        </div>
-        {assessed && <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-slate-300 dark:text-slate-600" aria-hidden />}
+        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-brand-600 dark:text-brand-400">{frameworkLens(fw)}</p>
+        {assessed && <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 dark:text-slate-600" aria-hidden />}
       </div>
 
-      <p className="text-[12px] leading-relaxed text-slate-500 dark:text-slate-400">{frameworkDesc(fw)}</p>
+      <h3 className="mt-1 text-[15px] font-semibold text-ink dark:text-white">{frameworkLabel(fw)}</h3>
+      <p className="mt-1.5 text-[12px] leading-relaxed text-slate-500 dark:text-slate-400">{frameworkDesc(fw)}</p>
 
-      <div className="mt-auto flex w-full items-center justify-between">
-        <span className={clsx("rounded-full px-2 py-0.5 text-[11px] font-semibold", ui.bg, ui.text)}>{statusLabel}</span>
-        {assessed && (
-          <span className="text-[11px] text-slate-500 dark:text-slate-400">
-            {stats.assessed} clause{stats.assessed === 1 ? "" : "s"}
-          </span>
-        )}
-      </div>
-
-      {assessed && (
-        <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-          {stats.passed > 0 && <div className="bg-emerald-500" style={{ flex: stats.passed }} />}
-          {stats.needsReview > 0 && <div className="bg-amber-500" style={{ flex: stats.needsReview }} />}
-          {stats.failed > 0 && <div className="bg-red-500" style={{ flex: stats.failed }} />}
-        </div>
+      {assessed ? (
+        <>
+          <div className="mt-4 grid grid-cols-4 gap-2">
+            <CardStat n={stats.passed} label="passed" tone="text-emerald-600 dark:text-emerald-400" />
+            <CardStat n={stats.failed} label="failed" tone="text-red-600 dark:text-red-400" />
+            <CardStat n={stats.needsReview} label="warning" tone="text-amber-600 dark:text-amber-400" />
+            <CardStat n={stats.manual} label="manual" tone="text-slate-500 dark:text-slate-400" />
+          </div>
+          <div className="mt-3 flex h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+            {stats.passed > 0 && <div className="bg-emerald-500" style={{ flex: stats.passed }} />}
+            {stats.needsReview > 0 && <div className="bg-amber-500" style={{ flex: stats.needsReview }} />}
+            {stats.failed > 0 && <div className="bg-red-500" style={{ flex: stats.failed }} />}
+          </div>
+        </>
+      ) : (
+        <p className="mt-4 text-[12px] text-slate-400 dark:text-slate-500">Not assessed for this application.</p>
       )}
     </button>
+  );
+}
+
+function CardStat({ n, label, tone }: { n: number; label: string; tone: string }) {
+  return (
+    <div>
+      <p className={clsx("font-display text-[18px] font-semibold leading-none tabular-nums", tone)}>{n}</p>
+      <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">{label}</p>
+    </div>
   );
 }
 
@@ -384,32 +466,30 @@ function ClauseCard({
   const ui = STATUS_UI[control.status];
   const metrics = control.metric_results ?? [];
   return (
-    <div className={clsx("rounded-xl border border-l-4 border-hairline dark:border-white/10 bg-white dark:bg-slate-900", ui.edge)}>
+    <div className={clsx("overflow-hidden rounded-xl border border-l-4 border-hairline dark:border-white/10 bg-white dark:bg-slate-900", ui.edge)}>
       <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center gap-3 px-4 py-3 text-left">
-        <ChevronRight className={clsx("h-4 w-4 shrink-0 text-slate-400 transition-transform", open && "rotate-90")} aria-hidden />
+        <span className="shrink-0 rounded-md bg-slate-800 px-2 py-1 font-mono text-[11.5px] font-bold text-white dark:bg-slate-700">{control.control_ref}</span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] font-semibold text-ink dark:text-white">
-            <span className="font-mono text-[11px] text-slate-400">{control.control_ref}</span>{" "}
-            {control.control_title ?? "Clause"}
-          </p>
-          <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+          <p className="truncate text-[15px] font-semibold text-ink dark:text-white">{control.control_title ?? "Clause"}</p>
+          <p className="mt-0.5 text-[12.5px] text-slate-500 dark:text-slate-400">
             {control.passed_metric_count} passed · {control.failed_metric_count} failed · {control.pending_metric_count} pending
             {control.finding_count > 0 && ` · ${control.finding_count} findings`}
           </p>
         </div>
-        <span className={clsx("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold", ui.bg, ui.text)}>{ui.label}</span>
+        <span className={clsx("shrink-0 rounded-full px-2.5 py-1 text-[12px] font-bold uppercase tracking-[0.02em]", ui.bg, ui.text)}>{ui.label}</span>
+        <ChevronRight className={clsx("h-4 w-4 shrink-0 text-slate-400 transition-transform", open && "rotate-90")} aria-hidden />
       </button>
 
       {open && (
-        <div className="space-y-4 border-t border-hairline dark:border-white/10 px-4 py-4 pl-11">
-          <Section label="What this means">
-            <p className="text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">{plainLanguageClause(control)}</p>
-          </Section>
+        <div className="space-y-2.5 border-t border-hairline dark:border-white/10 bg-slate-50/50 dark:bg-slate-950/30 px-4 py-4">
+          <InfoBox>
+            <span className="font-semibold text-ink dark:text-white">What this means:</span> {plainLanguageClause(control)}
+          </InfoBox>
 
           {control.requirement_text && (
-            <Section label="Clause requirement">
-              <p className="text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">{control.requirement_text}</p>
-            </Section>
+            <InfoBox tone="gate">
+              <span className="font-semibold">Clause requirement:</span> {control.requirement_text}
+            </InfoBox>
           )}
 
           <Section label="Checks that assessed this clause">
@@ -444,23 +524,28 @@ function ClauseCard({
 function MetricRow({ metric, config }: { metric: MetricResult; config: MetricConfigFull | null }) {
   const [open, setOpen] = useState(false);
   const outcome = metricOutcome(metric);
-  const meta = metricOutcomeMeta(outcome);
+  const pill = OUTCOME_PILL[outcome];
+  const score = metric.normalized_score;
   return (
-    <div className="overflow-hidden rounded-lg bg-slate-50 dark:bg-slate-800/50">
-      <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="grid w-full grid-cols-[16px_1fr_96px_88px] items-center gap-2 px-2.5 py-2 text-left text-[12px]">
-        <ChevronRight className={clsx("h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform", open && "rotate-90")} aria-hidden />
-        <div className="min-w-0">
-          <p className="truncate font-medium text-slate-800 dark:text-slate-200">{config?.name ?? metric.metric_id}</p>
-          <p className="truncate font-mono text-[10px] text-slate-400">{metric.metric_id} · {humanizeDimension(config?.dimension ?? metric.dimension)}</p>
+    <div className={clsx("overflow-hidden rounded-lg border border-l-[3px] border-hairline dark:border-white/10 bg-white dark:bg-slate-900", pill.edge)}>
+      <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center gap-3 px-3 py-2.5 text-left">
+        <span className="shrink-0 rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-slate-500 dark:text-slate-400">{metric.metric_id}</span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[14px] font-semibold text-slate-800 dark:text-slate-200">{config?.name ?? metric.metric_id}</p>
+          <p className="truncate text-[12px] text-slate-400">{humanizeDimension(config?.dimension ?? metric.dimension)}</p>
         </div>
-        <span className={clsx("text-right font-semibold", meta.tone)}>{meta.label}</span>
-        <span className="text-right font-mono text-[11px] text-slate-500 dark:text-slate-400">
-          {metric.normalized_score != null ? metric.normalized_score.toFixed(2) : "n/a"}
-          {metric.threshold != null ? ` / ${metric.threshold.toFixed(2)}` : ""}
+        <span className="shrink-0 font-mono text-[13px] font-semibold text-slate-600 dark:text-slate-300">
+          {score != null ? score.toFixed(2) : "—"}
+          {metric.threshold != null && <span className="text-slate-300 dark:text-slate-600"> / {metric.threshold.toFixed(2)}</span>}
         </span>
+        <span className={clsx("flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-bold uppercase tracking-[0.02em]", pill.cls)}>
+          <span className={clsx("h-1.5 w-1.5 rounded-full", pill.dot)} aria-hidden />
+          {pill.label}
+        </span>
+        <ChevronRight className={clsx("h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform", open && "rotate-90")} aria-hidden />
       </button>
       {open && (
-        <div className="border-t border-hairline dark:border-white/10 bg-white/60 dark:bg-slate-900/40 px-3 py-3">
+        <div className="border-t border-hairline dark:border-white/10 bg-slate-50/60 dark:bg-slate-950/30 px-3.5 py-3.5">
           <MetricDetailSections metric={metric} config={config} />
         </div>
       )}
@@ -471,22 +556,27 @@ function MetricRow({ metric, config }: { metric: MetricResult; config: MetricCon
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</p>
-      <div className="mt-1.5">{children}</div>
+      <p className="text-[11.5px] font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</p>
+      <div className="mt-2">{children}</div>
     </div>
   );
 }
 
 function plainLanguageClause(c: FrameworkControlAssessment): string {
   const title = c.control_title ?? c.control_ref;
+  const total = c.metric_ids.length || c.passed_metric_count + c.failed_metric_count + c.pending_metric_count;
+  const findings = c.finding_count
+    ? ` ${c.finding_count} finding${c.finding_count === 1 ? " was" : "s were"} raised alongside it.`
+    : "";
+  const plural = (n: number) => (n === 1 ? "" : "s");
   switch (c.status) {
     case "passed":
-      return `${title} is satisfied — ${c.passed_metric_count} of ${c.metric_ids.length} checks passed with no open findings.`;
+      return `Every automated check mapped to this clause met its threshold — ${c.passed_metric_count} of ${total} passed with no open findings. ${title} is satisfied for this application.`;
     case "failed":
-      return `${title} is not satisfied — ${c.failed_metric_count} check(s) did not meet their threshold${c.finding_count ? ` and ${c.finding_count} finding(s) were raised` : ""}. This must be resolved to comply.`;
+      return `${c.failed_metric_count} of ${total} check${plural(c.failed_metric_count)} mapped to this clause scored below the bar, so ${title.toLowerCase()} is not satisfied.${findings} These gaps must be closed before the application can be considered compliant against this clause.`;
     case "needs_review":
-      return `${title} needs review — results are inconclusive (${c.pending_metric_count} check(s) pending). It can proceed once reviewed.`;
+      return `${title} can't be decided automatically yet — ${c.pending_metric_count} check${plural(c.pending_metric_count)} ${c.pending_metric_count === 1 ? "is" : "are"} still pending or inconclusive. A reviewer needs to confirm the outcome before this clause can pass.`;
     default:
-      return `${title} was not evaluated in this assessment.`;
+      return `No automated checks ran against this clause in this assessment, so ${title.toLowerCase()} has not been evaluated yet.`;
   }
 }

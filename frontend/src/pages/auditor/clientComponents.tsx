@@ -34,7 +34,7 @@ export type ClientVerdictKey =
   | "in_progress"
   | "not_assessed";
 
-type VerdictMeta = {
+export type VerdictMeta = {
   key: ClientVerdictKey;
   text: string;
   Icon: LucideIcon;
@@ -247,6 +247,63 @@ export function StatTile({
   );
 }
 
+/* ──────────────────────────────────────────────── checks donut ── */
+
+export type ChecksSummary = { passed: number; failed: number; needsReview: number; total: number };
+
+/**
+ * A stacked ring of a run's real check outcomes (passed / needs-review /
+ * failed). The centre shows the share of assessed checks that PASSED — a
+ * factual ratio of the checks, NOT a synthetic conformance/compliance score
+ * (honesty rule §2/§7). The authoritative status remains the VerdictPill.
+ * Shared by the Applications list card and the Application record header.
+ */
+export function ChecksDonut({ metrics, size = 76 }: { metrics: ChecksSummary; size?: number }) {
+  const { passed, failed, needsReview, total } = metrics;
+  const pct = (n: number) => (total ? (n / total) * 100 : 0);
+  const passPct = Math.round(pct(passed));
+  const segs = [
+    { pct: pct(passed), color: "#10b981" },   // emerald
+    { pct: pct(needsReview), color: "#f59e0b" }, // amber
+    { pct: pct(failed), color: "#ef4444" },    // red
+  ];
+  let acc = 0;
+  return (
+    <div className="relative shrink-0" style={{ height: size, width: size }}>
+      <svg viewBox="0 0 36 36" className="h-full w-full -rotate-90">
+        <circle cx="18" cy="18" r="15.915" fill="none" className="stroke-slate-100 dark:stroke-slate-800" strokeWidth="3.4" />
+        {segs.map((s, i) => {
+          const el = (
+            <circle
+              key={i}
+              cx="18" cy="18" r="15.915" fill="none"
+              stroke={s.color} strokeWidth="3.4"
+              pathLength={100}
+              strokeDasharray={`${s.pct} ${100 - s.pct}`}
+              strokeDashoffset={-acc}
+            />
+          );
+          acc += s.pct;
+          return s.pct > 0 ? el : null;
+        })}
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="font-display text-[17px] font-semibold leading-none text-ink dark:text-white">{passPct}%</span>
+      </div>
+    </div>
+  );
+}
+
+export function LegendRow({ color, count, label }: { color: string; count: number; label: string }) {
+  return (
+    <div className="flex items-center gap-1.5 text-[12px] text-slate-500 dark:text-slate-400">
+      <span className="h-2 w-2 rounded-full" style={{ background: color }} aria-hidden />
+      <span className="font-semibold text-ink dark:text-white tabular-nums">{count}</span>
+      <span>{label}</span>
+    </div>
+  );
+}
+
 /* ────────────────────────────────────────────────────────── tabs ── */
 
 export type TabDef = { id: string; label: string; count?: number };
@@ -387,4 +444,66 @@ export function frameworkLabel(id: string): string {
     mitre_atlas: "MITRE ATLAS",
   };
   return known[id.toLowerCase()] ?? id.replace(/[_-]/g, " ").toUpperCase();
+}
+
+/* ───────────────────────────────────────── control evidence + status ── */
+// Per AUDITOR_MASTER_SPEC §2: distinguish how a control is evidenced (Automated
+// by our metrics / Manual documentary / Not applicable) from its status. Honesty
+// rule — a control with no automated metric must read "manual evidence required",
+// never auto-green or metric-red.
+
+export type EvidenceType = "automated" | "manual" | "not_applicable";
+export type ControlStatus = "satisfied" | "partial" | "not_satisfied" | "manual" | "not_applicable";
+
+/** A control is automated when at least one runtime metric maps to it. */
+export function controlEvidenceType(hasMappedMetrics: boolean): EvidenceType {
+  return hasMappedMetrics ? "automated" : "manual";
+}
+
+/** Map an automated control's roll-up status to the client control-status vocab. */
+export function controlStatusFrom(
+  clauseStatus: "passed" | "failed" | "needs_review" | "not_evaluated",
+  evidence: EvidenceType,
+): ControlStatus {
+  if (evidence === "manual") return "manual";
+  if (evidence === "not_applicable") return "not_applicable";
+  switch (clauseStatus) {
+    case "passed": return "satisfied";
+    case "failed": return "not_satisfied";
+    case "needs_review": return "partial";
+    default: return "partial";
+  }
+}
+
+const EVIDENCE_META: Record<EvidenceType, { label: string; cls: string }> = {
+  automated: { label: "Automated", cls: "border-brand-200 bg-brand-50 text-brand-700 dark:border-brand-900/60 dark:bg-brand-950/40 dark:text-brand-300" },
+  manual: { label: "Manual evidence", cls: "border-slate-300 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300" },
+  not_applicable: { label: "Not applicable", cls: "border-slate-200 bg-slate-50 text-slate-400 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-500" },
+};
+
+export function EvidenceTypeBadge({ type }: { type: EvidenceType }) {
+  const m = EVIDENCE_META[type];
+  return <span className={clsx("inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]", m.cls)}>{m.label}</span>;
+}
+
+const CONTROL_STATUS_META: Record<ControlStatus, { label: string; Icon: LucideIcon; tone: string }> = {
+  satisfied: { label: "Satisfied", Icon: CheckCircle2, tone: "text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900/60" },
+  partial: { label: "Partial", Icon: Clock, tone: "text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/60" },
+  not_satisfied: { label: "Not satisfied", Icon: XCircle, tone: "text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900/60" },
+  manual: { label: "Manual evidence required", Icon: CircleDashed, tone: "text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700" },
+  not_applicable: { label: "Not applicable", Icon: MinusCircle, tone: "text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800" },
+};
+
+export function controlStatusMeta(status: ControlStatus) {
+  return CONTROL_STATUS_META[status];
+}
+
+export function ControlStatusPill({ status }: { status: ControlStatus }) {
+  const m = CONTROL_STATUS_META[status];
+  return (
+    <span className={clsx("inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold", m.tone)}>
+      <m.Icon className="h-3 w-3" aria-hidden />
+      {m.label}
+    </span>
+  );
 }

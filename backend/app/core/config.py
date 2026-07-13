@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     judge_deployment_name: str | None = None
     judge_api_version: str = "2025-01-01-preview"
 
+    # When True (default), the adaptive orchestrator runs an LLM plan-review that
+    # narrows the applicable metric set per system. Set False to always evaluate
+    # the full applicable catalog (no LLM narrowing).
+    adaptive_plan_review_enabled: bool = True
+
     # LiteLLM Proxy — when set, all LLM calls route through the proxy instead
     # of hitting Azure OpenAI directly. Enables fallback, caching, cost tracking.
     # Set LITELLM_PROXY_URL=http://localhost:4000 to activate.

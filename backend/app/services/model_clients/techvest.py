@@ -34,7 +34,13 @@ class TechVestTargetModelClient:
     provider = "techvest_chatbot"
 
     def __init__(self, *, endpoint: str, api_key: str, timeout: float = 60.0) -> None:
-        self._endpoint = endpoint.rstrip("/")
+        # Accept either a base URL or one that already includes the chat path,
+        # so a system registered with ".../api/chat" isn't doubled to
+        # ".../api/chat/api/chat" (404). We always re-append /api/chat in invoke.
+        base = endpoint.rstrip("/")
+        if base.endswith("/api/chat"):
+            base = base[: -len("/api/chat")]
+        self._endpoint = base
         self._api_key = api_key
         self._timeout = timeout
         self.credential_ref = "TARGET_API_KEY"

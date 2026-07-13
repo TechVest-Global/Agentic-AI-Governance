@@ -1,6 +1,6 @@
 import clsx from "clsx";
 import type { MetricConfigFull, MetricResult, RunMetricPlanEntry } from "@/api/governanceApi";
-import { frameworkLabel, humanizeDimension, metricOutcome, metricOutcomeMeta, type MetricOutcome } from "./clientComponents";
+import { frameworkLabel, humanizeDimension, metricOutcome, type MetricOutcome } from "./clientComponents";
 
 /**
  * MetricDetailSections — the shared, definition-first body for an expanded
@@ -32,37 +32,53 @@ function asStringArray(v: unknown): string[] {
 function humanizeToken(s: string): string {
   return s.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
-
-function OutcomeChip({ outcome }: { outcome: MetricOutcome }) {
-  const meta = metricOutcomeMeta(outcome);
-  const tone =
-    outcome === "passed"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300"
-      : outcome === "failed"
-        ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
-        : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300";
-  return <span className={clsx("w-fit rounded-full border px-2 py-0.5 text-[11px] font-semibold", tone)}>{meta.label}</span>;
+function displayToolToken(s: string | null | undefined): string | null {
+  const value = s?.trim();
+  if (!value || /mock|simulated|simulation|developer/i.test(value)) return null;
+  return value;
 }
 
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
+/** Uppercase micro-label above a chip row (mirrors the mockup's chip-label). */
+export function ChipLabel({ children }: { children: React.ReactNode }) {
+  return <p className="mb-1.5 mt-3 text-[11.5px] font-bold uppercase tracking-[0.06em] text-slate-400 dark:text-slate-500">{children}</p>;
+}
+
+/** Soft callout box — the neutral "how to read this" panel, or a yellow gate. */
+export function InfoBox({ children, tone = "default" }: { children: React.ReactNode; tone?: "default" | "gate" }) {
   return (
-    <div>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</p>
-      <div className="mt-1.5">{children}</div>
+    <div
+      className={clsx(
+        "rounded-lg border px-3.5 py-3 text-[14px] leading-relaxed",
+        tone === "gate"
+          ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100"
+          : "border-hairline bg-slate-50 text-slate-700 dark:border-white/10 dark:bg-slate-800/50 dark:text-slate-300",
+      )}
+    >
+      {children}
     </div>
   );
 }
 
-function Chip({ children }: { children: React.ReactNode }) {
-  return <span className="rounded-full border border-hairline dark:border-white/10 bg-slate-50 dark:bg-slate-800/60 px-2 py-0.5 text-[11px] text-slate-600 dark:text-slate-300">{children}</span>;
+type ChipVariant = "tool" | "framework" | "characteristic" | "default";
+
+const CHIP_VARIANT: Record<ChipVariant, string> = {
+  tool: "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-900/50 dark:bg-indigo-950/40 dark:text-indigo-300",
+  framework: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300",
+  characteristic: "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700 dark:border-fuchsia-900/50 dark:bg-fuchsia-950/40 dark:text-fuchsia-300",
+  default: "border-hairline bg-slate-100 text-slate-600 dark:border-white/10 dark:bg-slate-800/60 dark:text-slate-300",
+};
+
+function Chip({ children, variant = "default" }: { children: React.ReactNode; variant?: ChipVariant }) {
+  return <span className={clsx("whitespace-nowrap rounded-full border px-2.5 py-1 text-[12.5px] font-medium", CHIP_VARIANT[variant])}>{children}</span>;
 }
 
 export function MetricDetailSections({
-  metric, config, plan,
+  metric, config, plan, showTechnicalFooter = true,
 }: {
   metric: MetricResult;
   config: MetricConfigFull | null;
   plan?: RunMetricPlanEntry | null;
+  showTechnicalFooter?: boolean;
 }) {
   const outcome = metricOutcome(metric);
   const definition = realDescription(config);
@@ -76,7 +92,7 @@ export function MetricDetailSections({
   const scoring = (config?.scoring_config ?? {}) as Record<string, unknown>;
   const formula = asString(scoring.formula);
   const tools = Array.from(
-    new Set([config?.tool_name, asString(scoring.secondary_tool)].filter((t): t is string => Boolean(t))),
+    new Set([displayToolToken(config?.tool_name), displayToolToken(asString(scoring.secondary_tool))].filter((t): t is string => Boolean(t))),
   );
 
   // Framework crosswalk: framework-level ids from the config (or the run plan).
@@ -92,68 +108,69 @@ export function MetricDetailSections({
   const runTool = metric.tool_name ?? null;
 
   return (
-    <div className="space-y-4">
-      {definition && (
-        <Section label="What it means">
-          <p className="text-[13px] leading-relaxed text-slate-700 dark:text-slate-300">{definition}</p>
-        </Section>
-      )}
-
-      <Section label="Result this run">
-        <div className="flex flex-wrap items-center gap-2">
-          <OutcomeChip outcome={outcome} />
-          <span className="text-[13px] text-slate-600 dark:text-slate-300">{resultSentence(outcome, scoreStr, thresholdStr, metric.status)}</span>
-        </div>
-      </Section>
+    <div className="space-y-1">
+      {/* what it means / result — a soft callout so the plain-language read leads */}
+      <InfoBox>
+        {definition && (
+          <>
+            <span className="font-semibold text-ink dark:text-white">What it checks:</span> {definition}
+            <span className="mt-1.5 block border-t border-hairline dark:border-white/10 pt-1.5" />
+          </>
+        )}
+        <span className="font-semibold text-ink dark:text-white">This run:</span> {resultSentence(outcome, scoreStr, thresholdStr, metric.status)}
+      </InfoBox>
 
       {thresholdStr && (
-        <Section label="Pass threshold">
-          <p className="text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">
-            This check passes when the normalized score is at or above <span className="font-semibold text-ink dark:text-white">{thresholdStr}</span>
-            {scoreStr && <> — this run scored <span className="font-semibold text-ink dark:text-white">{scoreStr}</span></>}.
-          </p>
-        </Section>
+        <InfoBox tone="gate">
+          <span className="font-semibold">Pass threshold:</span> this check passes when the normalized score reaches{" "}
+          <span className="font-semibold">{thresholdStr}</span> or above
+          {scoreStr && <> — this run scored <span className="font-semibold">{scoreStr}</span></>}.
+        </InfoBox>
       )}
 
       {(tools.length > 0 || formula) && (
-        <Section label="How it's measured">
+        <>
+          <ChipLabel>How it's measured</ChipLabel>
           <div className="flex flex-wrap items-center gap-1.5">
-            {tools.map((t) => <Chip key={t}>{humanizeToken(t)}</Chip>)}
-            {formula && <span className="text-[11px] text-slate-400">Formula: <span className="font-mono text-slate-500 dark:text-slate-400">{formula}</span></span>}
+            {tools.map((t) => <Chip key={t} variant="tool">{humanizeToken(t)}</Chip>)}
+            {formula && <span className="text-[12.5px] text-slate-400">formula <span className="font-mono text-slate-500 dark:text-slate-400">{formula}</span></span>}
           </div>
-        </Section>
+        </>
       )}
 
       {frameworks.length > 0 && (
-        <Section label="Framework crosswalk">
+        <>
+          <ChipLabel>Framework crosswalk</ChipLabel>
           <div className="flex flex-wrap gap-1.5">
-            {frameworks.map((f) => <Chip key={f}>{frameworkLabel(f)}</Chip>)}
+            {frameworks.map((f) => <Chip key={f} variant="framework">{frameworkLabel(f)}</Chip>)}
+            <Chip variant="characteristic">{humanizeDimension(config?.dimension ?? metric.dimension)}</Chip>
           </div>
-        </Section>
+        </>
       )}
 
-      {(evidenceRequired.length > 0 || linkedEvidence > 0) && (
-        <Section label="Evidence">
-          {evidenceRequired.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {evidenceRequired.map((e) => <Chip key={e}>{humanizeToken(e)}</Chip>)}
-            </div>
-          )}
-          <p className={clsx("text-[12px] text-slate-500 dark:text-slate-400", evidenceRequired.length > 0 && "mt-1.5")}>
-            {linkedEvidence > 0 ? `${linkedEvidence} evidence record${linkedEvidence === 1 ? "" : "s"} sealed for this run.` : "No evidence records linked for this run."}
-          </p>
-        </Section>
+      {evidenceRequired.length > 0 && (
+        <>
+          <ChipLabel>Evidence expected</ChipLabel>
+          <div className="flex flex-wrap gap-1.5">
+            {evidenceRequired.map((e) => <Chip key={e}>{humanizeToken(e)}</Chip>)}
+          </div>
+        </>
       )}
 
-      {(owner || runTool || metric.status) && (
-        <p className="border-t border-hairline dark:border-white/10 pt-3 text-[11px] text-slate-400">
-          {[
-            owner && `Owner: ${humanizeToken(owner)}`,
-            runTool && `Ran via ${runTool}`,
-            metric.status && `Engine status: ${metric.status}`,
-            `ID ${metric.metric_id}`,
-          ].filter(Boolean).join(" · ")}
-        </p>
+      {/* evidence + provenance footer — dashed, muted, like the mockup's telemetry row */}
+      {showTechnicalFooter && (owner || runTool || metric.status || linkedEvidence > 0) && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 border-t border-dashed border-hairline dark:border-white/10 pt-2.5 text-[12px] text-slate-400 dark:text-slate-500">
+          <span>
+            {[
+              owner && `Owner: ${humanizeToken(owner)}`,
+              metric.status && `Engine status: ${metric.status}`,
+              linkedEvidence > 0 ? `${linkedEvidence} evidence record${linkedEvidence === 1 ? "" : "s"} sealed` : "No evidence linked",
+            ].filter(Boolean).join(" · ")}
+          </span>
+          <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11.5px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+            {runTool ? `${runTool} · ${metric.metric_id}` : metric.metric_id}
+          </span>
+        </div>
       )}
     </div>
   );

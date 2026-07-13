@@ -17,7 +17,7 @@ thresholds:
     high: 0.97
     medium: 0.99
     low: 1.0
-tool: langfuse
+tool: deepeval
 secondary_tool: c2pa_verifier
 agent_owner: compliance_mapper
 framework_mapping:

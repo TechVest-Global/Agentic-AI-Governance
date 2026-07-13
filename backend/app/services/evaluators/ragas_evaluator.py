@@ -35,6 +35,10 @@ _FORMULA_METRICS = {
     "hallucination_rate": ("Faithfulness", True),
     "faithfulness_score": ("Faithfulness", False),
     "unsupported_claim_rate": ("Faithfulness", True),
+    # citation_correctness = are the response's claims actually grounded in (i.e.
+    # correctly citing) the retrieved source context — ragas Faithfulness measured
+    # against real seeded context, not a context-free guess.
+    "citation_correctness": ("Faithfulness", False),
     "citation_coverage_rate": ("ContextRecall", False),
     "context_recall_at_k": ("ContextRecall", False),
     "context_precision": ("ContextPrecision", False),
@@ -55,11 +59,21 @@ def _judge_llm(endpoint: str, api_key: str, deployment_name: str, api_version: s
     from langchain_openai import AzureChatOpenAI
     from ragas.llms import LangchainLLMWrapper
 
+    from app.core.config import get_settings
+
+    # Bound every ragas judge call. Without an explicit timeout this langchain
+    # client (which bypasses the app's LLM gateway) would wait forever on a
+    # stalled Azure response — a single such call hung a whole run in
+    # metric_execution. request_timeout fails the call fast so the evaluator's
+    # try/except turns it into a skip instead of an infinite hang.
+    timeout = get_settings().llm_call_timeout_seconds
     chat = AzureChatOpenAI(
         azure_endpoint=endpoint,
         api_key=api_key,
         deployment_name=deployment_name,
         openai_api_version=api_version,
+        timeout=timeout,
+        max_retries=1,
     )
     return LangchainLLMWrapper(chat)
 

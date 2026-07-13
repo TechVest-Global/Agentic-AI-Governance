@@ -20,9 +20,6 @@ import { rollUpControlStatuses, type MatrixStatus } from "@/pages/auditor/client
  * status (known backend issue). Nothing is written or recomputed server-side.
  */
 
-// How many recent runs per app to probe (newest first) for clause results.
-const CLAUSE_PROBE_LIMIT = 4;
-
 export type MatrixApp = { id: string; name: string };
 
 export type MatrixCell = {
@@ -88,14 +85,37 @@ export function useComplianceMatrix(): ComplianceMatrix {
         const nameById = new Map(systems.map((s) => [s.id, s.name]));
         const appIds = Array.from(runsByApp.keys());
 
-        // Per app, probe newest → older until we hit a run with clause results.
+        // Per app, probe newest → older for a run whose clauses actually carry
+        // metric attribution. `control_count > 0` alone is NOT enough: a run can
+        // return the full clause skeleton with every control `not_evaluated` and
+        // zero metric_results (e.g. an interrupted/rerun that never attributed
+        // its checks). Preferring such a run over the real assessed run is what
+        // made Compliance show "all satisfied / ok" while Metrics showed failures.
+        // So we prefer the newest run with real attribution, falling back to the
+        // newest run that at least has controls if none carry attribution.
+        const hasAttribution = (m: FrameworkComplianceMap) =>
+          m.controls.some(
+            (c) =>
+              (c.passed_metric_count ?? 0) + (c.failed_metric_count ?? 0) + (c.pending_metric_count ?? 0) > 0 ||
+              (c.metric_results?.length ?? 0) > 0,
+          );
+        // Fetch every run's framework-map (newest first) in parallel per app and
+        // pick the newest with real attribution. A fixed "probe newest N" window
+        // silently misses the assessed run once interrupted/failed runs pile up
+        // newer than it. Total fetches are bounded by the 50-run list cap.
         const maps = await Promise.all(
           appIds.map(async (appId) => {
-            for (const runId of runsByApp.get(appId)!.slice(0, CLAUSE_PROBE_LIMIT)) {
-              const m = await getFrameworkMap(runId).catch(() => null);
-              if (m && m.control_count > 0) return m;
+            const runIds = runsByApp.get(appId)!;
+            const appMaps = await Promise.all(
+              runIds.map((runId) => getFrameworkMap(runId).catch(() => null)),
+            );
+            let fallback: FrameworkComplianceMap | null = null;
+            for (const m of appMaps) {
+              if (!m || m.control_count === 0) continue;
+              if (hasAttribution(m)) return m;
+              if (!fallback) fallback = m;
             }
-            return null;
+            return fallback;
           }),
         );
         if (cancelled) return;
