@@ -33,6 +33,7 @@ from app.schemas.governance import (
     MetricExecutionCreate,
     MetricExecutionRead,
     MetricPlanRead,
+    PlanApprovalCreate,
 )
 from app.services import (
     adaptive_orchestrator,
@@ -202,6 +203,25 @@ def run_governance_pipeline(
         orchestration.run_governance_pipeline_job, run_id, payload
     )
     return {"run_id": str(run_id), "status": "accepted"}
+
+
+@router.post("/{run_id}/approve-plan", response_model=EvaluationRunRead)
+def approve_plan(
+    run_id: UUID,
+    payload: PlanApprovalCreate,
+    session: SessionDependency,
+    background_tasks: BackgroundTasks,
+) -> EvaluationRunRead:
+    """Approve a paused metric plan and resume the run's pipeline.
+
+    Records the human approval (run columns + audit ledger) and advances the run
+    out of 'planned', then runs the pipeline tail off the request thread so the
+    Live Run view observes phase progression via polling / SSE. 409 if the run has
+    no plan awaiting approval (never gated, already approved, or terminal).
+    """
+    run = service.approve_plan(session, run_id=run_id, payload=payload)
+    background_tasks.add_task(orchestration.resume_governance_pipeline_job, run_id)
+    return run
 
 
 @router.post(

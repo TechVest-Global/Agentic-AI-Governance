@@ -16,6 +16,7 @@ from app.schemas.governance import (
     ContextAssemblyRead,
     CouncilDeliberationCreate,
     EvaluationPlanCreate,
+    EvaluationPlanRead,
     GovernancePipelineRunCreate,
     GovernancePipelineRunRead,
     GovernanceStateEntryCreate,
@@ -47,19 +48,43 @@ def run_governance_pipeline_job(
     the pipeline executes. On failure the run is marked failed so watchers stop
     waiting instead of hanging on a non-terminal status. Must NOT reuse the
     request-scoped session (it is closed once the response is sent).
+
+    When the run is gated on plan approval, the pipeline pauses after building
+    the metric plan (returns None) and the run is left at RunStatus.planned —
+    the job must NOT finalize it as completed in that case.
     """
     try:
         with Session(db_session.engine) as session:
-            run_governance_pipeline(session, run_id=run_id, payload=payload)
+            result = run_governance_pipeline(session, run_id=run_id, payload=payload)
     except Exception as exc:  # noqa: BLE001 — background job: never let it crash silently
         logger.exception("Background orchestration failed for run %s", run_id)
         _finalize_run(run_id, status=RunStatus.failed, error=exc)
     else:
-        # Safety net: finalize on a FRESH session. The pipeline marks the run
-        # completed itself, but if its session is poisoned late in the flow
-        # (observed once: the final completed UPDATE flushed, then rolled back),
-        # the run would otherwise be parked at council_running forever and the
-        # Live Run view would hang on the council stage.
+        # result is None => paused for plan approval; leave the run parked at
+        # 'planned' for the reviewer. Otherwise finalize on a FRESH session: the
+        # pipeline marks the run completed itself, but if its session is poisoned
+        # late in the flow (observed once: the final completed UPDATE flushed,
+        # then rolled back), the run would otherwise be parked at council_running
+        # forever and the Live Run view would hang on the council stage.
+        if result is not None:
+            _finalize_run(run_id, status=RunStatus.completed)
+
+
+def resume_governance_pipeline_job(run_id: UUID) -> None:
+    """Resume a plan-approved run's pipeline off the request thread.
+
+    The approval endpoint records the decision and kicks this off. The pipeline
+    tail (metric execution -> agents -> council -> report) replays the options
+    captured at orchestrate time (run.pipeline_payload). Same finalize/failure
+    safety net as the initial job.
+    """
+    try:
+        with Session(db_session.engine) as session:
+            resume_governance_pipeline(session, run_id=run_id)
+    except Exception as exc:  # noqa: BLE001 — background job: never let it crash silently
+        logger.exception("Background resume-after-approval failed for run %s", run_id)
+        _finalize_run(run_id, status=RunStatus.failed, error=exc)
+    else:
         _finalize_run(run_id, status=RunStatus.completed)
 
 
@@ -103,7 +128,12 @@ def run_governance_pipeline(
     *,
     run_id: UUID,
     payload: GovernancePipelineRunCreate,
-) -> GovernancePipelineRunRead:
+) -> GovernancePipelineRunRead | None:
+    """Run the governance pipeline, or pause for plan approval.
+
+    Returns the pipeline result when the run executes end-to-end, or None when
+    it is gated on plan approval (paused at RunStatus.planned after planning).
+    """
     run = get_run_or_raise(session, run_id)
 
     # Layer 1 always runs so the state chain captures context assembly and the run
@@ -141,6 +171,89 @@ def run_governance_pipeline(
         ),
     )
 
+    # Human-in-the-loop gate: when approval is required and not yet granted, pause
+    # here. prepare_evaluation_plan already parked the run at RunStatus.planned;
+    # we capture the pipeline options and log an awaiting-approval ledger event,
+    # then return None so the caller leaves the run parked for the reviewer.
+    run = get_run_or_raise(session, run_id)
+    if payload.require_plan_approval and run.plan_approved_at is None:
+        _pause_for_approval(session, run_id=run_id, payload=payload)
+        return None
+
+    return _execute_and_report(
+        session,
+        run_id=run_id,
+        payload=payload,
+        context_result=context_result,
+        evaluation_plan=evaluation_plan,
+    )
+
+
+def _pause_for_approval(
+    session: Session,
+    *,
+    run_id: UUID,
+    payload: GovernancePipelineRunCreate,
+) -> None:
+    """Park a run awaiting plan approval, capturing options to replay on resume."""
+    run = get_run_or_raise(session, run_id)
+    # Persist the pipeline options so the resume step runs exactly what was
+    # planned/approved. model_dump(mode="json") keeps it JSON-column-safe.
+    run.pipeline_payload = payload.model_dump(mode="json")
+    run.updated_at = utc_now()
+    session.add(run)
+    session.commit()
+    audit_ledger.append_ledger_entry(
+        session,
+        run_id=run_id,
+        payload=AuditLedgerEntryCreate(
+            event_type="plan.awaiting_approval",
+            actor_type=LedgerActorType.system,
+            actor_id="orchestrator",
+            payload={
+                "phase": RunPhase.adaptive_orchestrator,
+                "message": "Metric plan awaiting human approval before execution.",
+            },
+        ),
+    )
+    logger.info("Run %s paused for metric-plan approval", run_id)
+
+
+def resume_governance_pipeline(
+    session: Session,
+    *,
+    run_id: UUID,
+) -> GovernancePipelineRunRead:
+    """Run the pipeline tail after a paused plan has been approved.
+
+    Replays the options captured at orchestrate time and re-loads the persisted
+    evaluation plan, then executes metrics -> agents -> council -> report.
+    """
+    run = get_run_or_raise(session, run_id)
+    payload = (
+        GovernancePipelineRunCreate.model_validate(run.pipeline_payload)
+        if run.pipeline_payload
+        else GovernancePipelineRunCreate()
+    )
+    evaluation_plan = adaptive_orchestrator.get_latest_plan(session, run_id=run_id)
+    return _execute_and_report(
+        session,
+        run_id=run_id,
+        payload=payload,
+        context_result=None,
+        evaluation_plan=evaluation_plan,
+    )
+
+
+def _execute_and_report(
+    session: Session,
+    *,
+    run_id: UUID,
+    payload: GovernancePipelineRunCreate,
+    context_result: ContextAssemblyRead | None,
+    evaluation_plan: EvaluationPlanRead,
+) -> GovernancePipelineRunRead:
+    """Pipeline tail: metric execution -> agents -> council -> report -> finalize."""
     metric_result = metric_execution.run_metrics(
         session,
         run_id=run_id,

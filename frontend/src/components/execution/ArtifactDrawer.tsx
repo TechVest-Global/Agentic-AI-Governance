@@ -10,7 +10,7 @@ import {
   X,
 } from "lucide-react";
 import clsx from "clsx";
-import { executionArtifacts, type ExecutionArtifact } from "@/data/executionLayerData";
+import type { ExecutionArtifact } from "@/data/executionLayerData";
 import { Card, CardHeader } from "@/components/ui/Card";
 import type {
   AgentExecution,
@@ -312,7 +312,9 @@ type Props = {
 export function ArtifactDrawer({ liveData, layerFilter }: Props) {
   const [openArtifact, setOpenArtifact] = useState<ExecutionArtifact | null>(null);
 
-  const allArtifacts = liveData ? buildLiveArtifacts(liveData) : executionArtifacts;
+  // Live artifacts only — without run data the drawer shows its empty state
+  // instead of prototype artifacts.
+  const allArtifacts = liveData ? buildLiveArtifacts(liveData) : [];
   const artifacts = layerFilter ? allArtifacts.filter((a) => a.layer === layerFilter) : allArtifacts;
 
   function handleDownload(artifact: ExecutionArtifact) {

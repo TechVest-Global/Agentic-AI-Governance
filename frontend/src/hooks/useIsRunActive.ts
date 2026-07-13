@@ -14,9 +14,10 @@ export function useIsRunActive(): { active: boolean; activeRunId: string | null 
   const selectedRunId = useSelectionStore((s) => s.selectedRunId);
   const globalRunnerStatus = useAppStore((s) => s.globalRunnerStatus);
 
-  // Immediately reflect runner hook state
+  // Immediately reflect runner hook state. "awaiting" (paused for plan approval)
+  // is still an active run — it parks at 'planned' until a reviewer approves.
   useEffect(() => {
-    if (globalRunnerStatus === "running") setActive(true);
+    if (globalRunnerStatus === "running" || globalRunnerStatus === "awaiting") setActive(true);
     else if (globalRunnerStatus === "done" || globalRunnerStatus === "error") setActive(false);
   }, [globalRunnerStatus]);
 

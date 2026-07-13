@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, ClipboardList, FlaskConical, Layers, Target } from "lucide-react";
+import { CheckCircle2, ClipboardList, FlaskConical, Layers, Loader2, ShieldCheck, Target } from "lucide-react";
 import clsx from "clsx";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { Badge } from "@/components/ui/Badge";
 import { ProgressBar } from "@/components/ui/RunStatus";
 import { useAppStore } from "@/store/useAppStore";
+import { useAuthStore } from "@/store/useAuthStore";
 import { metricPlan, dimensionTone, type MetricDimension, type MetricPlan as MetricPlanShape, type MetricStatus, type PlannedMetric } from "@/data/metricPlan";
-import { getRunMetricPlan, listAISystems, type EvaluationRun } from "@/api/governanceApi";
-import { metricBlurb } from "@/data/metricCatalog";
+import { approvePlan, isAwaitingApproval } from "@/api/governanceApi";
+import { loadLivePlan } from "@/data/runMetricPlan";
 import { useActiveRun } from "@/hooks/useActiveRun";
 
 const statusTone: Record<MetricStatus, "green" | "amber" | "red" | "slate" | "blue"> = {
@@ -19,52 +20,36 @@ const statusTone: Record<MetricStatus, "green" | "amber" | "red" | "slate" | "bl
   Skipped: "slate",
 };
 
-const VALID_DIMENSIONS: MetricDimension[] = ["Bias", "Drift", "Misuse", "Compliance", "Explainability"];
-
-function normalizeDimension(raw: string): MetricDimension {
-  const titled = raw.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-  return (VALID_DIMENSIONS as string[]).includes(titled) ? (titled as MetricDimension) : "Compliance";
-}
-
-/** Build the page's plan shape from the live backend metric-plan for the active run. */
-async function loadLivePlan(run: EvaluationRun): Promise<MetricPlanShape | null> {
-  const [plan, systems] = await Promise.all([
-    getRunMetricPlan(run.id),
-    listAISystems().catch(() => []),
-  ]);
-  const system = systems.find((s) => s.id === plan.ai_system_id);
-
-  return {
-    runId: run.id,
-    systemName: system?.name ?? "Selected system",
-    systemVersion: system?.model_version ?? "",
-    riskTier: ((system?.risk_tier ?? "medium").replace(/\b\w/, (c) => c.toUpperCase())) as "High" | "Medium" | "Low",
-    runMode: "live",
-    selectedFrameworks: plan.selected_frameworks,
-    createdAt: run.created_at,
-    metrics: plan.metrics.map((m) => ({
-      id: m.metric_id,
-      name: m.name,
-      dimension: normalizeDimension(m.dimension),
-      description: `${metricBlurb(m.metric_id, m.name)} Owned by ${m.primary_agent ?? "specialist agent"} · framework refs: ${m.framework_ids.join(", ") || "—"}.`,
-      tool: m.tool_name ?? "—",
-      toolMode: "live",
-      ownerAgent: m.primary_agent ?? "—",
-      frameworks: m.framework_ids,
-      probeBudget: m.enabled ? 3 : 0,
-      threshold: m.threshold != null ? String(m.threshold) : "—",
-      status: m.enabled ? "Planned" : "Skipped",
-    })),
-  };
-}
-
 export function MetricPlan() {
   const { navigateTo } = useAppStore();
-  const { run } = useActiveRun();
+  const { run, refresh } = useActiveRun();
+  const approverName = useAuthStore((s) => s.user?.name) ?? null;
   const [dimensionFilter, setDimensionFilter] = useState<MetricDimension | "All">("All");
-  const [approved, setApproved] = useState(false);
+  const [approving, setApproving] = useState(false);
+  const [approveError, setApproveError] = useState<string | null>(null);
   const [plan, setPlan] = useState<MetricPlanShape>(metricPlan);
   const [source, setSource] = useState<"live" | "sample">("sample");
+
+  // Approval-gate state for the active run. The button is only a real control
+  // when a live run is paused awaiting approval; otherwise it reflects status.
+  const awaitingApproval = source === "live" && !!run && isAwaitingApproval(run);
+  const alreadyApproved = !!run?.plan_approved_at;
+
+  async function handleApprove() {
+    if (!run || !awaitingApproval || approving) return;
+    setApproving(true);
+    setApproveError(null);
+    try {
+      await approvePlan(run.id, { approvedBy: approverName ?? undefined });
+      refresh();
+      // The run resumes on the backend — send the reviewer to the Live Run view
+      // to watch metric execution and the agents pick up.
+      navigateTo("/runs");
+    } catch (e) {
+      setApproveError(e instanceof Error ? e.message : "Could not approve the plan.");
+      setApproving(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -131,17 +116,53 @@ export function MetricPlan() {
               </div>
             </div>
           </div>
-          <button
-            onClick={() => setApproved(true)}
-            disabled={approved}
-            className={clsx(
-              "inline-flex items-center gap-2 rounded px-3 py-2 text-[12px] font-semibold transition-colors",
-              approved ? "bg-emerald-50 text-emerald-700" : "bg-[#111827] text-white hover:bg-slate-800"
+          <div className="flex flex-col items-end gap-1.5">
+            <button
+              onClick={() => void handleApprove()}
+              disabled={!awaitingApproval || approving}
+              title={
+                awaitingApproval
+                  ? "Approve this plan to start metric execution"
+                  : alreadyApproved
+                    ? "This plan has already been approved"
+                    : "The Approve action is available while a run is paused for plan review"
+              }
+              className={clsx(
+                "inline-flex items-center gap-2 rounded px-3 py-2 text-[12px] font-semibold transition-colors",
+                awaitingApproval && !approving
+                  ? "bg-[#111827] text-white hover:bg-slate-800"
+                  : alreadyApproved
+                    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
+                    : "bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500 cursor-not-allowed",
+              )}
+            >
+              {approving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : alreadyApproved ? (
+                <CheckCircle2 className="h-4 w-4" />
+              ) : (
+                <ShieldCheck className="h-4 w-4" />
+              )}
+              {approving
+                ? "Approving…"
+                : alreadyApproved
+                  ? "Plan approved"
+                  : "Approve plan"}
+            </button>
+            {awaitingApproval && (
+              <p className="text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                Run paused — awaiting your approval to execute
+              </p>
             )}
-          >
-            <CheckCircle2 className="h-4 w-4" />
-            {approved ? "Plan approved" : "Approve plan"}
-          </button>
+            {alreadyApproved && run?.plan_approved_by && (
+              <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                Approved by {run.plan_approved_by}
+              </p>
+            )}
+            {approveError && (
+              <p className="max-w-55 text-right text-[10px] text-red-600 dark:text-red-400">{approveError}</p>
+            )}
+          </div>
         </div>
       </Card>
 

@@ -54,14 +54,11 @@ class DriftAnalystAgent(ModelBackedAgent):
     name = "drift_agent"
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
-        drift_metrics = [
-            m for m in context.metric_results
-            if (
-                m.metric_id in _DRIFT_METRIC_IDS
-                or any(k in f"{m.metric_id} {m.dimension}".lower() for k in _DRIFT_KEYWORDS)
-            )
-            and (metric_failed(m) or metric_pending(m))
-        ]
+        # High-risk verification mode: analyze trends even when metrics passed —
+        # a passing score can still be a regression against the prior run.
+        drift_metrics, attention_metrics = self._metrics_for_review(
+            context, metric_ids=_DRIFT_METRIC_IDS, keywords=_DRIFT_KEYWORDS
+        )
 
         if not drift_metrics:
             return []
@@ -106,7 +103,8 @@ class DriftAnalystAgent(ModelBackedAgent):
         if parsed is not None:
             return _findings_from_governance(parsed, context)
 
-        return _deterministic_fallback(drift_metrics, context.prior_metric_scores)
+        # Fallback only on genuinely failed/pending metrics — never on passes.
+        return _deterministic_fallback(attention_metrics, context.prior_metric_scores)
 
 
 def _findings_from_governance(

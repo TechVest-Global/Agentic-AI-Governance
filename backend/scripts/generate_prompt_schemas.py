@@ -1,3 +1,5 @@
+
+
 """
 Schema generation script for the Prompt Template Registry.
 

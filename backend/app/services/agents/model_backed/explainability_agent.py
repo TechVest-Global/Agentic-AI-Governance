@@ -14,7 +14,7 @@ returns non-JSON.
 from app.models.enums import Severity
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import finding, metric_failed, metric_pending
+from app.services.agents.helpers import finding
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 
 _EXPLAINABILITY_METRIC_IDS = {
@@ -63,7 +63,7 @@ You are a groundedness and explainability specialist evaluating an AI system.
 
 AI System: {system_name} (type: {system_type}, risk tier: {risk_tier})
 
-Failed or pending groundedness and retrieval metrics:
+Groundedness and retrieval metric statuses (verify passes against the evidence below):
 {metric_summary}
 
 Target model probe responses collected as evidence:
@@ -94,17 +94,12 @@ class ExplainabilityAgent(ModelBackedAgent):
     probe_dimension = "explainability"
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
-        explainability_metrics = [
-            m for m in context.metric_results
-            if (
-                m.metric_id in _EXPLAINABILITY_METRIC_IDS
-                or any(
-                    k in f"{m.metric_id} {m.dimension}".lower()
-                    for k in _EXPLAINABILITY_KEYWORDS
-                )
-            )
-            and (metric_failed(m) or metric_pending(m))
-        ]
+        # High-risk verification mode: probe even when all owned metrics passed.
+        explainability_metrics, attention_metrics = self._metrics_for_review(
+            context,
+            metric_ids=_EXPLAINABILITY_METRIC_IDS,
+            keywords=_EXPLAINABILITY_KEYWORDS,
+        )
 
         if not explainability_metrics:
             return []
@@ -158,7 +153,8 @@ class ExplainabilityAgent(ModelBackedAgent):
         if parsed is not None:
             return _findings_from_governance(parsed, context, tool_calls_payload)
 
-        return _deterministic_fallback(explainability_metrics, context, tool_calls_payload)
+        # Fallback only on genuinely failed/pending metrics — never on passes.
+        return _deterministic_fallback(attention_metrics, context, tool_calls_payload)
 
 
 def _format_tool_evidence(tool_calls: list) -> str:

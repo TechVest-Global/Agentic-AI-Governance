@@ -38,6 +38,17 @@ function labelize(value: string): string {
   return value.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** LLM deployment/model this capability calls, from its registration metadata. */
+function modelForCapability(c: BackendAISystemCapability): string | null {
+  const meta = c.metadata_json ?? {};
+  return (
+    (typeof meta.deployment === "string" && meta.deployment) ||
+    (typeof meta.model === "string" && meta.model) ||
+    (typeof meta.model_name === "string" && meta.model_name) ||
+    null
+  );
+}
+
 function typeTone(t: BackendAISystemCapability["capability_type"]): "blue" | "violet" | "green" | "amber" | "slate" {
   switch (t) {
     case "inference": return "blue";
@@ -397,21 +408,21 @@ export function Capabilities() {
             </div>
           )}
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1080px] border-collapse text-left">
+            <table className="w-full min-w-[1180px] border-collapse text-left">
               <thead className="bg-slate-50 dark:bg-slate-800/60">
                 <tr className="border-b border-slate-200 dark:border-slate-700">
                   <th className="w-6 px-3 py-2.5" />
-                  {["Name", "Type", "Endpoint", "Method", "Permissions", "Side Effect", "Human Review", "Enabled"].map((h) => (
+                  {["Name", "Type", "Endpoint", "Model", "Method", "Permissions", "Side Effect", "Human Review", "Enabled"].map((h) => (
                     <th key={h} className="px-3 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {capsLoading && (
-                  <tr><td colSpan={9} className="px-4 py-12 text-center text-[12px] text-slate-500 dark:text-slate-400">Loading capabilities…</td></tr>
+                  <tr><td colSpan={10} className="px-4 py-12 text-center text-[12px] text-slate-500 dark:text-slate-400">Loading capabilities…</td></tr>
                 )}
                 {!capsLoading && caps.length === 0 && !capsError && (
-                  <tr><td colSpan={9} className="px-4 py-12 text-center">
+                  <tr><td colSpan={10} className="px-4 py-12 text-center">
                     <p className="text-[14px] font-semibold text-slate-900 dark:text-white">No capabilities yet</p>
                     <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400">{canEdit ? "Add a capability to describe what this system can do." : "No capabilities registered for this system."}</p>
                   </td></tr>
@@ -430,6 +441,9 @@ export function Capabilities() {
                         <td className="px-3 py-3 text-[13px] font-semibold text-slate-900 dark:text-white">{c.name}</td>
                         <td className="px-3 py-3"><Badge tone={typeTone(c.capability_type)}>{labelize(c.capability_type)}</Badge></td>
                         <td className="max-w-[220px] truncate px-3 py-3 font-mono text-[11px] text-slate-600 dark:text-slate-300" title={c.endpoint_ref}>{c.endpoint_ref}</td>
+                        <td className="px-3 py-3 font-mono text-[11px] text-slate-600 dark:text-slate-300">
+                          {modelForCapability(c) ?? <span className="text-slate-400">—</span>}
+                        </td>
                         <td className="px-3 py-3"><Badge tone={methodTone(c.http_method)}>{c.http_method}</Badge></td>
                         <td className="px-3 py-3">
                           <div className="flex max-w-[180px] flex-wrap gap-1">
@@ -444,7 +458,7 @@ export function Capabilities() {
                       </tr>
                       {open && (
                         <tr className="border-b border-blue-100 bg-blue-50/50 dark:border-blue-900/40 dark:bg-blue-950/10">
-                          <td colSpan={9} className="px-5 py-4">
+                          <td colSpan={10} className="px-5 py-4">
                             {c.description && <p className="mb-3 text-[12px] leading-5 text-slate-700 dark:text-slate-300">{c.description}</p>}
                             <div className="grid gap-4 lg:grid-cols-2">
                               <SchemaBlock title="Input Schema" value={c.input_schema} />

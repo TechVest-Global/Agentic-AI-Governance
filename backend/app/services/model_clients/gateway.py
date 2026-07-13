@@ -84,10 +84,20 @@ def set_current_agent(agent_name: str | None) -> None:
 
 
 def _append_log(entry: dict) -> None:
+    # Attribute the call to the executing agent so per-agent views can filter.
+    entry.setdefault("agent_name", _current_agent.get(None))
+
+    # Emit the call to Langfuse when tracing is configured (no-op otherwise).
+    # Guarded so tracing can never break the call path.
+    try:
+        from app.services.tracing.langfuse_tracer import record_llm_call
+
+        record_llm_call(entry)
+    except Exception:  # noqa: BLE001
+        pass
+
     buf = _log_buffer.get(None)
     if buf is not None:
-        # Attribute the call to the executing agent so per-agent views can filter.
-        entry.setdefault("agent_name", _current_agent.get(None))
         buf.append(entry)
 
 

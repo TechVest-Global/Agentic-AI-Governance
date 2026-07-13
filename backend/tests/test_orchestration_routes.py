@@ -129,6 +129,153 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
     assert updated_run["result_summary"]["council_label"] == "conditional_approval"
 
 
+def test_governance_pipeline_pauses_for_plan_approval_then_resumes(
+    client: TestClient,
+) -> None:
+    assert client.post("/api/v1/governance-config/bootstrap").status_code == 200
+    system = create_system(client)
+    run = create_run(client, system["id"])
+
+    # Gate the run: the pipeline should pause after building the metric plan.
+    response = client.post(
+        f"/api/v1/evaluation-runs/{run['id']}/orchestrate",
+        json={
+            "mock_score": 1.0,
+            "agent_names": ["risk_scorer"],
+            "requested_by": "backend_test",
+            "require_plan_approval": True,
+        },
+    )
+    assert response.status_code == 202
+
+    # Paused: parked at 'planned', plan built, but not yet executed or approved.
+    paused = client.get(f"/api/v1/evaluation-runs/{run['id']}").json()
+    assert paused["status"] == "planned"
+    assert paused["current_phase"] == "adaptive_orchestrator"
+    assert paused["plan_approved_at"] is None
+
+    plan = client.get(f"/api/v1/evaluation-runs/{run['id']}/evaluation-plan")
+    assert plan.status_code == 200
+
+    ledger_events = [
+        e["event_type"]
+        for e in client.get(f"/api/v1/evaluation-runs/{run['id']}/ledger").json()
+    ]
+    assert "plan.awaiting_approval" in ledger_events
+    # The gate stops execution: no metric run happened while awaiting approval.
+    assert "metric_execution.completed" not in ledger_events
+
+    # Approve — the run resumes and (TestClient runs the background task inline)
+    # completes end-to-end.
+    approve = client.post(
+        f"/api/v1/evaluation-runs/{run['id']}/approve-plan",
+        json={"approved_by": "R. Sharma", "notes": "Plan looks right."},
+    )
+    assert approve.status_code == 200
+    assert approve.json()["plan_approved_by"] == "R. Sharma"
+
+    completed = client.get(f"/api/v1/evaluation-runs/{run['id']}").json()
+    assert completed["status"] == "completed"
+    assert completed["current_phase"] == "completed"
+    assert completed["plan_approved_at"] is not None
+
+    final_events = [
+        e["event_type"]
+        for e in client.get(f"/api/v1/evaluation-runs/{run['id']}/ledger").json()
+    ]
+    assert "plan.approved" in final_events
+    assert "metric_execution.completed" in final_events
+    assert "governance_report.generated" in final_events
+    # Ledger chain stays valid across the pause/approve/resume boundary.
+    assert client.get(
+        f"/api/v1/evaluation-runs/{run['id']}/ledger/verify"
+    ).json()["valid"] is True
+
+    # Approving a run that is no longer awaiting approval is a conflict.
+    second = client.post(
+        f"/api/v1/evaluation-runs/{run['id']}/approve-plan",
+        json={"approved_by": "R. Sharma"},
+    )
+    assert second.status_code == 409
+    assert second.json()["error"]["code"] == "PLAN_NOT_AWAITING_APPROVAL"
+
+
+def test_approve_plan_with_manual_metric_selection_runs_only_chosen_metrics(
+    client: TestClient,
+) -> None:
+    assert client.post("/api/v1/governance-config/bootstrap").status_code == 200
+    system = create_system(client)
+    run = create_run(client, system["id"])  # plans CM-005 + CM-026
+
+    orchestrate = client.post(
+        f"/api/v1/evaluation-runs/{run['id']}/orchestrate",
+        json={
+            "mock_score": 1.0,
+            "agent_names": ["risk_scorer"],
+            "require_plan_approval": True,
+        },
+    )
+    assert orchestrate.status_code == 202
+    assert client.get(f"/api/v1/evaluation-runs/{run['id']}").json()["status"] == "planned"
+
+    # Reviewer hand-picks a single metric instead of the full plan.
+    approve = client.post(
+        f"/api/v1/evaluation-runs/{run['id']}/approve-plan",
+        json={"approved_by": "R. Sharma", "selected_metrics": ["CM-005"]},
+    )
+    assert approve.status_code == 200
+
+    completed = client.get(f"/api/v1/evaluation-runs/{run['id']}").json()
+    assert completed["status"] == "completed"
+    assert completed["selected_metrics"] == ["CM-005"]
+
+    # Only the chosen metric was executed.
+    report = client.get(f"/api/v1/evaluation-runs/{run['id']}/report").json()
+    assert report["counts"]["metric_results"] == 1
+
+    # The manual override is recorded in the tamper-evident ledger.
+    approved_events = [
+        e
+        for e in client.get(f"/api/v1/evaluation-runs/{run['id']}/ledger").json()
+        if e["event_type"] == "plan.approved"
+    ]
+    assert approved_events and approved_events[0]["payload"]["manual_selection"] is True
+    assert approved_events[0]["payload"]["selected_metrics"] == ["CM-005"]
+
+
+def test_approve_plan_rejects_empty_manual_selection(client: TestClient) -> None:
+    assert client.post("/api/v1/governance-config/bootstrap").status_code == 200
+    system = create_system(client)
+    run = create_run(client, system["id"])
+    assert client.post(
+        f"/api/v1/evaluation-runs/{run['id']}/orchestrate",
+        json={"agent_names": ["risk_scorer"], "require_plan_approval": True},
+    ).status_code == 202
+
+    response = client.post(
+        f"/api/v1/evaluation-runs/{run['id']}/approve-plan",
+        json={"approved_by": "R. Sharma", "selected_metrics": []},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "EMPTY_METRIC_SELECTION"
+    # Still awaiting approval — the rejected call must not have advanced the run.
+    assert client.get(f"/api/v1/evaluation-runs/{run['id']}").json()["status"] == "planned"
+
+
+def test_approve_plan_rejects_run_with_no_pending_plan(client: TestClient) -> None:
+    assert client.post("/api/v1/governance-config/bootstrap").status_code == 200
+    system = create_system(client)
+    run = create_run(client, system["id"])
+
+    # Freshly created run (status 'created') has no plan awaiting approval.
+    response = client.post(
+        f"/api/v1/evaluation-runs/{run['id']}/approve-plan",
+        json={"approved_by": "R. Sharma"},
+    )
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "PLAN_NOT_AWAITING_APPROVAL"
+
+
 def test_governance_pipeline_requires_existing_run(client: TestClient) -> None:
     run_id = uuid4()
 
