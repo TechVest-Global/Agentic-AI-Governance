@@ -3,6 +3,7 @@
 from app.services.agents.probe_library import (
     SystemCategory,
     classify_system,
+    payload_for_probe,
     probes_for,
     probes_for_endpoint,
 )
@@ -93,3 +94,60 @@ def test_per_endpoint_falls_back_to_system_probes():
     # A function with no tailored set for the dimension -> system-type probes.
     got = probes_for_endpoint("bias", "unknown-function", hr, _HIRING_FALLBACK)
     assert got == probes_for("bias", hr, _HIRING_FALLBACK)
+
+
+# --- Structured probe payloads -------------------------------------------------
+
+
+def test_decisioning_risk_probes_carry_ranking_payload():
+    """The decisioning risk probes a Risk Scorer sends must resolve to a
+    structured ranking body targeting the rank-candidates endpoint, so they
+    exercise the real decision surface instead of being parsed as a resume."""
+    hr = classify_system("hr_recruitment_screening")
+    for name, _ in probes_for("risk", hr, _HIRING_FALLBACK):
+        payload = payload_for_probe(name)
+        assert payload is not None, f"risk probe {name} has no structured payload"
+        assert payload.endpoint == "rank-candidates"
+        assert payload.body["candidates"], "payload must include candidates"
+
+
+def test_payload_lookup_strips_budget_and_endpoint_suffixes():
+    # Budget-repeat (_passN) and scoped (@endpoint) suffixes must still resolve.
+    base = payload_for_probe("high_stakes_autonomy")
+    assert base is not None
+    assert payload_for_probe("high_stakes_autonomy_pass3") == base
+    assert payload_for_probe("high_stakes_autonomy@/api/v1/ai/rank-candidates") == base
+
+
+def test_text_only_probes_have_no_payload():
+    # A probe that legitimately stays free text (explain the decision) must not
+    # accidentally acquire a structured body.
+    assert payload_for_probe("decision_rationale") is None
+    assert payload_for_probe("nonexistent_probe") is None
+
+
+def test_ranking_payload_carries_five_candidate_cohort():
+    payload = payload_for_probe("high_stakes_autonomy")
+    assert payload is not None
+    candidates = payload.body["candidates"]
+    # Strong, borderline, career-break, older-worker, foreign-credential cohort.
+    assert len(candidates) == 5
+    exps = sorted(c["totalExperience"] for c in candidates)
+    # At least one under the 5-year floor (borderline) and one well over (strong).
+    assert exps[0] < 5 <= exps[-1]
+
+
+def test_decisioning_bias_probes_include_five_resume_corpus():
+    """A decisioning system's bias probe set must carry 5 real resume texts
+    (matched pair + career-break + older-worker + foreign-credential) so the
+    resume parser is exercised with genuine, diverse candidate documents."""
+    hr = classify_system("hr_recruitment_screening")
+    probes = probes_for("bias", hr, _HIRING_FALLBACK)
+    resume_probes = [(n, p) for n, p in probes if n.startswith("parse_resume_screen_")]
+    assert len(resume_probes) == 5
+    # The matched pair differs ONLY by name/contact — same experience, education,
+    # and skills — so any score divergence is attributable to the name signal.
+    by_name = dict(resume_probes)
+    control = by_name["parse_resume_screen_1_control"].splitlines()[2:]
+    matched = by_name["parse_resume_screen_2_matched_pair"].splitlines()[2:]
+    assert control == matched

@@ -22,6 +22,7 @@ from app.services.agents.base import AgentContext
 from app.services.agents.probe_library import (
     ProbeSet,
     classify_system,
+    payload_for_probe,
     probes_for,
     probes_for_endpoint,
 )
@@ -83,6 +84,55 @@ class ModelBackedAgent:
     # None for agents that have not opted into system-aware probe selection —
     # those keep their own curated probe set unchanged.
     probe_dimension: str | None = None
+
+    @staticmethod
+    def _verify_even_when_passing(context: AgentContext) -> bool:
+        """Whether this run must probe the target even if all owned metrics passed.
+
+        Historically every agent gated on failed/pending metrics and went
+        completely silent when its metrics passed — so a high-risk system whose
+        fairness metrics scored a (single-shot) 1.0 was never actually probed
+        for bias. For high-risk systems the audit must verify passes with live
+        probe evidence, not trust them: agents probe unconditionally and ask the
+        governance model to confirm or challenge the passing scores.
+        """
+        from app.models.enums import RiskTier
+
+        return getattr(context.ai_system, "risk_tier", None) == RiskTier.high
+
+    def _metrics_for_review(
+        self,
+        context: AgentContext,
+        *,
+        metric_ids: set[str],
+        keywords: tuple[str, ...],
+    ) -> tuple[list, list]:
+        """Split this agent's owned metrics into (review, attention) lists.
+
+        ``owned``    = every metric result this agent is responsible for.
+        ``attention``= the failed/pending subset (drives deterministic fallback
+                       findings — passing metrics must never produce fallback
+                       failure findings).
+        ``review``   = what the agent probes/reasons over: the attention set,
+                       or — in high-risk verification mode — ALL owned metrics
+                       even when they passed.
+        Returns (review, attention).
+        """
+        from app.services.agents.helpers import metric_failed, metric_pending
+
+        owned = [
+            m for m in context.metric_results
+            if (
+                m.metric_id in metric_ids
+                or any(k in f"{m.metric_id} {m.dimension}".lower() for k in keywords)
+            )
+        ]
+        attention = [m for m in owned if metric_failed(m) or metric_pending(m)]
+        if attention:
+            return attention, attention
+        if owned and self._verify_even_when_passing(context):
+            return owned, []
+        return [], []
 
     def __init__(
         self,
@@ -187,6 +237,18 @@ class ModelBackedAgent:
             # contextvars don't cross thread boundaries — rebind the audit
             # buffer and agent attribution so worker-thread probes are captured.
             bind_log_capture(capture_buffer, agent_name=agent_name)
+            # A structured probe (e.g. HR candidate ranking) carries a JSON body
+            # and its own endpoint so the audited function receives a real input
+            # instead of having its prompt parsed as free text. capability_name
+            # holds the probe name here ("probe_name" or "probe_name@endpoint").
+            payload = payload_for_probe(capability_name or "")
+            if payload is not None:
+                return self._probe_target(
+                    endpoint_ref=payload.endpoint,
+                    prompt=prompt,
+                    capability_name=capability_name,
+                    payload=payload.body,
+                )
             return self._probe_target(
                 endpoint_ref=endpoint_ref, prompt=prompt, capability_name=capability_name
             )
@@ -304,12 +366,18 @@ class ModelBackedAgent:
         endpoint_ref: str,
         prompt: str,
         capability_name: str | None = None,
+        payload: dict[str, object] | None = None,
     ) -> TargetProbeResult:
+        # A structured ``payload`` is delivered as the request body (target
+        # clients that support it read ``metadata["payload"]``); the ``prompt``
+        # is still carried for provenance and for clients that ignore payloads.
+        metadata = {"payload": payload} if payload else {}
         response = self._target.invoke(
             TargetModelRequest(
                 endpoint_ref=endpoint_ref,
                 prompt=prompt,
                 capability_name=capability_name,
+                metadata=metadata,
             )
         )
         sanitized = sanitize_target_output(response.raw_output)

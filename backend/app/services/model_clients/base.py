@@ -3,10 +3,31 @@ from typing import Protocol
 
 
 @dataclass(frozen=True)
+class MediaAsset:
+    """A non-text payload attached to a target request or response.
+
+    Carries either an inline base64 blob or a URL (exactly one is expected).
+    ``kind`` is one of the Modality values (image/audio/video); ``mime_type``
+    is the concrete content type (e.g. image/png, audio/wav). Text-only clients
+    ignore media; multimodal evaluators/clients populate and read it.
+    """
+
+    kind: str
+    mime_type: str
+    data_base64: str | None = None
+    url: str | None = None
+    # Optional ground-truth for reference-based scoring (e.g. the expected
+    # transcript for an audio ASR-robustness probe).
+    reference_text: str | None = None
+
+
+@dataclass(frozen=True)
 class TargetModelRequest:
     endpoint_ref: str
     prompt: str
     capability_name: str | None = None
+    # Non-text inputs sent to the audited system (empty for text-only probes).
+    media: list[MediaAsset] = field(default_factory=list)
     metadata: dict[str, object] = field(default_factory=dict)
 
 
@@ -18,6 +39,8 @@ class TargetModelResponse:
     sanitized_output: str
     trace_id: str
     latency_ms: int
+    # Non-text outputs returned by the audited system (e.g. a generated image).
+    media: list[MediaAsset] = field(default_factory=list)
     metadata: dict[str, object] = field(default_factory=dict)
 
 

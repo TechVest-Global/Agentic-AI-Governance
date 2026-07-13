@@ -64,6 +64,13 @@ class Settings(BaseSettings):
     litellm_master_key: str | None = None
     litellm_model: str = "judge-model"
 
+    # Langfuse tracing (optional) — when the public + secret keys are set, every
+    # LLM call flowing through the gateway is emitted to Langfuse as a generation
+    # span. Unset -> tracing is a silent no-op (never breaks a run).
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
+    langfuse_host: str = "https://cloud.langfuse.com"
+
     # Per-call timeout for LLM requests (target + governance). Without this a
     # slow-but-not-erroring Azure response has nothing forcing it to fail fast,
     # so the Gateway's retry/backoff never engages and a single call can block

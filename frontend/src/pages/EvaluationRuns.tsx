@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle, CheckCircle2, ListChecks, Loader2, Play, PlayCircle, Plus, X, XCircle } from "lucide-react";
 import clsx from "clsx";
 import { Card, CardHeader } from "@/components/ui/Card";
@@ -152,11 +153,12 @@ export function EvaluationRuns() {
 
   return (
     <div className="space-y-5">
-      {/* New Run Modal */}
-      {showNewRun && (
+      {/* New Run Modal — portaled to <body> so the fixed overlay is
+          viewport-relative, not relative to the transformed page wrapper. */}
+      {showNewRun && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[3px]" onClick={() => setShowNewRun(false)} />
-          <div className="relative z-10 w-full max-w-md rounded-xl bg-white shadow-2xl ring-1 ring-black/10 dark:bg-slate-900 dark:ring-white/10">
+          <div className="relative z-10 flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col overflow-y-auto rounded-xl bg-white shadow-2xl ring-1 ring-black/10 dark:bg-slate-900 dark:ring-white/10">
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
               <div>
                 <p className="text-[15px] font-semibold text-slate-950 dark:text-white">New Evaluation Run</p>
@@ -214,7 +216,8 @@ export function EvaluationRuns() {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       <div className="flex flex-wrap items-start justify-between gap-3">

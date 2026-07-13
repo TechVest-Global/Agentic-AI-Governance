@@ -24,36 +24,89 @@ type SectionKey =
   | "post_model_controls"
   | "integration_context";
 
-const SECTIONS: ReadonlyArray<{ key: SectionKey; title: string; hint: string }> = [
-  { key: "identity_purpose", title: "Identity & Purpose", hint: "Who the system is for and what it is meant to do." },
-  { key: "pre_model_controls", title: "Pre-Model Controls", hint: "Input validation, redaction, and guardrails before inference." },
-  { key: "model_configuration", title: "Model Configuration", hint: "Model, parameters, and deployment configuration." },
-  { key: "post_model_controls", title: "Post-Model Controls", hint: "Output filtering, grounding checks, and human review." },
-  { key: "integration_context", title: "Integration Context", hint: "Upstream/downstream systems and data flows." },
+const SECTIONS: ReadonlyArray<{ key: SectionKey; title: string; hint: string; placeholder: string }> = [
+  {
+    key: "identity_purpose",
+    title: "Identity & Purpose",
+    hint: "Who the system is for and what it is meant to do.",
+    placeholder: "Purpose: What this system does and for whom\nDomain: Business area (e.g. HR / recruitment)\nIntended Use: How its outputs are used",
+  },
+  {
+    key: "pre_model_controls",
+    title: "Pre-Model Controls",
+    hint: "Input validation, redaction, and guardrails before inference.",
+    placeholder: "Input Validation: How requests are validated\nAuthentication: How callers are authenticated\nInput Sanitization: PII / injection filtering before the model",
+  },
+  {
+    key: "model_configuration",
+    title: "Model Configuration",
+    hint: "Model, parameters, and deployment configuration.",
+    placeholder: "Provider: e.g. Azure OpenAI\nLLM Model: e.g. gpt-4.1\nDeployment: How and where it is deployed",
+  },
+  {
+    key: "post_model_controls",
+    title: "Post-Model Controls",
+    hint: "Output filtering, grounding checks, and human review.",
+    placeholder: "Output Filtering: Checks applied to model output\nHuman Review: When a person reviews decisions\nFallbacks: What happens when the model fails",
+  },
+  {
+    key: "integration_context",
+    title: "Integration Context",
+    hint: "Upstream/downstream systems and data flows.",
+    placeholder: "Upstream: Systems that call this one\nDownstream: Systems consuming its output\nData Flows: What data moves where",
+  },
 ];
 
 type DraftState = Record<SectionKey, string>;
 
 const emptyDraft: DraftState = {
-  identity_purpose: "{}",
-  pre_model_controls: "{}",
-  model_configuration: "{}",
-  post_model_controls: "{}",
-  integration_context: "{}",
+  identity_purpose: "",
+  pre_model_controls: "",
+  model_configuration: "",
+  post_model_controls: "",
+  integration_context: "",
 };
 
-function stringifySection(value: Record<string, unknown> | undefined): string {
-  if (!value || Object.keys(value).length === 0) return "{}";
-  return JSON.stringify(value, null, 2);
+function titleize(key: string): string {
+  return key.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function snakeCase(label: string): string {
+  return label.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+/**
+ * Render a stored section object as editable plain text: one "Label: value"
+ * line per field. Nested values are inlined as JSON (and parsed back on save).
+ * A `notes` field is emitted as a trailing free-form paragraph. Embedded
+ * newlines inside a value are indented so they stay attached to their field.
+ */
+function sectionToText(value: Record<string, unknown> | undefined): string {
+  if (!value || Object.keys(value).length === 0) return "";
+  const lines: string[] = [];
+  let notes = "";
+  for (const [key, v] of Object.entries(value)) {
+    if (key === "notes" && typeof v === "string") {
+      notes = v;
+      continue;
+    }
+    const rendered = typeof v === "string" ? v : JSON.stringify(v);
+    lines.push(`${titleize(key)}: ${rendered.replace(/\n/g, "\n  ")}`);
+  }
+  if (notes) {
+    if (lines.length) lines.push("");
+    lines.push(notes);
+  }
+  return lines.join("\n");
 }
 
 function profileToDraft(profile: ContextProfile): DraftState {
   return {
-    identity_purpose: stringifySection(profile.identity_purpose),
-    pre_model_controls: stringifySection(profile.pre_model_controls),
-    model_configuration: stringifySection(profile.model_configuration),
-    post_model_controls: stringifySection(profile.post_model_controls),
-    integration_context: stringifySection(profile.integration_context),
+    identity_purpose: sectionToText(profile.identity_purpose),
+    pre_model_controls: sectionToText(profile.pre_model_controls),
+    model_configuration: sectionToText(profile.model_configuration),
+    post_model_controls: sectionToText(profile.post_model_controls),
+    integration_context: sectionToText(profile.integration_context),
   };
 }
 
@@ -61,21 +114,76 @@ type ParseResult =
   | { ok: true; value: Record<string, unknown> }
   | { ok: false; error: string };
 
+// A line starts a new field when it looks like "Label: value" (short label,
+// no URL scheme). Everything else attaches to the previous field or, after a
+// blank line, becomes free-form notes.
+const FIELD_LINE = /^([A-Za-z][A-Za-z0-9 _/&().'-]{0,59}):\s?(.*)$/;
+const URL_LINE = /^[a-z][a-z0-9+.-]*:\/\//i;
+
+/** Inline JSON values ("{...}"/"[...]") survive the plain-text round trip. */
+function coerceValue(v: string): unknown {
+  if (v.startsWith("{") || v.startsWith("[")) {
+    try {
+      return JSON.parse(v);
+    } catch {
+      /* keep as string */
+    }
+  }
+  return v;
+}
+
+/**
+ * Parse plain text into a section object. "Label: value" lines become fields
+ * (label snake_cased for storage); unlabeled lines continue the previous
+ * field; paragraphs after a blank line (or with no preceding field) are kept
+ * verbatim under `notes`. This is the inverse of sectionToText.
+ */
+function parsePlainText(text: string): Record<string, unknown> {
+  const value: Record<string, unknown> = {};
+  const notes: string[] = [];
+  let currentKey: string | null = null;
+
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trimEnd();
+    if (line.trim() === "") {
+      currentKey = null; // blank line: following prose becomes notes
+      continue;
+    }
+    const indented = /^\s/.test(rawLine);
+    const match = !indented && !URL_LINE.test(line.trim()) ? line.match(FIELD_LINE) : null;
+    if (match) {
+      let key = snakeCase(match[1]) || "field";
+      let unique = key;
+      let n = 2;
+      while (unique in value) unique = `${key}_${n++}`;
+      key = unique;
+      currentKey = key;
+      value[key] = coerceValue(match[2].trim());
+    } else if (currentKey && typeof value[currentKey] === "string") {
+      value[currentKey] = `${value[currentKey]}\n${line.trim()}`;
+    } else {
+      notes.push(line.trim());
+      currentKey = null;
+    }
+  }
+
+  if (notes.length) value.notes = notes.join("\n");
+  return value;
+}
+
 function parseSection(raw: string): ParseResult {
   const trimmed = raw.trim();
   if (!trimmed) return { ok: true, value: {} };
-  // Only text that looks like a JSON object/array is parsed strictly. Anything
-  // else (prose, notes, a pasted paragraph) is accepted and wrapped as
-  // { notes: "<text>" } so users can add context without writing JSON — this
-  // is what previously surfaced as "JSON errors when adding context".
+  // Plain text is the primary format: "Label: value" lines become structured
+  // fields and free paragraphs become notes. Pasted JSON objects still work.
   const looksStructured = trimmed.startsWith("{") || trimmed.startsWith("[");
   if (!looksStructured) {
-    return { ok: true, value: { notes: trimmed } };
+    return { ok: true, value: parsePlainText(trimmed) };
   }
   try {
     const parsed = JSON.parse(trimmed) as unknown;
     if (parsed === null || typeof parsed !== "object") {
-      return { ok: false, error: "Enter a JSON object, or plain text (saved as notes)." };
+      return { ok: false, error: "Enter plain text ('Label: value' lines) or a JSON object." };
     }
     if (Array.isArray(parsed)) {
       // A bare array isn't a valid section object; keep it under a key.
@@ -87,7 +195,7 @@ function parseSection(raw: string): ParseResult {
     // rather than a raw parser message.
     return {
       ok: false,
-      error: "This looks like JSON but is malformed. Fix it, or remove the leading { / [ to save as notes.",
+      error: "This looks like JSON but is malformed. Fix it, or remove the leading { / [ to save as plain text.",
     };
   }
 }
@@ -283,7 +391,7 @@ export function ApplicationContextProfiles() {
             title={profile ? "Context Profile" : "Create Context Profile"}
             action={
               <Badge tone={allValid ? "green" : "red"}>
-                {allValid ? "All sections valid" : "Fix JSON errors"}
+                {allValid ? "All sections valid" : "Fix invalid sections"}
               </Badge>
             }
           />
@@ -295,8 +403,14 @@ export function ApplicationContextProfiles() {
               </div>
             )}
 
+            <p className="text-[11px] leading-5 text-slate-500 dark:text-slate-400">
+              Write plain text — one <span className="rounded bg-slate-100 px-1 font-mono dark:bg-slate-800">Label: value</span> per
+              line. Lines without a label continue the field above; paragraphs after a blank line are kept as
+              free-form notes. Pasting a JSON object also works.
+            </p>
+
             <div className="grid gap-4 lg:grid-cols-2">
-              {SECTIONS.map(({ key, title, hint }) => {
+              {SECTIONS.map(({ key, title, hint, placeholder }) => {
                 const result = parsed[key];
                 return (
                   <div key={key} className="space-y-1.5">
@@ -318,11 +432,11 @@ export function ApplicationContextProfiles() {
                     <textarea
                       className={clsx(
                         inputClass,
-                        "resize-y font-mono text-[12px] leading-5",
+                        "resize-y text-[12px] leading-5",
                         !result.ok && "border-red-400 focus:border-red-500 dark:border-red-600",
                       )}
                       rows={8}
-                      spellCheck={false}
+                      placeholder={placeholder}
                       value={draft[key]}
                       disabled={!canEdit}
                       onChange={(e) => setDraft((prev) => ({ ...prev, [key]: e.target.value }))}
@@ -350,7 +464,7 @@ export function ApplicationContextProfiles() {
             {canEdit && (
               <div className="flex items-center justify-end gap-3">
                 {!allValid && (
-                  <span className="text-[11px] text-slate-400 dark:text-slate-500">Fix invalid JSON before saving.</span>
+                  <span className="text-[11px] text-slate-400 dark:text-slate-500">Fix the invalid section before saving.</span>
                 )}
                 <button
                   type="button"

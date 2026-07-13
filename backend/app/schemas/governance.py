@@ -142,6 +142,10 @@ class EvaluationRunRead(EvaluationRunCreate):
     completed_at: datetime | None = None
     result_summary: dict[str, Any] | None = None
     error_summary: dict[str, Any] | None = None
+    # Metric-plan approval gate: set once a reviewer approves a paused run.
+    # A run awaiting approval has status == planned and plan_approved_at is None.
+    plan_approved_at: datetime | None = None
+    plan_approved_by: str | None = None
     created_at: datetime
     updated_at: datetime | None = None
 
@@ -692,12 +696,31 @@ class EvaluationPlanRead(APIModel):
 class GovernancePipelineRunCreate(APIModel):
     mock_score: float = Field(default=1.0, ge=0.0, le=1.0)
     force_metric_status: MetricResultStatus | None = None
-    source_name: str = Field(default="mock_metric_runner", max_length=200)
+    source_name: str = Field(default="metric_execution_engine", max_length=200)
     evaluator_name: str = Field(default="mock", min_length=1, max_length=100)
     agent_names: list[str] | None = None
     logs: list[ContextLogEntry] = Field(default_factory=list)
     requested_by: str | None = Field(default=None, max_length=200)
     notes: str | None = Field(default=None, max_length=1000)
+    # Human-in-the-loop gate: when true, the pipeline pauses after the adaptive
+    # orchestrator builds the metric plan and parks the run at RunStatus.planned
+    # until POST /{run_id}/approve-plan is called. Defaults false so existing
+    # API/service callers keep the straight-through behavior; the UI opts in.
+    require_plan_approval: bool = False
+
+
+class PlanApprovalCreate(APIModel):
+    """Approve a paused metric plan and resume the run.
+
+    selected_metrics: when provided, the reviewer manually overrode the
+    orchestrator's selection — run exactly these metric_ids instead. None means
+    approve the plan as-is. An empty list is rejected (would fall back to running
+    every framework metric, the opposite of the reviewer's intent).
+    """
+
+    approved_by: str | None = Field(default=None, max_length=200)
+    notes: str | None = Field(default=None, max_length=1000)
+    selected_metrics: list[str] | None = None
 
 
 class GovernancePipelineRunRead(APIModel):

@@ -53,7 +53,7 @@ function passedLabel(passed: boolean | null | undefined): string {
 
 export function MetricResults() {
   const navigateTo = useAppStore((s) => s.navigateTo);
-  const { runId, run, systems, loading: runsLoading } = useActiveRun();
+  const { runId, run, loading: runsLoading } = useActiveRun();
   const [results, setResults] = useState<MetricResult[]>([]);
   const [capabilities, setCapabilities] = useState<BackendAISystemCapability[]>([]);
   const [resultsLoading, setResultsLoading] = useState(false);
@@ -105,11 +105,6 @@ export function MetricResults() {
     };
   }, [run?.ai_system_id]);
 
-  const system = useMemo(
-    () => systems.find((s) => s.id === run?.ai_system_id) ?? null,
-    [systems, run?.ai_system_id],
-  );
-
   const capabilityById = useMemo(() => {
     const map = new Map<string, { name: string; model: string | null }>();
     for (const c of capabilities) {
@@ -122,20 +117,6 @@ export function MetricResults() {
     }
     return map;
   }, [capabilities]);
-
-  const modelFor = (r: MetricResult): { model: string | null; source: string } => {
-    const cap = r.ai_system_capability_id ? capabilityById.get(r.ai_system_capability_id) : undefined;
-    if (cap?.model) {
-      return { model: cap.model, source: `Deployment registered for capability "${cap.name}"` };
-    }
-    if (system?.model_name) {
-      return {
-        model: system.model_name,
-        source: `System default model from registration (${humanize(system.model_provider)})`,
-      };
-    }
-    return { model: null, source: "No model recorded at registration" };
-  };
 
   const counts = useMemo(() => {
     let passed = 0;
@@ -278,7 +259,6 @@ export function MetricResults() {
                   <th className="px-4 py-2.5">Passed</th>
                   <th className="px-4 py-2.5">Evidence</th>
                   <th className="px-4 py-2.5">Capability</th>
-                  <th className="px-4 py-2.5">Model</th>
                 </tr>
               </thead>
               <tbody>
@@ -335,17 +315,6 @@ export function MetricResults() {
                           shortId(r.ai_system_capability_id))
                         : "—"}
                     </td>
-                    {(() => {
-                      const { model, source } = modelFor(r);
-                      return (
-                        <td
-                          className="cursor-help px-4 py-3 font-mono text-[11px] text-slate-700 dark:text-slate-300"
-                          title={source}
-                        >
-                          {model ?? "—"}
-                        </td>
-                      );
-                    })()}
                   </tr>
                 ))}
               </tbody>

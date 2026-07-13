@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { PolarAngleAxis, RadialBar, RadialBarChart, ResponsiveContainer } from "recharts";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import {
@@ -819,7 +820,9 @@ export function Verdicts() {
 }
 
 function AgentAuditReportModal({ report, onClose }: { report: AgentAuditReport; onClose: () => void }) {
-  return (
+  // Portaled to <body> so the fixed, scrollable overlay is viewport-relative,
+  // not relative to the transformed `animate-rise` page wrapper.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/60 dark:bg-slate-950/80 px-4 py-6 backdrop-blur-[2px]">
       <div className="w-full max-w-6xl rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl">
         <div className="sticky top-0 z-10 flex items-start justify-between border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-5 py-4">
@@ -1038,7 +1041,8 @@ function AgentAuditReportModal({ report, onClose }: { report: AgentAuditReport; 
           </section>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
