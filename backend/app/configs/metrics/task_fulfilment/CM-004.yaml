@@ -17,7 +17,7 @@ thresholds:
     high: 0.82
     medium: 0.9
     low: 0.95
-tool: promptfoo
+tool: deepeval
 secondary_tool: policy_as_code
 agent_owner: quality_evaluator
 framework_mapping:

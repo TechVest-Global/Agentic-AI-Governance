@@ -171,6 +171,7 @@ def get_target_model_client(settings: Settings | None = None) -> TargetModelClie
             inner = TechVestTargetModelClient(
                 endpoint=resolved.target_endpoint,
                 api_key=resolved.target_api_key,
+                timeout=resolved.llm_call_timeout_seconds,
             )
         return GatewayTargetModelClient(inner)
 

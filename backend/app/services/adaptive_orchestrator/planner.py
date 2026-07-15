@@ -243,6 +243,12 @@ def _apply_llm_plan_review(session: Session, *, run_id: UUID) -> dict | None:
     record of the review, or None when no usable review happened. Never raises:
     planning must succeed even with no LLM available.
     """
+    from app.core.config import get_settings
+
+    if not get_settings().adaptive_plan_review_enabled:
+        # Review disabled — evaluate the full applicable catalog, no narrowing.
+        return {"reviewed": False, "reason": "adaptive plan review disabled by settings"}
+
     run = get_run_or_raise(session, run_id)
     if run.selected_metrics:
         # The caller explicitly picked metrics — nothing to review/refine.

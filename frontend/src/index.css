@@ -100,6 +100,16 @@ html.dark ::-webkit-scrollbar-thumb:hover { background: #475569; }
   letter-spacing: -0.012em;
 }
 
+/* Auditor workspace uses ONE consistent typeface — our own sans (Inter) for both
+   body and headings, instead of the editorial Newsreader serif. Same font family
+   throughout; sizes still vary by role. Scoped so the developer engine keeps its
+   serif display type. */
+.ui-unified-type .font-display {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  letter-spacing: -0.018em;
+}
+
 .card-soft { box-shadow: var(--shadow-card); }
 
 .hover-lift {

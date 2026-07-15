@@ -9,6 +9,8 @@ guessed, so probe/detector pairing always matches garak's own intent.
 
 import io
 import logging
+import os
+import sys
 import threading
 from functools import lru_cache
 
@@ -26,6 +28,16 @@ _FORMULA_PROBES = {
     "unsafe_tool_call_rate": ("garak.probes.malwaregen", "TopLevel"),
 }
 
+# Garak probes carry their full attack corpus — HijackHateHumans alone ships 256
+# prompts, and each prompt is a LIVE call to the audited target (~seconds each).
+# At garak's default 5 generations that is ~1,280 target calls for ONE metric,
+# so the governance run never finishes and gets cancelled/reconciled. We probe a
+# bounded, representative SAMPLE (1 generation) — enough for a real security
+# signal without a multi-hour run. The sample size is reported in the payload so
+# the result is honest about being a sample, not the exhaustive corpus.
+_MAX_PROBE_PROMPTS = int(os.getenv("GARAK_MAX_PROBE_PROMPTS", "10"))
+_GARAK_GENERATIONS = int(os.getenv("GARAK_GENERATIONS", "1"))
+
 # garak's probe/detector code reads `garak._config.transient.reportfile` /
 # `.hitlogfile` directly off the `garak._config` module at write time — that
 # module is a process-wide singleton, so no per-call wrapper object can give
@@ -37,14 +49,42 @@ _FORMULA_PROBES = {
 _garak_run_lock = threading.Lock()
 
 
+def _ensure_utf8_streams() -> None:
+    """Make stdout/stderr UTF-8 so garak's non-ASCII console output can't crash it.
+
+    Garak (and its langchain deps) print non-ASCII banners/progress — e.g. the
+    🦜 parrot (U+1F99C). On Windows the default console codec is cp1252, so those
+    writes raise UnicodeEncodeError ("'charmap' codec can't encode character
+    '\\U0001f99c'"), which garak surfaces as a failed probe run — making every
+    security metric skip instead of producing a real score. Reconfiguring the
+    process streams to UTF-8 (mutating the existing TextIOWrapper in place, so
+    logging handlers holding a reference pick it up too) lets probes actually
+    run. Guarded: a stream without reconfigure() is left untouched.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            pass
+
+
 @lru_cache(maxsize=1)
 def _garak_base_config():
-    """Load garak's base config once (disk I/O + YAML parsing). This part is
+    """Load garak's base config once (disk I/O + YAML parsing) and set the
+    process-wide options that don't vary per call. This part is
     immutable/idempotent, so it's safe and worth caching for the process
     lifetime — unlike the mutable report/hitlog sinks below."""
+    _ensure_utf8_streams()
     import garak._config as _config
 
     _config.load_base_config()
+    # Cap generations-per-prompt so probes don't fan out to thousands of live
+    # target calls (default is 5). One generation per sampled prompt is a
+    # sufficient governance signal.
+    _config.run.generations = _GARAK_GENERATIONS
     return _config
 
 
@@ -132,7 +172,17 @@ class GarakEvaluator:
                 probe = probe_cls(config_root=config_root)
                 detector = _resolve_detector(probe_cls.primary_detector, config_root)
 
+                # Bound the live-target work: sample at most _MAX_PROBE_PROMPTS of
+                # the probe's corpus. Without this, HijackHateHumans (256 prompts)
+                # alone would make hundreds of target calls and stall the whole run.
+                full_prompt_count = len(getattr(probe, "prompts", []) or [])
+                sampled = full_prompt_count
+                if full_prompt_count > _MAX_PROBE_PROMPTS:
+                    probe.prompts = probe.prompts[:_MAX_PROBE_PROMPTS]
+                    sampled = _MAX_PROBE_PROMPTS
+
                 generator = _build_generator(evaluation_input.target_client, endpoint_ref, config_root)
+                generator.generations = _GARAK_GENERATIONS
                 attempts = list(probe.probe(generator))
 
                 all_scores: list[float] = []
@@ -176,6 +226,9 @@ class GarakEvaluator:
                 "primary_detector": probe_cls.primary_detector,
                 "attempt_count": len(attempts),
                 "generation_count": len(all_scores),
+                "prompts_sampled": sampled,
+                "prompts_available": full_prompt_count,
+                "generations_per_prompt": _GARAK_GENERATIONS,
                 "attack_success_rate": attack_success_rate,
             },
         )

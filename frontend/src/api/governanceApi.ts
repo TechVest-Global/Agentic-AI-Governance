@@ -411,13 +411,18 @@ export type FrameworkControlAssessment = {
   control_title?: string | null;
   control_category?: string | null;
   jurisdiction?: string | null;
+  /** Hydrated in auditor views from /framework-mappings when available. */
+  requirement_text?: string | null;
   status: "passed" | "failed" | "needs_review" | "not_evaluated";
   metric_ids: string[];
   passed_metric_count: number;
   failed_metric_count: number;
   pending_metric_count: number;
   finding_count: number;
+  highest_severity?: FindingSeverity | null;
   evidence_requirements: string[];
+  metric_results: MetricResult[];
+  findings: BackendFinding[];
 };
 
 export type FrameworkComplianceMap = {

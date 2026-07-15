@@ -23,9 +23,35 @@ export type PageId =
   | "security-tools"
   // Developer · Operate
   | "governance-state"
-  | "api-debug";
+  | "api-debug"
+  // Auditor / client assurance window (3-item rail + record detail)
+  | "applications"
+  | "application-detail"
+  | "compliance"
+  | "client-reports"
+  // Auditor workspace — retired from nav (components retained, no longer surfaced)
+  | "overview"
+  | "my-assignments"
+  | "review-queue"
+  | "audit-systems"
+  | "evidence-review"
+  | "findings-review"
+  | "verdict-review"
+  | "compliance-reports"
+  | "audit-ledger"
+  | "remediation"
+  | "notes-queries";
 
-export type NavSection = "Govern" | "Assurance" | "Configure" | "Operate";
+export type NavSection =
+  | "Govern"
+  | "Assurance"
+  | "Configure"
+  | "Operate"
+  // Auditor workspace sections
+  | "My Workspace"
+  | "Review"
+  | "Compliance & Reporting"
+  | "Collaboration";
 
 /** Capability flags derived from persona — the permission model for the UI. */
 export type Permission =

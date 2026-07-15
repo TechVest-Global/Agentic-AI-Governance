@@ -4,7 +4,7 @@ from sqlmodel import Session, select
 
 from app.configs.config_loader import load_metric_configs_from_dir
 from app.configs.config_models import MetricConfig as FileMetricConfig
-from app.configs.defaults import DEFAULT_FRAMEWORK_MAPPINGS
+from app.configs.defaults import CONTROL_DIMENSIONS, DEFAULT_FRAMEWORK_MAPPINGS
 from app.core.exceptions import ResourceConflictError, ResourceNotFoundError
 from app.models.base import utc_now
 from app.models.config import FrameworkMapping, MetricConfig
@@ -263,10 +263,15 @@ def _with_yaml_metric_links(
     mapping_payload: FrameworkMappingCreate,
     metric_payloads: list[MetricConfigCreate],
 ) -> FrameworkMappingCreate:
+    # Curate per clause: link only the CM metrics whose dimension this control
+    # actually covers (CONTROL_DIMENSIONS). Controls with no dimension entry keep
+    # the framework-wide behaviour (all metrics of that framework).
+    control_dimensions = CONTROL_DIMENSIONS.get(mapping_payload.control_ref)
     linked_metrics = [
         metric
         for metric in metric_payloads
         if mapping_payload.framework_id in metric.framework_ids
+        and (control_dimensions is None or metric.dimension in control_dimensions)
     ]
     linked_metric_ids = [metric.metric_id for metric in linked_metrics]
     linked_agent_names = sorted(

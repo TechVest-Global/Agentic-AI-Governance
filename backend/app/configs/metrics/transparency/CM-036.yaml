@@ -17,7 +17,7 @@ thresholds:
     high: 0.85
     medium: 0.92
     low: 0.96
-tool: langfuse
+tool: deepeval
 secondary_tool: calibration_analysis
 agent_owner: compliance_mapper
 framework_mapping:

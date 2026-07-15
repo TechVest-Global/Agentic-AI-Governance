@@ -696,6 +696,11 @@ class EvaluationPlanRead(APIModel):
 class GovernancePipelineRunCreate(APIModel):
     mock_score: float = Field(default=1.0, ge=0.0, le=1.0)
     force_metric_status: MetricResultStatus | None = None
+    # Coarse run-level label for where results came from. The per-metric real
+    # tool (garak/deepeval/presidio/…) is recorded on each evidence row's
+    # tool_name/source_type; this is just the runner label. Defaulted to a
+    # neutral name so real ("auto") runs aren't mislabeled "mock" — callers that
+    # genuinely want the mock evaluator pass evaluator_name="mock" explicitly.
     source_name: str = Field(default="metric_execution_engine", max_length=200)
     evaluator_name: str = Field(default="mock", min_length=1, max_length=100)
     agent_names: list[str] | None = None

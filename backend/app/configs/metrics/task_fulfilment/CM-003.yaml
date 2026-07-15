@@ -17,7 +17,7 @@ thresholds:
     high: 0.96
     medium: 0.99
     low: 1.0
-tool: promptfoo
+tool: deepeval
 secondary_tool: pydantic_json_schema
 agent_owner: quality_evaluator
 framework_mapping:

@@ -1,12 +1,14 @@
 import logging
 from uuid import UUID
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.db import session as db_session
 from app.models.ai_system import AISystem
 from app.models.base import utc_now
 from app.models.enums import AgentExecutionStatus, LedgerActorType, RunPhase, RunStatus
+from app.models.evaluation import EvaluationRun
+from app.models.verdict import Verdict
 from app.schemas.governance import (
     AgentRunCreate,
     AuditLedgerEntryCreate,
@@ -421,6 +423,65 @@ def _execute_and_report(
         council=council_result,
         report=report,
     )
+
+
+# Non-terminal statuses a run can be parked at mid-pipeline. Each phase commits
+# its own status so progress is observable, so a run interrupted between phases
+# is left at whichever of these it had reached.
+_INTERRUPTED_STATUSES = (
+    RunStatus.created,
+    RunStatus.context_assembly,
+    RunStatus.planned,
+    RunStatus.metrics_running,
+    RunStatus.agents_running,
+    RunStatus.council_running,
+)
+
+
+def reconcile_interrupted_runs(session: Session) -> int:
+    """Finalize runs orphaned by a worker restart mid-pipeline.
+
+    The pipeline runs as a FastAPI BackgroundTask, which does NOT survive a
+    process restart. A run executing when the server stopped is therefore left
+    at a non-terminal status with no task left to finish it — the Live Run
+    stream never closes and the completion poll hangs forever. On startup we
+    finalize these:
+      - a run that already produced a VERDICT reached the council phase, so the
+        assessment is effectively complete -> mark ``completed``;
+      - a run with no verdict died earlier and cannot resume -> mark ``failed``.
+    Returns the number of runs reconciled.
+    """
+    stuck = session.exec(
+        select(EvaluationRun).where(EvaluationRun.status.in_(_INTERRUPTED_STATUSES))
+    ).all()
+    reconciled = 0
+    for run in stuck:
+        has_verdict = (
+            session.exec(select(Verdict.id).where(Verdict.run_id == run.id)).first()
+            is not None
+        )
+        if has_verdict:
+            run.status = RunStatus.completed
+            run.current_phase = RunPhase.completed
+            run.result_summary = {
+                **(run.result_summary or {}),
+                "reconciled": "finalized_after_worker_restart",
+            }
+        else:
+            run.status = RunStatus.failed
+            run.error_summary = {
+                "error_type": "OrchestrationInterrupted",
+                "message": "Run was interrupted before completion (worker restart) and reconciled on startup.",
+            }
+        run.completed_at = run.completed_at or utc_now()
+        run.updated_at = utc_now()
+        session.add(run)
+        reconciled += 1
+
+    if reconciled:
+        session.commit()
+        logger.info("Reconciled %d interrupted run(s) on startup", reconciled)
+    return reconciled
 
 
 def _context_notes(notes: str | None, source: str, count: int) -> str | None:

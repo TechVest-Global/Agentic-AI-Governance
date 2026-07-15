@@ -113,18 +113,33 @@ def _filter_metrics_for_run(
     selected_metrics: list[str],
     selected_frameworks: list[str],
 ) -> list[MetricConfig]:
-    filtered_metrics = metrics
+    # Explicit metric selection wins outright.
+    if selected_metrics:
+        if metric_ids is None:
+            return list(metrics)
+        return [metric for metric in metrics if metric.metric_id in metric_ids]
+
+    # Framework-scoped run: a metric qualifies if a framework mapping references
+    # it OR its own framework_ids match a selected framework. The second clause
+    # (b) pulls the real metric catalog into the plan even when a control mapping
+    # doesn't list it — so the real evaluators run — while default-seed metrics
+    # (the GOV-M bootstrap baseline) only run when a mapping explicitly keeps
+    # them, so they don't shadow the real catalog once mappings point at it.
+    if selected_frameworks:
+        selected = set(selected_frameworks)
+        result: list[MetricConfig] = []
+        for metric in metrics:
+            mapped = metric_ids is not None and metric.metric_id in metric_ids
+            framework_match = bool(set(metric.framework_ids) & selected)
+            is_seed = bool((metric.metadata_json or {}).get("default_seed"))
+            if mapped or (framework_match and not is_seed):
+                result.append(metric)
+        return result
+
+    # No frameworks selected: fall back to the mapping-referenced set (or all).
     if metric_ids is not None:
-        filtered_metrics = [
-            metric for metric in filtered_metrics if metric.metric_id in metric_ids
-        ]
-    if selected_frameworks and not selected_metrics:
-        filtered_metrics = [
-            metric
-            for metric in filtered_metrics
-            if set(metric.framework_ids).intersection(selected_frameworks)
-        ]
-    return filtered_metrics
+        return [metric for metric in metrics if metric.metric_id in metric_ids]
+    return list(metrics)
 
 
 def _metric_applies_to_system(
