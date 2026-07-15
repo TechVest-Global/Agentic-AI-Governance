@@ -9,6 +9,7 @@ instead of a client-side simulation.
 from __future__ import annotations
 
 from app.core.config import get_settings
+from app.core.exceptions import ApplicationError
 from app.services.model_clients.base import TargetModelRequest
 from app.services.model_clients.registry import (
     GOVERNANCE_MODEL_CREDENTIAL_REF,
@@ -68,13 +69,30 @@ def run_boundary_test(prompt: str, *, endpoint_ref: str | None = None) -> dict:
     client = get_target_model_client()
     endpoint = endpoint_ref or settings.target_endpoint or "boundary-test"
 
-    response = client.invoke(
-        TargetModelRequest(
-            endpoint_ref=endpoint,
-            prompt=text,
-            capability_name="boundary_test",
+    try:
+        response = client.invoke(
+            TargetModelRequest(
+                endpoint_ref=endpoint,
+                prompt=text,
+                capability_name="boundary_test",
+            )
         )
-    )
+    except Exception as exc:
+        # The target-client's own exception (connection refused, timeout, DNS
+        # failure, ...) would otherwise propagate uncaught to FastAPI's generic
+        # unhandled-exception handler, returning a bare 500 with no useful
+        # detail. Surface it as a clean, actionable error instead — the real
+        # cause is kept in `details` for debugging.
+        raise ApplicationError(
+            status_code=502,
+            code="TARGET_UNREACHABLE",
+            message="The target model endpoint is unreachable.",
+            details={
+                "endpoint": endpoint,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            },
+        ) from exc
     raw = response.raw_output
     sanitized = sanitize_target_output(raw)
     fenced = fence_untrusted_target_output(sanitized)

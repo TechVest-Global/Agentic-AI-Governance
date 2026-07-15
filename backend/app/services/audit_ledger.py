@@ -15,7 +15,17 @@ def append_ledger_entry(
     *,
     run_id: UUID,
     payload: AuditLedgerEntryCreate,
+    commit: bool = True,
 ) -> AuditLedgerEntry:
+    """Build and add a ledger entry, hash-chained to the run's latest entry.
+
+    By default this commits (and refreshes) immediately, matching prior
+    behavior for existing callers. Pass ``commit=False`` to fold the entry
+    into a caller-managed transaction — e.g. so a run's status change and its
+    corresponding ledger entry land atomically in one commit instead of as two
+    independent writes (the caller must commit and may then refresh the
+    returned entry itself).
+    """
     get_run_or_raise(session, run_id)
 
     previous_entry = get_latest_ledger_entry(session, run_id=run_id)
@@ -40,6 +50,8 @@ def append_ledger_entry(
         entry_hash=entry_hash,
     )
     session.add(entry)
+    if not commit:
+        return entry
     session.commit()
     session.refresh(entry)
     return entry
@@ -81,8 +93,25 @@ def get_latest_ledger_entry(
     return session.exec(statement).first()
 
 
+def _all_ledger_entries(session: Session, *, run_id: UUID) -> list[AuditLedgerEntry]:
+    """Fetch every ledger entry for a run, unpaginated.
+
+    Used by the integrity check below, which must walk the whole chain rather
+    than a capped page. A single run's ledger is bounded in practice, so this
+    is safe; the public list endpoint keeps its own pagination via
+    ``list_ledger_entries``.
+    """
+    get_run_or_raise(session, run_id)
+    statement = (
+        select(AuditLedgerEntry)
+        .where(AuditLedgerEntry.run_id == run_id)
+        .order_by(AuditLedgerEntry.sequence_number.asc())
+    )
+    return list(session.exec(statement).all())
+
+
 def verify_ledger_chain(session: Session, *, run_id: UUID) -> dict[str, object]:
-    entries = list_ledger_entries(session, run_id=run_id, offset=0, limit=1000)
+    entries = _all_ledger_entries(session, run_id=run_id)
     expected_previous_hash: str | None = None
 
     for expected_sequence, entry in enumerate(entries, start=1):

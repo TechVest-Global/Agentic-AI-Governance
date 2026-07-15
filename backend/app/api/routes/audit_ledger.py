@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, status
 from sqlmodel import Session
 
+from app.api.routes.auth import get_current_user
 from app.db.session import get_session
 from app.models.enums import LedgerActorType
 from app.schemas.governance import (
@@ -26,7 +27,15 @@ def append_ledger_entry(
     run_id: UUID,
     payload: AuditLedgerEntryCreate,
     session: SessionDependency,
+    current_user: Annotated[object, Depends(get_current_user)] = None,
 ) -> AuditLedgerEntryRead:
+    # A caller can request actor_type=user, but who that user *is* comes from
+    # the authenticated identity, never the request body — otherwise anyone
+    # could write a ledger entry claiming to be a different approver/user.
+    # System/agent/tool-attributed entries (internal pipeline calls) are
+    # unaffected since they don't come through this public route as "user".
+    if current_user is not None and payload.actor_type == LedgerActorType.user:
+        payload = payload.model_copy(update={"actor_id": current_user.email})
     return service.append_ledger_entry(session, run_id=run_id, payload=payload)
 
 

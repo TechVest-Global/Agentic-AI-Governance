@@ -32,6 +32,7 @@ from sqlmodel import Session, SQLModel, create_engine
 @pytest.fixture
 def client() -> Generator[TestClient, None, None]:
     import app.db.session as db_session
+    from app.core.security import _DEMO_USERS, create_access_token
 
     engine = create_engine(
         "sqlite://",
@@ -53,6 +54,13 @@ def client() -> Generator[TestClient, None, None]:
 
     app.dependency_overrides[get_session] = override_get_session
     with TestClient(app) as test_client:
+        # Mutating routes now require a bearer token (see app/main.py's auth
+        # middleware). Sign every test in as the demo "dev" user by default so
+        # the existing suite's direct client.post/patch/delete calls keep
+        # working unchanged; tests that specifically exercise auth can still
+        # override/clear this header per-request.
+        token = create_access_token(_DEMO_USERS["dev@governai.com"])
+        test_client.headers["Authorization"] = f"Bearer {token}"
         yield test_client
 
     app.dependency_overrides.clear()

@@ -45,7 +45,11 @@ export function AuditLedger() {
       })),
     [backend.ledgerEntries],
   );
-  const events = backendEvents.length ? backendEvents : auditEvents;
+  // Only fall back to the mock/demo timeline when there's genuinely no live
+  // run to read from — never when a real run just happens to have zero
+  // ledger entries yet, otherwise the "Backend" badge below would be shown
+  // next to fabricated events, contradicting what it claims.
+  const events = backend.usingBackend ? backendEvents : auditEvents;
   const typeOptions = ["All", ...Array.from(new Set(events.map((event) => event.type)))];
 
   const filteredEvents = events.filter((event) => {
@@ -128,7 +132,12 @@ export function AuditLedger() {
           action={<Badge tone={backend.ledgerVerification?.valid === false ? "red" : "green"}>{backend.usingBackend ? "Backend" : "Mock"}</Badge>}
         />
 
-        {filteredEvents.length === 0 && (
+        {filteredEvents.length === 0 && events.length === 0 && backend.usingBackend && (
+          <div className="px-4 py-8 text-center text-[13px] text-slate-400 dark:text-slate-500">
+            No ledger entries recorded yet for this run.
+          </div>
+        )}
+        {filteredEvents.length === 0 && events.length > 0 && (
           <div className="px-4 py-8 text-center text-[13px] text-slate-400 dark:text-slate-500">
             No events match the current filter. Try changing the type or search query.
           </div>

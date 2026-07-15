@@ -138,6 +138,17 @@ class VisionEvaluator:
         if not _judge_ready():
             return _skip_result(metric, reason="no vision judge configured (JUDGE_ENDPOINT/API_KEY/DEPLOYMENT)")
 
+        if not getattr(evaluation_input.target_client, "supports_media", False):
+            return _skip_result(
+                metric,
+                reason=(
+                    "target client does not support media (supports_media=False) — this "
+                    "target can never return generated image media, so falling back to "
+                    "built-in probe images would fabricate a 'passed' result without ever "
+                    "auditing what the target actually produces"
+                ),
+            )
+
         endpoint_ref = (
             evaluation_input.ai_system.target_endpoint_ref
             or evaluation_input.ai_system.name

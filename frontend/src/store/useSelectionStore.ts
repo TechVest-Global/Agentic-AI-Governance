@@ -16,6 +16,8 @@ type SelectionStore = {
   setSelectedSystemId: (id: string | null) => void;
   /** Focus a run (and optionally its system) — used by cross-page drill-downs. */
   focusRun: (runId: string, systemId?: string | null) => void;
+  /** Clear back to "follow the latest run" — used on sign-out. */
+  reset: () => void;
 };
 
 export const useSelectionStore = create<SelectionStore>()(
@@ -30,6 +32,7 @@ export const useSelectionStore = create<SelectionStore>()(
           selectedRunId: runId,
           selectedSystemId: systemId ?? s.selectedSystemId,
         })),
+      reset: () => set({ selectedRunId: null, selectedSystemId: null }),
     }),
     {
       name: "governai-selection",

@@ -1,4 +1,4 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from app.services.agents.base import AgentContext
 from fastapi.testclient import TestClient
@@ -224,6 +224,100 @@ def test_agent_failure_is_stored_as_degraded_execution(
     run_body = run_response.json()
     assert run_body["status"] == "degraded"
     assert run_body["result_summary"]["agent_executions_failed"] == 1
+
+
+def test_risk_scorer_sees_findings_from_earlier_agents_in_same_run(
+    client: TestClient,
+) -> None:
+    """Fix regression test: RiskScorerAgent runs 6th in the fixed pipeline order
+    (Quality, Bias, Misuse, Drift, ComplianceMapper, RiskScorer, Explainability —
+    see registry.py's _build_agents()). Its composite risk_summary finding is
+    built from context.existing_findings, which per risk_contract.py's docstring
+    should include "all findings accumulated so far in the run" — i.e. findings
+    created earlier in THIS SAME run_agents() loop by Quality/Bias, not just
+    whatever existed before the loop started (which is always 0 for a fresh
+    run, since no agent had produced anything yet).
+    """
+    system = create_system(client, name="Risk Scorer Staleness System")
+    create_metric(client, "quality_task_fulfilment", "Task Fulfilment")
+    create_mapping(client, "quality_task_fulfilment", "MAP-QUALITY")
+    create_metric(client, "bias_fairness_score", "Bias and Fairness")
+    create_mapping(client, "bias_fairness_score", "MAP-BIAS")
+    run = create_run(
+        client, system["id"], ["quality_task_fulfilment", "bias_fairness_score"]
+    )
+    execution = client.post(
+        f"/api/v1/evaluation-runs/{run['id']}/metrics/run",
+        json={"mock_score": 0.2},
+    )
+    assert execution.status_code == 201
+
+    # Run the full agent set in the fixed pipeline order — same order the full
+    # /orchestrate pipeline uses (agent_names omitted => all 7, registry order).
+    response = client.post(
+        f"/api/v1/evaluation-runs/{run['id']}/agents/run",
+        json={},
+    )
+    assert response.status_code == 201
+    result = response.json()
+
+    quality_and_bias_findings = [
+        f
+        for f in result["findings"]
+        if f["agent_name"] in {"quality_agent", "bias_agent"}
+    ]
+    assert len(quality_and_bias_findings) == 2
+
+    risk_summary = next(
+        f
+        for f in result["findings"]
+        if f["agent_name"] == "risk_scorer" and f["finding_type"] == "risk_summary"
+    )
+    # Before the fix, risk_scorer always saw finding_count == 0 here (the
+    # pre-loop snapshot), regardless of what Quality/Bias produced earlier in
+    # this same run. After the fix it sees both same-run findings.
+    assert risk_summary["payload"]["finding_count"] >= 2
+    assert risk_summary["payload"]["composite_score"] > 0.0
+
+
+def test_run_agents_skips_phase_mutation_for_remediation_call(client: TestClient) -> None:
+    """Fix regression test: run_agents() unconditionally flipped run.status /
+    run.current_phase to agents_running / specialist_agents on both entry and
+    exit. When deliberation_council's re_probe remediation calls run_agents()
+    directly, mid-loop, that made a live observer see the run's phase jump
+    backward to "Specialist Agents" then forward again once deliberation
+    resumed. is_remediation_call=True must leave whatever status/phase the
+    caller (the council) had set completely untouched.
+    """
+    from app.db import session as db_session
+    from app.models.enums import RunPhase, RunStatus
+    from app.schemas.governance import AgentRunCreate
+    from app.services.specialist_agents.agent_execution import run_agents
+    from app.services.run_validation import get_run_or_raise
+    from sqlmodel import Session
+
+    system = create_system(client, name="ReProbe Phase Guard System")
+    run = create_run(client, system["id"], [])
+    run_id = UUID(run["id"])
+
+    with Session(db_session.engine) as session:
+        db_run = get_run_or_raise(session, run_id)
+        # Simulate the state deliberation_council leaves the run in mid-loop.
+        db_run.status = RunStatus.council_running
+        db_run.current_phase = RunPhase.deliberation_council
+        session.add(db_run)
+        session.commit()
+
+        run_agents(
+            session,
+            run_id=run_id,
+            payload=AgentRunCreate(agent_names=["bias_agent"]),
+            is_remediation_call=True,
+        )
+
+        session.refresh(db_run)
+        assert db_run.status == RunStatus.council_running
+        assert db_run.current_phase == RunPhase.deliberation_council
 
 
 def test_agent_run_rejects_unknown_agent(client: TestClient) -> None:

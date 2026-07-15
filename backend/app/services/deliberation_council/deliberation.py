@@ -61,7 +61,12 @@ from app.services.deliberation_council.remediation_router import (
 )
 from app.services.deliberation_council.synthesis_agent import SynthesisAgent, SynthesisMemo
 from app.services.deliberation_council.verdict_agent import VerdictAgent, VerdictOutput
-from app.services.model_clients.gateway import drain_log_capture, start_log_capture
+from app.services.model_clients.gateway import (
+    bind_log_capture,
+    drain_log_capture,
+    get_log_buffer,
+    start_log_capture,
+)
 from app.services.model_clients.mock import MockGovernanceModelClient
 from app.services.model_clients.registry import get_governance_model_client
 from app.services.run_validation import get_run_or_raise
@@ -305,6 +310,18 @@ def _apply_remediation(
             target_agent,
             RE_PROBE_BUDGET_CAP,
         )
+        # deliberate() is mid-capture (start_log_capture() was called once, at
+        # the top, into a contextvar-backed buffer). run_agents() does its own
+        # start/drain capture cycle: start_log_capture() replaces the buffer
+        # with a brand-new list, and drain_log_capture() sets the buffer back
+        # to None once it has written that agent run's entries to LLMCallLog.
+        # Left alone, every LLM call deliberate() makes AFTER this point
+        # (remaining synthesis/DA/verdict passes) would silently vanish —
+        # _append_log() no-ops when the buffer is None. Save the parent
+        # buffer's reference first, then rebind it once the nested call
+        # returns (success or failure) so subsequent calls keep landing in
+        # the same per-run audit capture.
+        parent_log_buffer = get_log_buffer()
         try:
             from app.schemas.governance import AgentRunCreate
             from app.services.specialist_agents.agent_execution import run_agents
@@ -314,6 +331,7 @@ def _apply_remediation(
                 run_id=run_id,
                 payload=AgentRunCreate(agent_names=[target_agent]),
                 probe_budget_override=RE_PROBE_BUDGET_CAP,
+                is_remediation_call=True,
             )
         except Exception as exc:
             logger.error(
@@ -321,6 +339,8 @@ def _apply_remediation(
                 target_agent,
                 exc,
             )
+        finally:
+            bind_log_capture(parent_log_buffer)
 
     # Refresh findings from DB (new findings appended by re_probe will appear)
     updated_findings = _list_open_findings(session, run_id)

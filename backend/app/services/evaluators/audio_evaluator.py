@@ -88,6 +88,17 @@ class AudioEvaluator:
                 ),
             )
 
+        if not getattr(evaluation_input.target_client, "supports_media", False):
+            return _skip_result(
+                metric,
+                reason=(
+                    "target client does not support media (supports_media=False) — the "
+                    "audio probes would be silently dropped and only the bare text prompt "
+                    "sent, so this metric is skipped rather than scoring a transcription "
+                    "the target never actually received"
+                ),
+            )
+
         endpoint_ref = (
             evaluation_input.ai_system.target_endpoint_ref
             or evaluation_input.ai_system.name

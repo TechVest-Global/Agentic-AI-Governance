@@ -31,6 +31,10 @@ export function StartAuditModal({
 
   async function start() {
     if (!canStart) return;
+    // Close as soon as the selection is made — the run itself proceeds in the
+    // background (its own state lives in the parent's `runner`, not here), and
+    // failures still surface via the global runner status indicator.
+    onClose();
     const result = await runner.run(system, {
       selectedCapabilities: scope.capabilities,
       onRunCreated,

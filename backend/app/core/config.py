@@ -77,6 +77,11 @@ class Settings(BaseSettings):
     # the whole council/agent pipeline far longer than the SDK's own default.
     llm_call_timeout_seconds: float = 30.0
 
+    # Signs bearer tokens issued by /auth/sign-in and /auth/sign-up (see
+    # app/core/security.py). The default is fine for a local/demo instance;
+    # override via env for any shared deployment.
+    secret_key: str = "dev-insecure-secret-change-me"
+
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore"
     )

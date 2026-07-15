@@ -113,8 +113,26 @@ def get_latest_state_entry(
     return session.exec(statement).first()
 
 
+def _all_state_entries(session: Session, *, run_id: UUID) -> list[GovernanceStateEntry]:
+    """Fetch every state entry for a run, unpaginated.
+
+    Used by the integrity check below, which must walk the whole chain rather
+    than a capped page. A single run's state history is bounded in practice,
+    so this is safe; the public list endpoint keeps its own pagination via
+    ``list_state_entries``.
+    """
+    if session.get(EvaluationRun, run_id) is None:
+        raise ResourceNotFoundError("Evaluation run", str(run_id))
+    statement = (
+        select(GovernanceStateEntry)
+        .where(GovernanceStateEntry.run_id == run_id)
+        .order_by(GovernanceStateEntry.sequence_number.asc())
+    )
+    return list(session.exec(statement).all())
+
+
 def verify_state_chain(session: Session, *, run_id: UUID) -> dict[str, object]:
-    entries = list_state_entries(session, run_id=run_id, offset=0, limit=1000)
+    entries = _all_state_entries(session, run_id=run_id)
     expected_previous_hash: str | None = None
 
     for expected_sequence, entry in enumerate(entries, start=1):

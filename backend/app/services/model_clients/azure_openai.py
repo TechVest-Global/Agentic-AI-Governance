@@ -93,6 +93,9 @@ class AzureOpenAITargetModelClient:
     """
 
     provider = "azure_openai"
+    # This adapter only forwards chat-completion text; it does not attach
+    # request.media or read image/audio content out of the completion.
+    supports_media = False
 
     def __init__(
         self,

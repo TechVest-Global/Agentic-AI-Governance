@@ -9,6 +9,7 @@ guessed, so probe/detector pairing always matches garak's own intent.
 
 import io
 import logging
+import threading
 from functools import lru_cache
 
 from app.models.enums import MetricResultStatus
@@ -25,17 +26,42 @@ _FORMULA_PROBES = {
     "unsafe_tool_call_rate": ("garak.probes.malwaregen", "TopLevel"),
 }
 
+# garak's probe/detector code reads `garak._config.transient.reportfile` /
+# `.hitlogfile` directly off the `garak._config` module at write time — that
+# module is a process-wide singleton, so no per-call wrapper object can give
+# concurrent callers a truly isolated sink. Metric execution runs multiple
+# garak-backed metrics in parallel ThreadPoolExecutor workers (see
+# specialist_agents/metric_execution.py), so this lock serializes the
+# "swap in fresh sinks -> run probe -> read results" critical section to stop
+# concurrent writes from corrupting a shared io.StringIO.
+_garak_run_lock = threading.Lock()
+
 
 @lru_cache(maxsize=1)
-def _garak_config():
-    """Load garak's base config once and stub the transient report sinks it
-    expects (normally opened by garak's own CLI harness)."""
+def _garak_base_config():
+    """Load garak's base config once (disk I/O + YAML parsing). This part is
+    immutable/idempotent, so it's safe and worth caching for the process
+    lifetime — unlike the mutable report/hitlog sinks below."""
     import garak._config as _config
 
     _config.load_base_config()
-    _config.transient.reportfile = io.StringIO()
-    _config.transient.hitlogfile = io.StringIO()
     return _config
+
+
+def _garak_config():
+    """Return garak's config with FRESH report/hitlog sinks for this call.
+
+    Never cache the sinks themselves: garak writes hit/report data into
+    ``_config.transient.reportfile``/``hitlogfile`` for the whole run, so
+    reusing one ``io.StringIO`` for the process lifetime both grows it
+    unboundedly and lets concurrent evaluations interleave writes into the
+    same buffer. Callers MUST hold ``_garak_run_lock`` for as long as they
+    use the returned config's sinks.
+    """
+    config = _garak_base_config()
+    config.transient.reportfile = io.StringIO()
+    config.transient.hitlogfile = io.StringIO()
+    return config
 
 
 def _build_generator(target_client, endpoint_ref: str, config_root):
@@ -82,12 +108,6 @@ class GarakEvaluator:
         if probe_spec is None:
             return _skip_result(metric, reason=f"unsupported formula: {formula}")
 
-        try:
-            config_root = _garak_config()
-        except Exception as exc:
-            logger.error("GarakEvaluator: config init failed: %s", exc)
-            return _skip_result(metric, reason=f"garak not available: {exc}")
-
         probe_module_path, probe_class_name = probe_spec
         endpoint_ref = (
             evaluation_input.ai_system.target_endpoint_ref
@@ -95,25 +115,34 @@ class GarakEvaluator:
             or "default"
         )
 
-        try:
-            import importlib
+        # Fresh sinks + the probe/detector run that writes into them must be
+        # one atomic unit — see _garak_run_lock docstring above.
+        with _garak_run_lock:
+            try:
+                config_root = _garak_config()
+            except Exception as exc:
+                logger.error("GarakEvaluator: config init failed: %s", exc)
+                return _skip_result(metric, reason=f"garak not available: {exc}")
 
-            probe_module = importlib.import_module(probe_module_path)
-            probe_cls = getattr(probe_module, probe_class_name)
-            probe = probe_cls(config_root=config_root)
-            detector = _resolve_detector(probe_cls.primary_detector, config_root)
+            try:
+                import importlib
 
-            generator = _build_generator(evaluation_input.target_client, endpoint_ref, config_root)
-            attempts = list(probe.probe(generator))
+                probe_module = importlib.import_module(probe_module_path)
+                probe_cls = getattr(probe_module, probe_class_name)
+                probe = probe_cls(config_root=config_root)
+                detector = _resolve_detector(probe_cls.primary_detector, config_root)
 
-            all_scores: list[float] = []
-            for attempt in attempts:
-                for score in detector.detect(attempt):
-                    if score is not None:
-                        all_scores.append(float(score))
-        except Exception as exc:
-            logger.error("GarakEvaluator: probe run failed for %s: %s", formula, exc)
-            return _skip_result(metric, reason=f"probe run failed: {exc}")
+                generator = _build_generator(evaluation_input.target_client, endpoint_ref, config_root)
+                attempts = list(probe.probe(generator))
+
+                all_scores: list[float] = []
+                for attempt in attempts:
+                    for score in detector.detect(attempt):
+                        if score is not None:
+                            all_scores.append(float(score))
+            except Exception as exc:
+                logger.error("GarakEvaluator: probe run failed for %s: %s", formula, exc)
+                return _skip_result(metric, reason=f"probe run failed: {exc}")
 
         if not all_scores:
             return _skip_result(metric, reason="no probe attempts produced results")

@@ -2,6 +2,9 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from app.models.enums import ActionTier
+from app.services.deliberation_council.verdict_agent import VerdictOutput
+
 
 def create_system(client: TestClient, name: str) -> dict[str, object]:
     response = client.post(
@@ -171,6 +174,93 @@ def test_council_deliberation_blocks_failed_metric(client: TestClient) -> None:
     assert result["failed_metric_count"] == 1
     assert result["verdict"]["label"] == "blocked"
     assert result["verdict"]["action_tier"] == "human_review"
+
+
+def test_llm_calls_after_re_probe_remediation_are_still_logged(
+    client: TestClient, monkeypatch
+) -> None:
+    """Fix regression test: deliberate() calls start_log_capture() once at the
+    top and drain_log_capture() once at the very end. When the router picks a
+    re_probe remediation mid-loop, deliberate() calls agent_execution.run_agents()
+    directly (same thread, same contextvar scope) — and run_agents() ALSO does
+    its own start/drain capture cycle, which used to leave the buffer at None
+    once it returned. Every governance call deliberate() made AFTER that point
+    (the next iteration's synthesis/devil's-advocate/verdict passes) was then
+    silently dropped by GatewayGovernanceModelClient._append_log() instead of
+    landing in LLMCallLog.
+
+    This forces exactly that path: iteration 1's verdict is insufficient with
+    remediation_type=re_probe, iteration 2's verdict is sufficient. Asserts the
+    iteration-2 synthesis/verdict LLM calls made AFTER the re_probe still show
+    up via GET /llm-calls.
+    """
+    run, _execution = prepare_run_with_metric(
+        client,
+        name="Council ReProbe System",
+        metric_id="COUNCIL-REPROBE",
+        control_ref="MAP-REPROBE",
+        mock_score=0.5,
+    )
+
+    # Patch _parse_verdict (not adjudicate() itself) so the real governance
+    # client call still happens and is still logged normally through the
+    # Gateway wrapper — only the *parsed decision* is forced, based on the
+    # iteration number _parse_verdict already receives as an argument.
+    def fake_parse_verdict(content, iteration):
+        if iteration == 1:
+            return VerdictOutput(
+                confidence_score=0.5,
+                sufficient=False,
+                label="conditional_approval",
+                action_tier=ActionTier.supervised,
+                reasoning="Iteration 1: sample size is too small to be confident.",
+                remediation_type="re_probe",
+                target_agent="bias_agent",
+            )
+        return VerdictOutput(
+            confidence_score=0.9,
+            sufficient=True,
+            label="approved",
+            action_tier=ActionTier.autonomous,
+            reasoning="Iteration 2: additional sampling resolved the concern.",
+            remediation_type=None,
+            target_agent=None,
+        )
+
+    monkeypatch.setattr(
+        "app.services.deliberation_council.verdict_agent._parse_verdict",
+        fake_parse_verdict,
+    )
+
+    response = client.post(
+        f"/api/v1/evaluation-runs/{run['id']}/council/deliberate",
+        json={"requested_by": "test"},
+    )
+    assert response.status_code == 201
+    result = response.json()
+    assert result["verdict"]["label"] == "approved"
+    # Two Council passes ran: iteration 1 (re_probe) then iteration 2 (sufficient).
+    assert "[Council iterations: 2" in result["verdict"]["reasoning"]
+
+    calls = client.get(f"/api/v1/evaluation-runs/{run['id']}/llm-calls").json()["calls"]
+    governance_tasks = [c["task"] for c in calls if c["call_type"] == "governance"]
+
+    # Both iterations' synthesis and verdict calls must be present — before the
+    # fix, only iteration 1's calls made it in; iteration 2's were silently
+    # dropped because run_agents()'s own drain_log_capture() left the shared
+    # buffer at None once the re_probe finished.
+    assert governance_tasks.count("council_synthesis") == 2
+    assert governance_tasks.count("council_verdict") == 2
+
+    # The re_probe itself actually ran the named specialist agent again (its own
+    # LLM calls, if any, are written directly to LLMCallLog by run_agents()'s own
+    # drain — independent of the parent buffer fix being tested above).
+    executions = client.get(
+        f"/api/v1/evaluation-runs/{run['id']}/agents/executions"
+    ).json()
+    assert any(e["agent_name"] == "bias_agent" for e in executions), (
+        "expected the re_probe to have re-run bias_agent"
+    )
 
 
 def test_council_deliberation_rejects_existing_verdict(client: TestClient) -> None:

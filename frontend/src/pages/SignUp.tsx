@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { Shield, Eye, EyeOff, AlertCircle, Loader2, CheckCircle2 } from "lucide-react";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useThemeStore } from "@/store/useThemeStore";
+import { API_BASE_URL } from "@/api/governanceApi";
 
 function sanitizeInput(value: string): string {
   return value.replace(/[\x00-\x1F\x7F]/g, "").slice(0, 256);
@@ -109,21 +110,24 @@ export function SignUp({ onSwitchToSignIn }: { onSwitchToSignIn: () => void }) {
 
     setLoading(true);
     try {
-      // Simulate API call — replace with real POST /api/v1/auth/sign-up
-      await new Promise((res) => setTimeout(res, 1000));
-
-      const nameParts = fields.name.trim().split(/\s+/);
-      const initials  = nameParts.length >= 2
-        ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
-        : nameParts[0].slice(0, 2).toUpperCase();
-
-      signIn({
-        id:       `usr_${Math.random().toString(36).slice(2, 10)}`,
-        email:    fields.email.toLowerCase().trim(),
-        name:     fields.name.trim(),
-        role:     fields.role,
-        initials,
+      const response = await fetch(`${API_BASE_URL}/auth/sign-up`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: fields.name.trim(),
+          email: fields.email.toLowerCase().trim(),
+          role: fields.role,
+          password: fields.password,
+        }),
       });
+
+      if (!response.ok) {
+        setError("Registration failed. Please try again or contact support.");
+        return;
+      }
+
+      const { user, token } = await response.json();
+      signIn(user, token);
     } catch {
       setError("Registration failed. Please try again or contact support.");
     } finally {

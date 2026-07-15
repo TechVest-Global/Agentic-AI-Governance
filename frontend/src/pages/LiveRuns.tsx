@@ -667,18 +667,20 @@ export function LiveRuns() {
       )}
 
       {isDev && (
-        <LiveRunSidebar
-          currentPhase={livePhase}
-          runStatus={liveStatus}
-          selectedStep={effectiveStep}
-          onSelectStep={setSelectedStep}
-          agents={intelligenceAgents}
-          selectedAgentId={selectedAgentId}
-          onSelectAgent={handleSelectAgent}
-          selectedCouncilMemberId={selectedCouncilMemberId}
-          onSelectCouncilMember={handleSelectCouncilMember}
-          resultSummary={liveResultSummary}
-        />
+        <div className="hidden xl:block">
+          <LiveRunSidebar
+            currentPhase={livePhase}
+            runStatus={liveStatus}
+            selectedStep={effectiveStep}
+            onSelectStep={setSelectedStep}
+            agents={intelligenceAgents}
+            selectedAgentId={selectedAgentId}
+            onSelectAgent={handleSelectAgent}
+            selectedCouncilMemberId={selectedCouncilMemberId}
+            onSelectCouncilMember={handleSelectCouncilMember}
+            resultSummary={liveResultSummary}
+          />
+        </div>
       )}
 
       <div className="space-y-5 min-w-0">

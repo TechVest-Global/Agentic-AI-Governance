@@ -28,7 +28,7 @@ import time
 import urllib.request
 from uuid import uuid4
 
-from app.services.model_clients.base import TargetModelRequest, TargetModelResponse
+from app.services.model_clients.base import MediaAsset, TargetModelRequest, TargetModelResponse
 from app.services.model_clients.sanitization import sanitize_target_output
 
 logger = logging.getLogger(__name__)
@@ -45,10 +45,53 @@ def _extract_field(body: object, dot_path: str) -> object | None:
     return current
 
 
+def _media_to_json(assets: list[MediaAsset]) -> list[dict]:
+    """Serialize outbound MediaAsset objects for the JSON request body."""
+    out = []
+    for asset in assets:
+        item = {"kind": asset.kind, "mime_type": asset.mime_type}
+        if asset.data_base64:
+            item["data_base64"] = asset.data_base64
+        if asset.url:
+            item["url"] = asset.url
+        if asset.reference_text:
+            item["reference_text"] = asset.reference_text
+        out.append(item)
+    return out
+
+
+def _media_from_json(raw: object) -> list[MediaAsset]:
+    """Parse any media the target returned in its JSON response body."""
+    if not isinstance(raw, list):
+        return []
+    assets = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        kind = item.get("kind")
+        mime_type = item.get("mime_type")
+        if not kind or not mime_type:
+            continue
+        assets.append(
+            MediaAsset(
+                kind=str(kind),
+                mime_type=str(mime_type),
+                data_base64=item.get("data_base64"),
+                url=item.get("url"),
+                reference_text=item.get("reference_text"),
+            )
+        )
+    return assets
+
+
 class GenericHTTPTargetModelClient:
     """Target client for registered systems without a dedicated adapter."""
 
     provider = "generic_http_target"
+    # Attaches request.media (base64, under a "media" JSON key) to the
+    # outbound call and reads any "media" the target's JSON response includes
+    # back into response.media — see MediaAsset in model_clients/base.py.
+    supports_media = True
 
     def __init__(
         self,
@@ -102,9 +145,13 @@ class GenericHTTPTargetModelClient:
         if self._api_key:
             headers[self._auth_header] = self._api_key
 
+        outbound_body: dict[str, object] = {self._prompt_field: request.prompt}
+        if request.media:
+            outbound_body["media"] = _media_to_json(request.media)
+
         req = urllib.request.Request(
             url=url,
-            data=json.dumps({self._prompt_field: request.prompt}).encode(),
+            data=json.dumps(outbound_body).encode(),
             headers=headers,
             method="POST",
         )
@@ -116,6 +163,7 @@ class GenericHTTPTargetModelClient:
             raise
 
         raw_output = raw_body
+        response_media: list[MediaAsset] = []
         try:
             body = json.loads(raw_body)
         except json.JSONDecodeError:
@@ -131,6 +179,8 @@ class GenericHTTPTargetModelClient:
                     break
             else:
                 raw_output = json.dumps(body)
+            if isinstance(body, dict):
+                response_media = _media_from_json(body.get("media"))
 
         latency_ms = int((time.monotonic() - start) * 1000)
         sanitized = sanitize_target_output(raw_output)
@@ -141,5 +191,6 @@ class GenericHTTPTargetModelClient:
             sanitized_output=sanitized.text,
             trace_id=trace_id,
             latency_ms=latency_ms,
+            media=response_media,
             metadata={"client_mode": "live", "url": url},
         )

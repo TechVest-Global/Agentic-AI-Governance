@@ -89,6 +89,9 @@ class LiteLLMTargetModelClient:
     """Target model client that routes through a LiteLLM proxy."""
 
     provider = "litellm_proxy"
+    # This adapter only forwards chat-completion text; it does not attach
+    # request.media or read response media out of the proxy's reply.
+    supports_media = False
 
     def __init__(
         self,

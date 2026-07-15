@@ -1,3 +1,4 @@
+from dataclasses import replace
 from uuid import UUID
 
 from sqlmodel import Session, select
@@ -30,17 +31,24 @@ def run_agents(
     payload: AgentRunCreate,
     evaluation_plan: EvaluationPlanRead | None = None,
     probe_budget_override: int | None = None,
+    is_remediation_call: bool = False,
 ) -> AgentRunRead:
     run = get_run_or_raise(session, run_id)
     # Enter the specialist-agents phase up front and commit, so a client polling
     # the run / streaming SSE sees "Specialist Agents" become active while the
     # (slow, real-target) agents run — instead of the phase only flipping after
     # every agent finishes.
-    run.status = RunStatus.agents_running
-    run.current_phase = RunPhase.specialist_agents
-    run.updated_at = utc_now()
-    session.add(run)
-    session.commit()
+    #
+    # Skipped for a council re_probe remediation call: the run is mid-
+    # deliberation_council at that point, and flipping status/phase back to
+    # "Specialist Agents" would make a live observer see the run jump
+    # backward, then forward again once deliberate() resumes.
+    if not is_remediation_call:
+        run.status = RunStatus.agents_running
+        run.current_phase = RunPhase.specialist_agents
+        run.updated_at = utc_now()
+        session.add(run)
+        session.commit()
 
     start_log_capture()
     ai_system = session.get(AISystem, run.ai_system_id)
@@ -92,8 +100,18 @@ def run_agents(
         # Attribute every LLM call this agent makes (probes + governance reasoning)
         # to the agent, so the UI can show each agent only its own transcript.
         set_current_agent(agent.name)
+        # Re-fetch findings fresh right before this agent runs, instead of reusing
+        # the snapshot taken before the loop started. AgentContext is frozen and
+        # was built once, so without this every agent — including RiskScorer,
+        # which aggregates "all findings accumulated so far in the run" per
+        # risk_contract.py — only ever saw pre-loop findings, never the ones
+        # appended by Quality/Bias/Misuse/Drift/ComplianceMapper earlier in this
+        # same loop. Querying here (autoflush makes prior agents' session.add()
+        # calls visible) gives each agent exactly the findings created by
+        # actually-earlier agents/runs, never ones from agents later in order.
+        live_context = replace(context, existing_findings=_list_findings(session, run_id=run_id))
         try:
-            finding_payloads = agent.evaluate(context)
+            finding_payloads = agent.evaluate(live_context)
         except Exception as exc:  # noqa: BLE001
             execution.status = AgentExecutionStatus.failed
             execution.error_summary = {
@@ -122,8 +140,9 @@ def run_agents(
         executions.append(execution)
         summaries.append(_execution_summary(execution))
 
-    run.status = RunStatus.degraded if failed_execution_count else RunStatus.agents_running
-    run.current_phase = RunPhase.specialist_agents
+    if not is_remediation_call:
+        run.status = RunStatus.degraded if failed_execution_count else RunStatus.agents_running
+        run.current_phase = RunPhase.specialist_agents
     run.result_summary = {
         **(run.result_summary or {}),
         "agents_run": [summary.model_dump(mode="json") for summary in summaries],
