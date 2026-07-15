@@ -98,7 +98,10 @@ def test_mock_metric_execution_creates_evidence_and_metric_results(
     assert execution["evidence_created"] == 1
     assert execution["metric_results_created"] == 1
     assert execution["evidence"][0]["source_type"] == "mock_metric"
-    assert execution["evidence"][0]["source_name"] == "local_mock_runner"
+    # Evidence is attributed to the metric's configured tool ("promptfoo" per
+    # create_metric() above), not the request's source_name hint — see
+    # metric_execution.py's persistence loop.
+    assert execution["evidence"][0]["source_name"] == "promptfoo"
     assert execution["evidence"][0]["passed"] is True
     assert execution["metric_results"][0]["metric_id"] == "M-RUN"
     assert execution["metric_results"][0]["status"] == "passed"

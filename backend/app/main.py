@@ -71,23 +71,6 @@ def create_app() -> FastAPI:
     app.include_router(api_router, prefix=settings.api_v1_prefix)
 
     @app.on_event("startup")
-    def _migrate_runphase_enum() -> None:
-        """Ensure the runphase enum includes 'completed'.
-
-        Python's RunPhase has `completed` but early migrations created the DB
-        enum without it, so the pipeline's finalize step (current_phase ->
-        completed) threw on commit and left runs stuck at council_running. Add
-        the value if missing. ALTER TYPE ... ADD VALUE must run outside a
-        transaction, hence AUTOCOMMIT. Runs before reconciliation, which relies
-        on this value.
-        """
-        from sqlalchemy import text
-        from app.db.session import engine as _engine
-
-        with _engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TYPE runphase ADD VALUE IF NOT EXISTS 'completed'"))
-
-    @app.on_event("startup")
     def _reconcile_interrupted_runs() -> None:
         """Finalize runs orphaned by a prior worker restart.
 

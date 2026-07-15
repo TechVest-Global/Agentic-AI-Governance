@@ -255,6 +255,7 @@ export function SignUp({ onSwitchToSignIn }: { onSwitchToSignIn: () => void }) {
                   <option value="AI Risk Officer">AI Risk Officer</option>
                   <option value="Data Scientist">Data Scientist</option>
                   <option value="ML Engineer">ML Engineer</option>
+                  <option value="Developer">Developer</option>
                   <option value="Legal Counsel">Legal Counsel</option>
                   <option value="Auditor">Auditor</option>
                   <option value="Administrator">Administrator</option>
