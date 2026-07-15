@@ -23,11 +23,35 @@ import {
 import type { AgentStatus, AiSystem, AuditEvent, Finding, GovernanceRun, NavigationItem } from "@/types";
 
 export const navigation: NavigationItem[] = [
+  // ══════════════════════════════════════════════════════════════════════
+  // AUDITOR WORKSPACE
+  // A self-contained, assurance-focused surface. Auditors get their own
+  // page ids and sections so their sidebar/labels can evolve independently
+  // of the developer engine — no developer controls (registration, endpoint
+  // config, credentials, metric config, agent execution) ever appear here.
+  // ══════════════════════════════════════════════════════════════════════
+  // Client-facing assurance window — a calm three-item rail. Everything else
+  // (assignments, review queue, standalone evidence/findings/verdict, notes,
+  // remediation queue) is retired from the auditor nav per the auditor-UI
+  // refactor spec; their components remain in the repo but are no longer
+  // surfaced here. Evidence/Findings/Verdict now live as read-only tabs inside
+  // an Application record; the audit ledger is demoted to a quiet linked view.
+  { id: "applications", label: "Applications", section: "My Workspace", path: "/applications", icon: Boxes, personas: ["auditor"] },
+  { id: "compliance", label: "Compliance", section: "Compliance & Reporting", path: "/compliance", icon: Scale, personas: ["auditor"] },
+  { id: "client-reports", label: "Reports", section: "Compliance & Reporting", path: "/client-reports", icon: FileText, personas: ["auditor"] },
+  // Reachable, not listed in the rail: the application record detail and the
+  // demoted activity ledger (linked from Reports).
+  { id: "application-detail", label: "Application", section: "My Workspace", path: "/application", icon: ShieldCheck, personas: ["auditor"], hidden: true },
+  { id: "audit-ledger", label: "Activity ledger", section: "Compliance & Reporting", path: "/audit-ledger", icon: BookOpen, personas: ["auditor"], hidden: true },
+
+  // ══════════════════════════════════════════════════════════════════════
+  // DEVELOPER ENGINE (unchanged)
+  // ══════════════════════════════════════════════════════════════════════
   // ── Govern ────────────────────────────────────────────────────────────
-  { id: "dashboard", label: "Dashboard", section: "Govern", path: "/dashboard", icon: LayoutDashboard, personas: ["auditor", "developer"] },
-  { id: "systems", label: "AI Systems", section: "Govern", path: "/systems", icon: ShieldCheck, personas: ["auditor", "developer"] },
-  { id: "runs", label: "Live Run", section: "Govern", path: "/runs", icon: Activity, personas: ["auditor", "developer"] },
-  { id: "eval-runs", label: "Run History", section: "Govern", path: "/eval-runs", icon: ListChecks, personas: ["auditor", "developer"] },
+  { id: "dashboard", label: "Dashboard", section: "Govern", path: "/dashboard", icon: LayoutDashboard, personas: ["developer"] },
+  { id: "systems", label: "AI Systems", section: "Govern", path: "/systems", icon: ShieldCheck, personas: ["developer"] },
+  { id: "runs", label: "Live Run", section: "Govern", path: "/runs", icon: Activity, personas: ["developer"] },
+  { id: "eval-runs", label: "Run History", section: "Govern", path: "/eval-runs", icon: ListChecks, personas: ["developer"] },
   // Developer-only engine explainer. Not in the main sidebar (hidden); the only
   // entry point is the "How the engine works" footer button, which is likewise
   // shown only to developers so it never dead-redirects an auditor.
@@ -35,12 +59,12 @@ export const navigation: NavigationItem[] = [
   { id: "metric-plan", label: "Metric Plan", section: "Govern", path: "/metric-plan", icon: ClipboardList, personas: ["developer"] },
   { id: "council", label: "Council Deliberation", section: "Govern", path: "/council", icon: Scale, personas: ["developer"], hidden: true },
   // ── Assurance ─────────────────────────────────────────────────────────
-  { id: "findings", label: "Findings", section: "Assurance", path: "/findings", icon: AlertTriangle, personas: ["auditor", "developer"] },
-  { id: "metric-results", label: "Metric Results", section: "Assurance", path: "/metric-results", icon: Gauge, personas: ["auditor", "developer"] },
-  { id: "verdicts", label: "Verdicts", section: "Assurance", path: "/verdicts", icon: GitBranch, personas: ["auditor", "developer"] },
-  { id: "reports", label: "Compliance Reports", section: "Assurance", path: "/reports", icon: FileText, personas: ["auditor", "developer"] },
-  { id: "evidence", label: "Evidence", section: "Assurance", path: "/evidence", icon: FileSearch, personas: ["auditor", "developer"] },
-  { id: "ledger", label: "Audit Ledger", section: "Assurance", path: "/ledger", icon: BookOpen, personas: ["auditor", "developer"] },
+  { id: "findings", label: "Findings", section: "Assurance", path: "/findings", icon: AlertTriangle, personas: ["developer"] },
+  { id: "metric-results", label: "Metric Results", section: "Assurance", path: "/metric-results", icon: Gauge, personas: ["developer"] },
+  { id: "verdicts", label: "Verdicts", section: "Assurance", path: "/verdicts", icon: GitBranch, personas: ["developer"] },
+  { id: "reports", label: "Compliance Reports", section: "Assurance", path: "/reports", icon: FileText, personas: ["developer"] },
+  { id: "evidence", label: "Evidence", section: "Assurance", path: "/evidence", icon: FileSearch, personas: ["developer"] },
+  { id: "ledger", label: "Audit Ledger", section: "Assurance", path: "/ledger", icon: BookOpen, personas: ["developer"] },
   // ── Configure (developer only) ────────────────────────────────────────
   // AI System Setup removed — systems are created via the registration flow
   // (AI Systems → Register), and their context lives on the Context Profiles page.

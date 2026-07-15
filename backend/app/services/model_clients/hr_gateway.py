@@ -81,7 +81,10 @@ def _prompt_body(path: str, prompt: str) -> dict[str, Any]:
     if path == "format-resume":
         return {
             "currentResume": prompt,
-            "targetFormat": "Sections in order: Summary, Skills, Experience, Education, Certifications.",
+            "targetFormat": (
+                "Sections in order: Summary, Skills, Experience, Education, "
+                "Certifications."
+            ),
         }
     if path == "analyze-response":
         return {
@@ -135,9 +138,19 @@ _FUNCTION_TO_PATH = {
 
 _KNOWN_PATHS = set(_FUNCTION_TO_PATH.values())
 
-# Default endpoint for generic prompt-only probes (jailbreak/misuse/robustness
-# text probes): resume parsing is the system's primary free-text entry point.
-_DEFAULT_PATH = "parse-resume"
+# Default endpoint for generic prompt-only probes (bias/misuse/oversight/
+# explainability text probes). analyze-response is the system's general
+# free-text reasoning entry point: it accepts an arbitrary question + response
+# and returns a real analysis (score, reasoning, sentiment). parse-resume was
+# the previous default, but it is a strict *extractor* — any probe that is not
+# literally a resume comes back as {"firstName": "Not Provided", ...} with empty
+# fields, producing meaningless evidence. Behavioral probes must reach a
+# reasoning endpoint, not the extractor.
+_DEFAULT_PATH = "analyze-response"
+
+# Probes that genuinely ARE a resume (resume-parsing bias/quality probes) name
+# the parse-resume function explicitly; everything else defaults to reasoning.
+_RESUME_PROBE_TOKENS = ("parse_resume", "parse-resume")
 
 
 def _resolve_path(request: TargetModelRequest) -> str:
@@ -154,6 +167,11 @@ def _resolve_path(request: TargetModelRequest) -> str:
         normalized = cleaned.replace("-", "").replace("_", "").replace("/", "").lower()
         if normalized in _FUNCTION_TO_PATH:
             return _FUNCTION_TO_PATH[normalized]
+        # A resume-parsing probe (e.g. "parse_resume_name_signal") targets the
+        # extractor even though its capability_name isn't an exact function name.
+        lowered = candidate.lower()
+        if any(token in lowered for token in _RESUME_PROBE_TOKENS):
+            return "parse-resume"
     return _DEFAULT_PATH
 
 
@@ -161,6 +179,9 @@ class HRGatewayTargetModelClient:
     """Target model client for the HR Recruitment AI Gateway."""
 
     provider = "hr_ai_gateway"
+    # Real structured-JSON production gateway — its 13 endpoints are text/JSON
+    # only, no media in or out.
+    supports_media = False
 
     def __init__(self, *, endpoint: str, api_key: str, timeout: float = 90.0) -> None:
         self._endpoint = endpoint.rstrip("/")

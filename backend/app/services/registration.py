@@ -114,6 +114,48 @@ def _canonical_framework_ids(frameworks: list) -> list[str]:
     return canonical
 
 
+def _first_duplicate(values: list[str]) -> str | None:
+    """Return the first value that occurs more than once (order-preserving)."""
+    seen: set[str] = set()
+    for value in values:
+        if value in seen:
+            return value
+        seen.add(value)
+    return None
+
+
+# Maps a child table name (as it appears in the driver's IntegrityError detail,
+# for both SQLite's "UNIQUE constraint failed: <table>.<cols>" and Postgres'
+# "duplicate key value violates unique constraint ...<table>..." forms) to the
+# resource label / field name that should be reported in a 409. Only used as a
+# defensive fallback: the known duplicate cases below are rejected by the
+# pre-insert checks in ``register_ai_system`` before they ever reach the
+# database, so this should rarely fire in practice.
+_CONFLICT_TABLE_HINTS: list[tuple[str, str, str]] = [
+    ("ai_system_models", "AI system model", "name"),
+    ("ai_system_endpoints", "AI system endpoint", "name"),
+    ("ai_system_frameworks", "framework mapping", "framework_id"),
+    ("ai_system_security_controls", "security control", "control_key"),
+]
+
+
+def _integrity_error_conflict(exc: IntegrityError, system_name: str) -> ResourceConflictError:
+    """Map a fired unique-constraint violation to the resource that actually conflicted.
+
+    ``AISystem.name`` has no unique constraint, so blindly blaming ("AI system
+    registration", "name", system.name) for every IntegrityError raised inside
+    the transaction is wrong for all the real cases that can trigger it
+    (duplicate model name, duplicate endpoint name, duplicate framework
+    mapping, duplicate security-control key). Inspect the driver error to name
+    the real conflicting resource/field instead.
+    """
+    detail = str(getattr(exc, "orig", None) or exc)
+    for table, resource, field in _CONFLICT_TABLE_HINTS:
+        if table in detail:
+            return ResourceConflictError(resource, field, "duplicate value")
+    return ResourceConflictError("AI system registration", "name", system_name)
+
+
 def _compute_completeness(payload: AISystemRegistrationCreate) -> tuple[float, list[str]]:
     system = payload.system
     usage = payload.usage_context
@@ -395,6 +437,26 @@ def register_ai_system(
         raise _validation_error("System name is required.", missing=["name"])
     _validate_catalogs(payload)
     canonical_frameworks = _canonical_framework_ids(payload.frameworks)
+
+    # Reject duplicates that would violate a per-system UniqueConstraint before
+    # touching the database at all, so the 409 names the REAL conflicting
+    # resource/field/value instead of relying on parsing the DB error later.
+    # These constraints are all (ai_system_id, <key>) and ai_system_id is
+    # brand-new for this registration, so any duplicate can only come from the
+    # incoming payload itself.
+    dup_model = _first_duplicate([m.name for m in payload.models])
+    if dup_model is not None:
+        raise ResourceConflictError("AI system model", "name", dup_model)
+    dup_endpoint = _first_duplicate([e.name for e in payload.endpoints])
+    if dup_endpoint is not None:
+        raise ResourceConflictError("AI system endpoint", "name", dup_endpoint)
+    dup_framework = _first_duplicate(canonical_frameworks)
+    if dup_framework is not None:
+        raise ResourceConflictError("framework mapping", "framework_id", dup_framework)
+    dup_control = _first_duplicate([c.control_key for c in payload.security_posture])
+    if dup_control is not None:
+        raise ResourceConflictError("security control", "control_key", dup_control)
+
     if not is_draft:
         _require_registered_fields(payload)
 
@@ -515,7 +577,7 @@ def register_ai_system(
         session.commit()
     except IntegrityError as exc:
         session.rollback()
-        raise ResourceConflictError("AI system registration", "name", system.name) from exc
+        raise _integrity_error_conflict(exc, system.name) from exc
     except ApplicationError:
         session.rollback()
         raise

@@ -2,6 +2,7 @@ from uuid import UUID
 
 from sqlmodel import Session, select
 
+from app.configs.defaults import CONTROL_DIMENSIONS
 from app.models.config import FrameworkMapping
 from app.models.enums import FindingStatus, MetricResultStatus, Severity
 from app.models.evidence import MetricResult
@@ -90,9 +91,18 @@ def _assess_control(
     metric_results: list[MetricResult],
     findings: list[Finding],
 ) -> FrameworkControlAssessment:
+    control_dimensions = CONTROL_DIMENSIONS.get(mapping.control_ref)
     control_metric_results = [
-        result for result in metric_results if result.metric_id in mapping.metric_ids
+        result
+        for result in metric_results
+        if result.metric_id in mapping.metric_ids
+        and (control_dimensions is None or result.dimension in control_dimensions)
     ]
+    control_metric_ids = (
+        [result.metric_id for result in control_metric_results]
+        if control_dimensions is not None
+        else mapping.metric_ids
+    )
     control_findings = [
         finding
         for finding in findings
@@ -116,7 +126,7 @@ def _assess_control(
     )
     highest_severity = _highest_severity(control_findings)
     status = _control_status(
-        expected_metric_ids=mapping.metric_ids,
+        expected_metric_ids=control_metric_ids,
         metric_results=control_metric_results,
         failed_metric_count=failed_metric_count,
         pending_metric_count=pending_metric_count,
@@ -132,7 +142,7 @@ def _assess_control(
         control_category=mapping.control_category,
         jurisdiction=mapping.jurisdiction,
         status=status,
-        metric_ids=mapping.metric_ids,
+        metric_ids=control_metric_ids,
         passed_metric_count=passed_metric_count,
         failed_metric_count=failed_metric_count,
         pending_metric_count=pending_metric_count,

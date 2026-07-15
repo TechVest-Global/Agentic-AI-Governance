@@ -86,11 +86,11 @@ def test_default_governance_configs_can_be_bootstrapped_idempotently(
         params={"framework_id": "nist_ai_rmf", "metric_id": "CM-026"},
     )
     assert mapping_response.status_code == 200
+    # CM-026's dimension is "security", which (per CONTROL_DIMENSIONS in
+    # app/configs/defaults.py) only MANAGE-1 declares among nist_ai_rmf's
+    # curated controls — GOVERN-1/MAP-1/MEASURE-1 cover other dimensions.
     assert [mapping["control_ref"] for mapping in mapping_response.json()] == [
-        "GOVERN-1",
         "MANAGE-1",
-        "MAP-1",
-        "MEASURE-1",
     ]
 
     owasp_metric_response = client.get(

@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     judge_deployment_name: str | None = None
     judge_api_version: str = "2025-01-01-preview"
 
+    # When True (default), the adaptive orchestrator runs an LLM plan-review that
+    # narrows the applicable metric set per system. Set False to always evaluate
+    # the full applicable catalog (no LLM narrowing).
+    adaptive_plan_review_enabled: bool = True
+
     # LiteLLM Proxy — when set, all LLM calls route through the proxy instead
     # of hitting Azure OpenAI directly. Enables fallback, caching, cost tracking.
     # Set LITELLM_PROXY_URL=http://localhost:4000 to activate.
@@ -64,11 +69,23 @@ class Settings(BaseSettings):
     litellm_master_key: str | None = None
     litellm_model: str = "judge-model"
 
+    # Langfuse tracing (optional) — when the public + secret keys are set, every
+    # LLM call flowing through the gateway is emitted to Langfuse as a generation
+    # span. Unset -> tracing is a silent no-op (never breaks a run).
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
+    langfuse_host: str = "https://cloud.langfuse.com"
+
     # Per-call timeout for LLM requests (target + governance). Without this a
     # slow-but-not-erroring Azure response has nothing forcing it to fail fast,
     # so the Gateway's retry/backoff never engages and a single call can block
     # the whole council/agent pipeline far longer than the SDK's own default.
-    llm_call_timeout_seconds: float = 30.0
+    llm_call_timeout_seconds: float = 60.0
+
+    # Signs bearer tokens issued by /auth/sign-in and /auth/sign-up (see
+    # app/core/security.py). The default is fine for a local/demo instance;
+    # override via env for any shared deployment.
+    secret_key: str = "dev-insecure-secret-change-me"
 
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore"

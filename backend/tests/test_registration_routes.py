@@ -216,13 +216,67 @@ def test_transaction_rolls_back_on_child_failure(client: TestClient) -> None:
     before = len(client.get(BASE).json())
     payload = deepcopy(full_payload("Duplicate Model System"))
     # Two models with the same name violate UniqueConstraint(ai_system_id, name)
-    # at commit -> the whole transaction (including the parent system) rolls back.
+    # -> rejected as a conflict and no partial system is created.
     payload["models"] = [
         {"name": "dup", "provider": "openai"},
         {"name": "dup", "provider": "openai"},
     ]
     response = client.post(BASE + "/register", json=payload)
     assert response.status_code == 409
+    body = response.json()
+    # The conflict must name the model that actually collided, not the
+    # unrelated AI system name (AISystem.name has no unique constraint at all).
+    assert body["error"]["details"]["resource"] == "AI system model"
+    assert body["error"]["details"]["field"] == "name"
+    assert body["error"]["details"]["value"] == "dup"
+    assert len(client.get(BASE).json()) == before
+
+
+def test_duplicate_endpoint_name_rejected(client: TestClient) -> None:
+    before = len(client.get(BASE).json())
+    payload = deepcopy(full_payload("Duplicate Endpoint System"))
+    payload["endpoints"] = [
+        {"name": "Chat", "url": "https://api.example.com/chat", "http_method": "POST", "status": "active"},
+        {"name": "Chat", "url": "https://api.example.com/chat2", "http_method": "POST", "status": "active"},
+    ]
+    response = client.post(BASE + "/register", json=payload)
+    assert response.status_code == 409
+    body = response.json()
+    assert body["error"]["details"]["resource"] == "AI system endpoint"
+    assert body["error"]["details"]["field"] == "name"
+    assert body["error"]["details"]["value"] == "Chat"
+    assert len(client.get(BASE).json()) == before
+
+
+def test_duplicate_framework_id_rejected(client: TestClient) -> None:
+    before = len(client.get(BASE).json())
+    payload = deepcopy(full_payload("Duplicate Framework System"))
+    payload["frameworks"] = [
+        {"framework_id": "nist_ai_rmf", "applicability_type": "mandatory"},
+        {"framework_id": "nist_ai_rmf", "applicability_type": "voluntary"},
+    ]
+    response = client.post(BASE + "/register", json=payload)
+    assert response.status_code == 409
+    body = response.json()
+    assert body["error"]["details"]["resource"] == "framework mapping"
+    assert body["error"]["details"]["field"] == "framework_id"
+    assert body["error"]["details"]["value"] == "nist_ai_rmf"
+    assert len(client.get(BASE).json()) == before
+
+
+def test_duplicate_security_control_key_rejected(client: TestClient) -> None:
+    before = len(client.get(BASE).json())
+    payload = deepcopy(full_payload("Duplicate Security Control System"))
+    payload["security_posture"] = [
+        {"control_key": "authentication", "implementation_status": "implemented"},
+        {"control_key": "authentication", "implementation_status": "planned"},
+    ]
+    response = client.post(BASE + "/register", json=payload)
+    assert response.status_code == 409
+    body = response.json()
+    assert body["error"]["details"]["resource"] == "security control"
+    assert body["error"]["details"]["field"] == "control_key"
+    assert body["error"]["details"]["value"] == "authentication"
     assert len(client.get(BASE).json()) == before
 
 

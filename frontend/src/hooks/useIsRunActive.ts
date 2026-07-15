@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getLatestEvaluationRun } from "@/api/governanceApi";
+import { getEvaluationRun, getLatestEvaluationRun } from "@/api/governanceApi";
 import { useAppStore } from "@/store/useAppStore";
 import { useSelectionStore } from "@/store/useSelectionStore";
 
@@ -14,9 +14,10 @@ export function useIsRunActive(): { active: boolean; activeRunId: string | null 
   const selectedRunId = useSelectionStore((s) => s.selectedRunId);
   const globalRunnerStatus = useAppStore((s) => s.globalRunnerStatus);
 
-  // Immediately reflect runner hook state
+  // Immediately reflect runner hook state. "awaiting" (paused for plan approval)
+  // is still an active run — it parks at 'planned' until a reviewer approves.
   useEffect(() => {
-    if (globalRunnerStatus === "running") setActive(true);
+    if (globalRunnerStatus === "running" || globalRunnerStatus === "awaiting") setActive(true);
     else if (globalRunnerStatus === "done" || globalRunnerStatus === "error") setActive(false);
   }, [globalRunnerStatus]);
 
@@ -26,14 +27,21 @@ export function useIsRunActive(): { active: boolean; activeRunId: string | null 
     async function check() {
       try {
         const run = selectedRunId
-          ? await fetch(`${import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1"}/evaluation-runs/${selectedRunId}`).then(r => r.json())
+          ? await getEvaluationRun(selectedRunId)
           : await getLatestEvaluationRun();
         if (!cancelled && run) {
           const isActive = !TERMINAL.has(run.status);
           setActive(isActive);
           setActiveRunId(isActive ? (run.id ?? null) : null);
         }
-      } catch { /* ignore */ }
+      } catch {
+        // A 404/error (e.g. a deleted/invalid selected run) means there's no
+        // active run to report — never leave the indicator stuck "active".
+        if (!cancelled) {
+          setActive(false);
+          setActiveRunId(null);
+        }
+      }
     }
     check();
     const id = setInterval(check, 4000);

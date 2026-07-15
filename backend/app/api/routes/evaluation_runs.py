@@ -8,6 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
+from app.api.routes.auth import get_current_user
 from app.db import session as db_session
 from app.db.session import get_session
 from app.models.agent import AgentExecution
@@ -33,6 +34,7 @@ from app.schemas.governance import (
     MetricExecutionCreate,
     MetricExecutionRead,
     MetricPlanRead,
+    PlanApprovalCreate,
 )
 from app.services import (
     adaptive_orchestrator,
@@ -202,6 +204,32 @@ def run_governance_pipeline(
         orchestration.run_governance_pipeline_job, run_id, payload
     )
     return {"run_id": str(run_id), "status": "accepted"}
+
+
+@router.post("/{run_id}/approve-plan", response_model=EvaluationRunRead)
+def approve_plan(
+    run_id: UUID,
+    payload: PlanApprovalCreate,
+    session: SessionDependency,
+    background_tasks: BackgroundTasks,
+    current_user: Annotated[object, Depends(get_current_user)] = None,
+) -> EvaluationRunRead:
+    """Approve a paused metric plan and resume the run's pipeline.
+
+    Records the human approval (run columns + audit ledger) and advances the run
+    out of 'planned', then runs the pipeline tail off the request thread so the
+    Live Run view observes phase progression via polling / SSE. 409 if the run has
+    no plan awaiting approval (never gated, already approved, or terminal).
+    """
+    # The authenticated caller's name is authoritative when present, so an
+    # approval can't be forged as someone else by supplying a different
+    # approved_by string in the body; fall back to the payload for any
+    # internal/service caller that reaches this route without a session.
+    if current_user is not None:
+        payload = payload.model_copy(update={"approved_by": current_user.name})
+    run = service.approve_plan(session, run_id=run_id, payload=payload)
+    background_tasks.add_task(orchestration.resume_governance_pipeline_job, run_id)
+    return run
 
 
 @router.post(

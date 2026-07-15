@@ -10,14 +10,19 @@ from app.services.model_clients.sanitization import sanitize_target_output
 
 
 class MockTargetModelClient:
+    # Echoes back whatever media it was given, so vision/audio evaluators have
+    # a real (if trivial) media-capable client to exercise in tests/local dev.
+    supports_media = True
+
     def __init__(self, *, provider: str, credential_ref: str | None = None) -> None:
         self.provider = provider
         self.credential_ref = credential_ref
 
     def invoke(self, request: TargetModelRequest) -> TargetModelResponse:
+        media_note = f" [received {len(request.media)} media asset(s)]" if request.media else ""
         raw_output = (
             f"Mock target response for capability "
-            f"{request.capability_name or 'default'}: {request.prompt}"
+            f"{request.capability_name or 'default'}: {request.prompt}{media_note}"
         )
         sanitized = sanitize_target_output(raw_output)
         return TargetModelResponse(
@@ -27,6 +32,7 @@ class MockTargetModelClient:
             sanitized_output=sanitized.text,
             trace_id=f"target-{uuid4()}",
             latency_ms=0,
+            media=list(request.media),
             metadata={
                 "client_mode": "mock",
                 "credential_ref": self.credential_ref,

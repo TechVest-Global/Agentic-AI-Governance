@@ -27,6 +27,20 @@ import { GovernanceStatePage } from "@/pages/GovernanceStatePage";
 import { APIDebug } from "@/pages/APIDebug";
 import { SignIn } from "@/pages/SignIn";
 import { SignUp } from "@/pages/SignUp";
+// Auditor / client assurance window (refactored 3-item structure).
+import { Applications } from "@/pages/auditor/Applications";
+import { ApplicationRecord } from "@/pages/auditor/ApplicationRecord";
+import { Compliance } from "@/pages/auditor/Compliance";
+import { ClientReports } from "@/pages/auditor/ClientReports";
+// Retired auditor screens — retained (components still routable if linked) but
+// no longer in the auditor nav. Kept mapped so PageId coverage stays complete.
+import { AuditorOverview } from "@/pages/auditor/AuditorOverview";
+import { MyAssignments } from "@/pages/auditor/MyAssignments";
+import { ReviewQueue } from "@/pages/auditor/ReviewQueue";
+import { AuditorSystems } from "@/pages/auditor/AuditorSystems";
+import { VerdictReview } from "@/pages/auditor/VerdictReview";
+import { Remediation } from "@/pages/auditor/Remediation";
+import { NotesQueries } from "@/pages/auditor/NotesQueries";
 import type { PageId } from "@/types";
 
 const pages = {
@@ -51,6 +65,23 @@ const pages = {
   "security-tools": SecurityToolAdapters,
   "governance-state": GovernanceStatePage,
   "api-debug": APIDebug,
+  // ── Auditor / client assurance window (3-item structure) ──
+  applications: Applications,
+  "application-detail": ApplicationRecord,
+  compliance: Compliance,
+  "client-reports": ClientReports,
+  "audit-ledger": AuditLedger,          // demoted, reachable via Reports link
+  // ── Retired auditor screens (kept mapped, no longer in nav) ──
+  overview: AuditorOverview,
+  "my-assignments": MyAssignments,
+  "review-queue": ReviewQueue,
+  "audit-systems": AuditorSystems,
+  "evidence-review": Evidence,
+  "findings-review": FindingsReview,
+  "verdict-review": VerdictReview,
+  "compliance-reports": Reports,
+  remediation: Remediation,
+  "notes-queries": NotesQueries,
 } satisfies Record<PageId, React.ComponentType>;
 
 export default function App() {

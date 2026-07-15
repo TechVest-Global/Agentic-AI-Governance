@@ -1,0 +1,2793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ISO 42001 AI Compliance Auditor</title>
+<style>
+  :root{
+    --navy:#0f172a;
+    --navy-2:#1e293b;
+    --accent:#2563eb;
+    --pass:#16a34a;
+    --pass-bg:#e9f7ef;
+    --fail:#dc2626;
+    --fail-bg:#fdecea;
+    --warn:#d97706;
+    --warn-bg:#fef6e7;
+    --manual:#64748b;
+    --manual-bg:#f1f5f9;
+    --border:#e2e8f0;
+    --muted:#64748b;
+    --bg:#f5f7fa;
+    --card:#ffffff;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg);
+    color:#0f172a;
+  }
+  header.topbar{
+    background:var(--navy);
+    color:#fff;
+    padding:16px 28px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    box-shadow:0 2px 6px rgba(0,0,0,.15);
+    position:sticky;
+    top:0;
+    z-index:20;
+    flex-wrap:wrap;
+    gap:10px;
+  }
+  .brand{display:flex;align-items:center;gap:12px;}
+  .brand .logo{
+    width:36px;height:36px;border-radius:8px;
+    background:linear-gradient(135deg,#2563eb,#1e40af);
+    display:flex;align-items:center;justify-content:center;
+    font-weight:700;font-size:15px;
+  }
+  .brand h1{font-size:17px;margin:0;font-weight:600;}
+  .brand span{font-size:11.5px;color:#94a3b8;display:block;margin-top:1px;}
+  .topbar-right{font-size:12.5px;color:#cbd5e1;display:flex;gap:18px;align-items:center;}
+  .badge-audit{
+    background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.15);
+    padding:5px 12px;
+    border-radius:20px;
+    font-size:12px;
+  }
+
+  main{max-width:1180px;margin:0 auto;padding:28px 24px 60px;}
+
+  .view-title{font-size:20px;font-weight:700;margin:4px 0 4px;}
+  .view-sub{color:var(--muted);font-size:13.5px;margin-bottom:6px;}
+  .data-source-note{
+    font-size:11.5px;color:var(--muted);background:#eef2ff;border:1px solid #c7d2fe;
+    padding:6px 12px;border-radius:8px;display:inline-block;margin-bottom:18px;
+  }
+
+  .app-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(300px,1fr));
+    gap:18px;
+  }
+  .app-card{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:18px 18px 16px;
+    cursor:pointer;
+    transition:box-shadow .15s ease, transform .15s ease;
+    position:relative;
+  }
+  .app-card:hover{box-shadow:0 6px 18px rgba(15,23,42,.09);transform:translateY(-2px);}
+  .app-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+  .app-card h3{margin:0 0 4px;font-size:15.5px;}
+  .app-card .owner{font-size:12px;color:var(--muted);margin-bottom:10px;}
+  .risk-tag{
+    font-size:10.5px;
+    font-weight:700;
+    padding:3px 8px;
+    border-radius:20px;
+    white-space:nowrap;
+    text-transform:uppercase;
+    letter-spacing:.03em;
+  }
+  .risk-high{background:var(--fail-bg);color:var(--fail);}
+  .risk-limited{background:var(--warn-bg);color:var(--warn);}
+  .risk-minimal{background:var(--pass-bg);color:var(--pass);}
+
+  .app-card-metrics{display:flex;gap:16px;align-items:center;margin-top:14px;}
+  .donut-wrap{position:relative;width:64px;height:64px;flex-shrink:0;}
+  .donut-wrap svg{transform:rotate(-90deg);}
+  .donut-label{
+    position:absolute;inset:0;
+    display:flex;align-items:center;justify-content:center;
+    font-size:13px;font-weight:700;
+  }
+  .mini-stats{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:3px;}
+  .mini-stats b{color:#0f172a;}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;}
+
+  .status-strip{display:flex;height:6px;border-radius:4px;overflow:hidden;margin-top:14px;}
+  .status-strip div{height:100%;}
+  .modality-tags{margin-top:10px;font-size:11px;color:var(--muted);}
+  .modality-tags span{
+    display:inline-block;background:#f1f5f9;border:1px solid var(--border);color:#334155;
+    padding:2px 7px;border-radius:10px;margin:2px 3px 0 0;
+  }
+
+  .back-btn{
+    background:none;border:none;color:var(--accent);font-size:13.5px;
+    cursor:pointer;padding:0;margin-bottom:16px;display:flex;align-items:center;gap:6px;font-weight:600;
+  }
+  .detail-header{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:22px 24px;
+    margin-bottom:22px;
+  }
+  .detail-header-top{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap;}
+  .detail-header h2{margin:0 0 6px;font-size:20px;}
+  .detail-header .owner{color:var(--muted);font-size:13px;margin-bottom:10px;}
+  .detail-header .desc{font-size:13.5px;color:#334155;max-width:620px;line-height:1.5;}
+  .meta-row{display:flex;gap:22px;margin-top:14px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);}
+  .meta-row strong{color:#0f172a;}
+
+  .verdict-box{
+    text-align:center;
+    min-width:190px;
+    border-left:1px solid var(--border);
+    padding-left:22px;
+  }
+  .verdict-box .pct{font-size:34px;font-weight:800;line-height:1;}
+  .verdict-box .pct-label{font-size:11.5px;color:var(--muted);margin-top:4px;}
+  .verdict-pill{
+    display:inline-block;margin-top:10px;padding:5px 14px;border-radius:20px;
+    font-size:12px;font-weight:700;
+  }
+
+  .stat-cards{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:22px;}
+  .stat-card{
+    background:var(--card);border:1px solid var(--border);border-radius:10px;
+    padding:14px 16px;text-align:center;
+  }
+  .stat-card .num{font-size:22px;font-weight:800;}
+  .stat-card .lbl{font-size:11.5px;color:var(--muted);margin-top:2px;text-transform:uppercase;letter-spacing:.02em;}
+  .stat-card.pass .num{color:var(--pass);}
+  .stat-card.fail .num{color:var(--fail);}
+  .stat-card.warn .num{color:var(--warn);}
+  .stat-card.manual .num{color:var(--manual);}
+
+  .filter-bar{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center;}
+  .filter-btn{
+    border:1px solid var(--border);background:#fff;color:#334155;
+    padding:7px 14px;border-radius:20px;font-size:12.5px;cursor:pointer;font-weight:600;
+    transition:all .12s ease;
+  }
+  .filter-btn.active{background:var(--navy);color:#fff;border-color:var(--navy);}
+  .filter-spacer{flex:1;}
+  .filter-hint{font-size:12px;color:var(--muted);}
+
+  .control-list{display:flex;flex-direction:column;gap:10px;}
+  .cat-heading{
+    font-size:11.5px;font-weight:700;color:var(--muted);
+    text-transform:uppercase;letter-spacing:.05em;
+    margin:18px 0 4px;
+  }
+  .cat-heading:first-child{margin-top:0;}
+
+  .control-card{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:10px;
+    overflow:hidden;
+  }
+  .control-card.status-fail{border-left:4px solid var(--fail);}
+  .control-card.status-pass{border-left:4px solid var(--pass);}
+  .control-card.status-warning{border-left:4px solid var(--warn);}
+  .control-card.status-manual{border-left:4px solid var(--manual);}
+
+  .control-summary{
+    padding:14px 18px;
+    display:flex;align-items:center;gap:14px;
+    cursor:pointer;
+  }
+  .clause-chip{
+    font-family:"SFMono-Regular",Consolas,monospace;
+    font-size:11.5px;font-weight:700;color:#fff;
+    background:var(--navy-2);
+    padding:3px 8px;border-radius:5px;flex-shrink:0;
+  }
+  .control-summary-text{flex:1;min-width:0;}
+  .control-summary-text .title{font-size:14px;font-weight:600;}
+  .control-summary-text .category{font-size:11.5px;color:var(--muted);margin-top:1px;}
+  .value-chip{
+    font-family:"SFMono-Regular",Consolas,monospace;font-weight:700;font-size:13px;
+    color:#334155;flex-shrink:0;min-width:56px;text-align:right;
+  }
+  .status-pill{
+    font-size:11px;font-weight:700;padding:4px 11px;border-radius:20px;
+    display:flex;align-items:center;gap:5px;flex-shrink:0;text-transform:uppercase;letter-spacing:.02em;
+  }
+  .status-pill.pass{background:var(--pass-bg);color:var(--pass);}
+  .status-pill.fail{background:var(--fail-bg);color:var(--fail);}
+  .status-pill.warning{background:var(--warn-bg);color:var(--warn);}
+  .status-pill.manual{background:var(--manual-bg);color:var(--manual);}
+  .chevron{color:var(--muted);transition:transform .15s ease;flex-shrink:0;}
+  .control-card.open .chevron{transform:rotate(180deg);}
+
+  .control-details{
+    max-height:0;
+    overflow:hidden;
+    transition:max-height .25s ease;
+    border-top:1px solid transparent;
+  }
+  .control-card.open .control-details{
+    max-height:900px;
+    border-top:1px solid var(--border);
+  }
+  .control-details-inner{padding:16px 18px 18px;}
+  .info-box{
+    font-size:12.5px;color:#334155;background:#f8fafc;border:1px solid var(--border);
+    border-radius:8px;padding:10px 12px;margin-bottom:10px;line-height:1.5;
+  }
+  .info-box b{color:#0f172a;}
+  .info-box.gate{background:#fffbeb;border-color:#fde68a;}
+
+  .chip-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;}
+  .chip{
+    font-size:11px;padding:3px 9px;border-radius:12px;background:#f1f5f9;color:#334155;
+    border:1px solid var(--border);white-space:nowrap;
+  }
+  .chip.tool{background:#eef2ff;border-color:#c7d2fe;color:#3730a3;}
+  .chip.framework{background:#ecfdf5;border-color:#a7f3d0;color:#065f46;}
+  .chip.characteristic{background:#fdf4ff;border-color:#f0abfc;color:#86198f;}
+  .chip.modality{background:#f1f5f9;border-color:var(--border);color:#64748b;}
+  .chip.modality.active{background:var(--navy);border-color:var(--navy);color:#fff;font-weight:600;}
+  .chip-label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;
+    margin:8px 0 4px;font-weight:700;}
+
+  .evidence-box{
+    font-size:12px;color:var(--muted);
+    display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;
+    padding-top:8px;border-top:1px dashed var(--border);margin-top:4px;
+  }
+  .evidence-box .src{
+    font-family:Consolas,monospace;background:#f1f5f9;padding:2px 6px;border-radius:4px;color:#334155;
+  }
+  .manual-note{
+    font-size:12.5px;color:var(--manual);background:var(--manual-bg);
+    padding:10px 12px;border-radius:8px;
+  }
+  .iso-ref{font-size:11.5px;color:var(--muted);margin-bottom:8px;font-weight:600;}
+
+  footer.app-footer{
+    text-align:center;color:var(--muted);font-size:11.5px;padding:30px 0 10px;
+  }
+
+  /* Framework picker */
+  .fw-context{
+    background:var(--card);border:1px solid var(--border);border-radius:12px;
+    padding:16px 20px;margin-bottom:20px;display:flex;justify-content:space-between;
+    align-items:center;flex-wrap:wrap;gap:10px;
+  }
+  .fw-context h2{margin:0 0 3px;font-size:17px;}
+  .fw-context .owner{color:var(--muted);font-size:12.5px;}
+  .fw-context .agg-pct{font-size:22px;font-weight:800;}
+  .same-evidence-note{
+    font-size:12px;color:var(--muted);background:#eef2ff;border:1px solid #c7d2fe;
+    padding:8px 14px;border-radius:8px;margin-bottom:18px;
+  }
+  .fw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;}
+  .fw-card{
+    background:var(--card);border:1px solid var(--border);border-radius:12px;
+    padding:18px;cursor:pointer;transition:box-shadow .15s ease, transform .15s ease;
+  }
+  .fw-card:hover{box-shadow:0 6px 18px rgba(15,23,42,.09);transform:translateY(-2px);}
+  .fw-card h3{margin:0 0 4px;font-size:15px;}
+  .fw-card .unit-tag{font-size:10.5px;color:var(--accent);font-weight:700;text-transform:uppercase;letter-spacing:.03em;margin-bottom:8px;}
+  .fw-card .blurb{font-size:12px;color:#334155;line-height:1.5;margin-bottom:12px;min-height:54px;}
+  .fw-card .fw-stats{display:flex;gap:14px;font-size:12px;color:var(--muted);}
+  .fw-card .fw-stats b{color:#0f172a;}
+  .origin-tag{font-size:11px;color:var(--muted);margin-top:1px;}
+
+  @media (max-width:820px){
+    .stat-cards{grid-template-columns:repeat(2,1fr);}
+    .verdict-box{border-left:none;padding-left:0;border-top:1px solid var(--border);padding-top:14px;width:100%;}
+    .detail-header-top{flex-direction:column;}
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="logo">42K</div>
+    <div>
+      <h1>ISO 42001 AI Compliance Auditor</h1>
+      <span>AI management system &middot; production observability-based control assessment</span>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div class="badge-audit" id="clockBadge">Audit period: Q3 2026</div>
+    <div>srinib100@gmail.com</div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ===== VIEW 1: application list ===== -->
+  <section id="listView">
+    <div class="view-title">AI Production Applications</div>
+    <div class="view-sub">Select an application, then choose a governance framework to view its controls.</div>
+    <div class="data-source-note">Metric definitions, evaluation methods, tool coverage, and framework crosswalks sourced from <b>GenAI_Minimum_Compliance_Matrix.xlsx</b> &mdash; "Compliance Matrix" sheet (44 metrics / 10 risk dimensions). Current values below are simulated production telemetry for demo purposes.</div>
+
+    <div class="app-grid" id="appGrid"></div>
+  </section>
+
+  <!-- ===== VIEW 2: framework picker (per application) ===== -->
+  <section id="frameworkView" style="display:none;">
+    <button class="back-btn" onclick="showList()">&larr; Back to all applications</button>
+
+    <div class="fw-context">
+      <div>
+        <h2 id="fwAppName"></h2>
+        <div class="owner" id="fwAppOwner"></div>
+      </div>
+      <div style="text-align:right;">
+        <div class="agg-pct" id="fwAppPct"></div>
+        <div style="font-size:11px;color:var(--muted);">overall weighted conformance</div>
+      </div>
+    </div>
+
+    <div class="same-evidence-note">All four frameworks below are evaluated from the <b>same underlying observability metrics</b> for this application &mdash; each framework simply organizes that evidence under its own control structure (dimension, article, characteristic, or principle). Pick a framework to see its controls.</div>
+
+    <div class="fw-grid" id="fwGrid"></div>
+  </section>
+
+  <!-- ===== VIEW 3: controls for one application + framework ===== -->
+  <section id="detailView" style="display:none;">
+    <button class="back-btn" onclick="showFrameworkView()">&larr; Back to frameworks</button>
+
+    <div class="detail-header">
+      <div class="detail-header-top">
+        <div>
+          <h2 id="dName"></h2>
+          <div class="owner" id="dOwner"></div>
+          <div class="desc" id="dDesc"></div>
+          <div class="meta-row">
+            <div>Framework: <strong id="dFramework"></strong></div>
+            <div>Risk tier: <strong id="dRisk"></strong></div>
+            <div>Last observability sync: <strong id="dSync"></strong></div>
+            <div>Modalities: <strong id="dModalities"></strong></div>
+          </div>
+        </div>
+        <div class="verdict-box">
+          <div class="pct" id="dPct"></div>
+          <div class="pct-label">WEIGHTED CONFORMANCE<br>(excl. manual controls)</div>
+          <div class="verdict-pill" id="dVerdict"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stat-cards">
+      <div class="stat-card"><div class="num" id="statTotal"></div><div class="lbl">Controls Assessed</div></div>
+      <div class="stat-card pass"><div class="num" id="statPass"></div><div class="lbl">Passed</div></div>
+      <div class="stat-card fail"><div class="num" id="statFail"></div><div class="lbl">Failed</div></div>
+      <div class="stat-card warn"><div class="num" id="statWarn"></div><div class="lbl">Warning</div></div>
+      <div class="stat-card manual"><div class="num" id="statManual"></div><div class="lbl">Manual Review</div></div>
+    </div>
+
+    <div class="filter-bar">
+      <button class="filter-btn active" data-filter="all">All controls</button>
+      <button class="filter-btn" data-filter="fail">Failed</button>
+      <button class="filter-btn" data-filter="warning">Warning</button>
+      <button class="filter-btn" data-filter="pass">Passed</button>
+      <button class="filter-btn" data-filter="manual">Manual review</button>
+      <div class="filter-spacer"></div>
+      <div class="filter-hint">Click a control to view evaluation method, gate criteria &amp; tool coverage</div>
+    </div>
+
+    <div class="control-list" id="controlList"></div>
+
+    <footer class="app-footer">Prototype for demonstration purposes only &middot; metric definitions and thresholds are sourced from GenAI_Minimum_Compliance_Matrix.xlsx; current values/status are illustrative, not derived from a live monitoring system.</footer>
+  </section>
+
+</main>
+
+<script>
+const CATALOG = {
+  "D1.1": {
+    "dim": 1,
+    "category": "Task Fulfilment / Instruction Following",
+    "isoGroup": "Task Fulfilment / Instruction Following",
+    "euGroup": "Art.15 Accuracy",
+    "nistGroup": "Valid & reliable",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Task success rate",
+    "howTo": "Build a gold test set of representative tasks with explicit pass/fail criteria; mark pass only when final output or workflow state meets the business outcome. Formula: passed / total x 100.",
+    "gate": ">=90% low-risk internal assistant; >=95% plus zero critical failures for high-impact workflows.",
+    "tools": [
+      "Promptfoo",
+      "DeepEval",
+      "OpenAI Evals",
+      "LangSmith",
+      "Langfuse",
+      "Arize Phoenix",
+      "Human review"
+    ],
+    "modalities": [
+      "Text",
+      "RAG",
+      "Agents",
+      "Multimodal"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Valid & reliable",
+    "euAct": "Art.15 Accuracy",
+    "lowerBetter": false,
+    "decimalScore": false
+  },
+  "D1.2": {
+    "dim": 1,
+    "category": "Task Fulfilment / Instruction Following",
+    "isoGroup": "Task Fulfilment / Instruction Following",
+    "euGroup": "Art.15 Accuracy",
+    "nistGroup": "Valid & reliable",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Instruction-following pass rate",
+    "howTo": "Turn each prompt into a checklist of explicit instructions (tone, constraints, forbidden content, required objects/steps, language). Pass when all mandatory instructions are met. Formula: compliant / total x 100.",
+    "gate": "No critical instruction violations; track normal, edge, and adversarial prompts separately.",
+    "tools": [
+      "Promptfoo",
+      "DeepEval",
+      "LLM-as-judge",
+      "VLM-as-judge",
+      "LangSmith",
+      "Langfuse"
+    ],
+    "modalities": [
+      "Text",
+      "Agents",
+      "Image",
+      "Video",
+      "Audio",
+      "Multimodal"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Valid & reliable",
+    "euAct": "Art.15 Accuracy",
+    "lowerBetter": false,
+    "decimalScore": false
+  },
+  "D1.3": {
+    "dim": 1,
+    "category": "Task Fulfilment / Instruction Following",
+    "isoGroup": "Task Fulfilment / Instruction Following",
+    "euGroup": "Art.15 Accuracy",
+    "nistGroup": "Valid & reliable",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Schema / output-format adherence",
+    "howTo": "Validate output against JSON/XML schema, regex, function signature, or template. Formula: valid / total x 100.",
+    "gate": ">=99% for machine-consumed outputs; any invalid output that can trigger downstream action blocks release.",
+    "tools": [
+      "JSON Schema validators",
+      "Pydantic",
+      "Guardrails.ai",
+      "Instructor",
+      "Promptfoo",
+      "OpenAI structured output",
+      "LangChain output parsers"
+    ],
+    "modalities": [
+      "Text",
+      "Agents",
+      "Structured/Code"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Valid & reliable",
+    "euAct": "Art.15 Accuracy",
+    "lowerBetter": false,
+    "decimalScore": false
+  },
+  "D1.4": {
+    "dim": 1,
+    "category": "Task Fulfilment / Instruction Following",
+    "isoGroup": "Task Fulfilment / Instruction Following",
+    "euGroup": "Art.15 Accuracy",
+    "nistGroup": "Valid & reliable",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Action-completion rate",
+    "howTo": "Define expected terminal state per workflow (ticket created, record updated, payment not executed without approval). Run agent scenarios in a sandbox. Formula: correctly completed / attempted x 100.",
+    "gate": "High-impact agents: zero unauthorized/destructive actions and high completion on approved tasks before production.",
+    "tools": [
+      "LangSmith",
+      "Langfuse",
+      "Arize Phoenix",
+      "AgentOps",
+      "Sandboxed tool logs",
+      "Unit tests",
+      "Policy-as-code"
+    ],
+    "modalities": [
+      "Agents",
+      "Structured/Code"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Valid & reliable",
+    "euAct": "Art.15 Accuracy",
+    "lowerBetter": false,
+    "decimalScore": false
+  },
+  "D2.1": {
+    "dim": 2,
+    "category": "Groundedness / Hallucination Control",
+    "isoGroup": "Groundedness / Hallucination Control",
+    "euGroup": "Art.15 Accuracy",
+    "nistGroup": "Valid & reliable",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Hallucination rate",
+    "howTo": "Extract factual claims and verify each against source documents or gold answer; count outputs with fabricated/unsupported claims. Formula: hallucinated outputs / evaluated x 100.",
+    "gate": "No critical hallucinations in regulated or customer-impacting answers; track by topic and source type.",
+    "tools": [
+      "RAGAS",
+      "TruLens",
+      "DeepEval",
+      "Arize Phoenix",
+      "LLM-as-judge",
+      "Human SME review"
+    ],
+    "modalities": [
+      "Text",
+      "RAG",
+      "Agents",
+      "Multimodal"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Valid & reliable",
+    "euAct": "Art.15 Accuracy",
+    "lowerBetter": true,
+    "decimalScore": false
+  },
+  "D2.2": {
+    "dim": 2,
+    "category": "Groundedness / Hallucination Control",
+    "isoGroup": "Groundedness / Hallucination Control",
+    "euGroup": "Art.15 Accuracy",
+    "nistGroup": "Valid & reliable",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Faithfulness score",
+    "howTo": "Break answer into claims; score each as supported by retrieved context. Score = supported / total claims; penalize contradictions.",
+    "gate": ">=0.85 internal knowledge assistant; >=0.95 for regulated responses.",
+    "tools": [
+      "RAGAS",
+      "TruLens",
+      "DeepEval",
+      "Arize Phoenix",
+      "Langfuse",
+      "LLM-as-judge"
+    ],
+    "modalities": [
+      "Text",
+      "RAG",
+      "Multimodal"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Valid & reliable",
+    "euAct": "Art.15 Accuracy",
+    "lowerBetter": false,
+    "decimalScore": true
+  },
+  "D2.3": {
+    "dim": 2,
+    "category": "Groundedness / Hallucination Control",
+    "isoGroup": "Groundedness / Hallucination Control",
+    "euGroup": "Art.15 Accuracy",
+    "nistGroup": "Valid & reliable",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Attribution / citation coverage",
+    "howTo": "Identify material factual claims; check each has a citation to an approved source. Formula: claims with citation / total material claims x 100; then verify citation correctness separately.",
+    "gate": "All material claims cited in high-impact RAG; missing citation on a critical claim is a release blocker.",
+    "tools": [
+      "RAGAS",
+      "Custom citation checker",
+      "LLM-as-judge",
+      "Langfuse",
+      "Arize Phoenix"
+    ],
+    "modalities": [
+      "RAG"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Valid & reliable",
+    "euAct": "Art.15 Accuracy",
+    "lowerBetter": false,
+    "decimalScore": false
+  },
+  "D2.4": {
+    "dim": 2,
+    "category": "Groundedness / Hallucination Control",
+    "isoGroup": "Groundedness / Hallucination Control",
+    "euGroup": "Art.15 Accuracy",
+    "nistGroup": "Valid & reliable",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Unsupported-claim rate",
+    "howTo": "Count claims not directly supported by provided context/retrieved evidence/approved source. Formula: unsupported / total material claims x 100.",
+    "gate": "Should trend downward; hard maximum for high-risk; block critical unsupported claims.",
+    "tools": [
+      "RAGAS",
+      "TruLens",
+      "DeepEval",
+      "Arize Phoenix",
+      "LLM-as-judge",
+      "Manual fact-checking"
+    ],
+    "modalities": [
+      "Text",
+      "RAG",
+      "Agents",
+      "Multimodal"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Valid & reliable",
+    "euAct": "Art.15 Accuracy",
+    "lowerBetter": true,
+    "decimalScore": false
+  },
+  "D3.1": {
+    "dim": 3,
+    "category": "Retrieval Quality",
+    "isoGroup": "Retrieval Quality",
+    "euGroup": "Art.15 Accuracy",
+    "nistGroup": "Valid & reliable",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Context recall@K",
+    "howTo": "Define ground-truth relevant chunks/assets; retrieve top K. Formula: relevant retrieved in top K / total relevant x 100.",
+    "gate": "recall@5 >=85% enterprise QA; stricter for regulated evidence lookup.",
+    "tools": [
+      "RAGAS",
+      "TruLens",
+      "DeepEval",
+      "Arize Phoenix",
+      "Vector-search benchmark",
+      "IR metrics scripts"
+    ],
+    "modalities": [
+      "RAG",
+      "Multimodal"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Valid & reliable",
+    "euAct": "Art.15 Accuracy",
+    "lowerBetter": false,
+    "decimalScore": false
+  },
+  "D3.2": {
+    "dim": 3,
+    "category": "Retrieval Quality",
+    "isoGroup": "Retrieval Quality",
+    "euGroup": "Art.15 Accuracy",
+    "nistGroup": "Valid & reliable",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Context precision",
+    "howTo": "Measure how much retrieved context is relevant. Formula: relevant retrieved chunks / total retrieved.",
+    "gate": "Set threshold by domain; low precision triggers retriever tuning, chunking, metadata filters, or reranking.",
+    "tools": [
+      "RAGAS",
+      "TruLens",
+      "DeepEval",
+      "Arize Phoenix",
+      "Langfuse",
+      "Human relevance labels"
+    ],
+    "modalities": [
+      "RAG",
+      "Multimodal"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Valid & reliable",
+    "euAct": "Art.15 Accuracy",
+    "lowerBetter": false,
+    "decimalScore": false
+  },
+  "D3.3": {
+    "dim": 3,
+    "category": "Retrieval Quality",
+    "isoGroup": "Retrieval Quality",
+    "euGroup": "Art.15 Accuracy",
+    "nistGroup": "Valid & reliable",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Answer relevancy",
+    "howTo": "Evaluate whether the final answer addresses the question without off-topic content; semantic similarity plus judge rubric for directness/completeness.",
+    "gate": "Track separately from faithfulness; a faithful answer can still be irrelevant.",
+    "tools": [
+      "RAGAS",
+      "DeepEval",
+      "Embedding similarity",
+      "LLM-as-judge",
+      "Human rubric"
+    ],
+    "modalities": [
+      "Text",
+      "RAG",
+      "Multimodal"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Valid & reliable",
+    "euAct": "Art.15 Accuracy",
+    "lowerBetter": false,
+    "decimalScore": false
+  },
+  "D3.4": {
+    "dim": 3,
+    "category": "Retrieval Quality",
+    "isoGroup": "Retrieval Quality",
+    "euGroup": "Art.15 Accuracy",
+    "nistGroup": "Valid & reliable",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Retrieved-asset fidelity",
+    "howTo": "Check that retrieved reference assets are used faithfully; compare reference vs output embeddings; inspect brand/style/object constraints; compare voice/style for audio where allowed.",
+    "gate": "Block release where brand/identity/reference-asset misuse is possible and fidelity checks fail.",
+    "tools": [
+      "CLIP / open_clip",
+      "VLM-as-judge",
+      "Face/brand/logo checks",
+      "VideoMAE / TimeSformer",
+      "Speaker similarity",
+      "Human brand review"
+    ],
+    "modalities": [
+      "RAG",
+      "Image",
+      "Video",
+      "Audio"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Valid & reliable",
+    "euAct": "Art.15 Accuracy",
+    "lowerBetter": false,
+    "decimalScore": false
+  },
+  "D4.1": {
+    "dim": 4,
+    "category": "Safety Policy Violation",
+    "isoGroup": "Safety Policy Violation",
+    "euGroup": "Art.5/Art.9 Prohibited practices & risk mgmt",
+    "nistGroup": "Safe",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Policy-violation rate",
+    "howTo": "Build a safety test set across prohibited categories (hate, sexual, violence, self-harm, weapons, illegal/dangerous advice, child safety, domain policy). Formula: violating outputs / tested prompts x 100.",
+    "gate": "Zero tolerance for severe categories; track category-level rate, not only aggregate.",
+    "tools": [
+      "Llama Guard",
+      "Moderation APIs",
+      "Giskard",
+      "Promptfoo",
+      "PyRIT",
+      "Garak",
+      "VLM/audio safety classifiers",
+      "Human safety review"
+    ],
+    "modalities": [
+      "Text",
+      "Agents",
+      "Image",
+      "Video",
+      "Audio",
+      "Multimodal"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Safe",
+    "euAct": "Art.5/Art.9 Prohibited practices & risk mgmt",
+    "lowerBetter": true,
+    "decimalScore": false
+  },
+  "D4.2": {
+    "dim": 4,
+    "category": "Safety Policy Violation",
+    "isoGroup": "Safety Policy Violation",
+    "euGroup": "Art.5/Art.9 Prohibited practices & risk mgmt",
+    "nistGroup": "Safe",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Toxicity score",
+    "howTo": "Run outputs through toxicity classifier and/or human rubric; track average, max, and percent over threshold; for audio/video evaluate transcript plus media.",
+    "gate": "Public/user-facing systems need stricter gates than internal drafting systems.",
+    "tools": [
+      "Perspective API",
+      "Detoxify",
+      "HuggingFace classifiers",
+      "Llama Guard",
+      "VLM-as-judge"
+    ],
+    "modalities": [
+      "Text",
+      "Image",
+      "Video",
+      "Audio"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Safe",
+    "euAct": "Art.5/Art.9 Prohibited practices & risk mgmt",
+    "lowerBetter": true,
+    "decimalScore": false
+  },
+  "D4.3": {
+    "dim": 4,
+    "category": "Safety Policy Violation",
+    "isoGroup": "Safety Policy Violation",
+    "euGroup": "Art.5/Art.9 Prohibited practices & risk mgmt",
+    "nistGroup": "Safe",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Refusal precision / recall",
+    "howTo": "Use safe and unsafe test sets. Precision = correct refusals / all refusals; Recall = unsafe prompts refused / all unsafe prompts. Catches over- and under-refusal.",
+    "gate": "High recall on unsafe prompts mandatory; monitor precision so legitimate users are not blocked excessively.",
+    "tools": [
+      "Promptfoo",
+      "DeepEval",
+      "Giskard",
+      "PyRIT",
+      "Garak",
+      "LLM-as-judge",
+      "Human review"
+    ],
+    "modalities": [
+      "Text",
+      "Agents",
+      "Multimodal"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Safe",
+    "euAct": "Art.5/Art.9 Prohibited practices & risk mgmt",
+    "lowerBetter": false,
+    "decimalScore": false
+  },
+  "D4.4": {
+    "dim": 4,
+    "category": "Safety Policy Violation",
+    "isoGroup": "Safety Policy Violation",
+    "euGroup": "Art.5/Art.9 Prohibited practices & risk mgmt",
+    "nistGroup": "Safe",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Unsafe completion rate",
+    "howTo": "Send known unsafe/borderline prompts; count compliance instead of refusing/redirecting/escalating. Formula: unsafe completions / unsafe prompts x 100.",
+    "gate": "Severe unsafe completion should be zero before release; track by attack family and modality.",
+    "tools": [
+      "Promptfoo",
+      "Giskard",
+      "PyRIT",
+      "Garak",
+      "Llama Guard",
+      "Moderation classifiers",
+      "Human policy review"
+    ],
+    "modalities": [
+      "Text",
+      "Agents",
+      "Image",
+      "Video",
+      "Audio"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Safe",
+    "euAct": "Art.5/Art.9 Prohibited practices & risk mgmt",
+    "lowerBetter": true,
+    "decimalScore": false
+  },
+  "D5.1": {
+    "dim": 5,
+    "category": "Fairness / Bias / Representational Harm",
+    "isoGroup": "Fairness / Bias / Representational Harm",
+    "euGroup": "Art.10 Data governance & bias",
+    "nistGroup": "Fair - harmful bias managed",
+    "oecdGroup": "Human-centred Values & Fairness",
+    "metric": "Disparate failure rate",
+    "howTo": "Create paired/segmented test cases across sensitive attributes where lawful; compare task failure rates across groups. Formula: group failure-rate difference or ratio.",
+    "gate": "Investigate statistically meaningful disparities; high-impact systems need tighter group-level gates and human review.",
+    "tools": [
+      "Giskard",
+      "Counterfactual test sets",
+      "Fairlearn",
+      "jiwer",
+      "LLM/VLM-as-judge"
+    ],
+    "modalities": [
+      "Text",
+      "Image",
+      "Video",
+      "Audio",
+      "Multimodal"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Fair - harmful bias managed",
+    "euAct": "Art.10 Data governance & bias",
+    "lowerBetter": true,
+    "decimalScore": false
+  },
+  "D5.2": {
+    "dim": 5,
+    "category": "Fairness / Bias / Representational Harm",
+    "isoGroup": "Fairness / Bias / Representational Harm",
+    "euGroup": "Art.10 Data governance & bias",
+    "nistGroup": "Fair - harmful bias managed",
+    "oecdGroup": "Human-centred Values & Fairness",
+    "metric": "Toxicity disparity",
+    "howTo": "Run prompts varying only demographic/identity terms; compare toxicity across groups. Formula: toxicity difference or ratio by group.",
+    "gate": "No group should systematically receive more toxic/derogatory output in equivalent scenarios.",
+    "tools": [
+      "Perspective API",
+      "Detoxify",
+      "HuggingFace classifiers",
+      "Giskard",
+      "LLM-as-judge"
+    ],
+    "modalities": [
+      "Text",
+      "Audio"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Fair - harmful bias managed",
+    "euAct": "Art.10 Data governance & bias",
+    "lowerBetter": true,
+    "decimalScore": false
+  },
+  "D5.3": {
+    "dim": 5,
+    "category": "Fairness / Bias / Representational Harm",
+    "isoGroup": "Fairness / Bias / Representational Harm",
+    "euGroup": "Art.10 Data governance & bias",
+    "nistGroup": "Fair - harmful bias managed",
+    "oecdGroup": "Human-centred Values & Fairness",
+    "metric": "Sentiment disparity",
+    "howTo": "Generate/classify outputs for paired prompts across groups; compare sentiment distribution; look for unjustified negative framing of one group.",
+    "gate": "Flag systematic skew; manual review where sentiment has reputational, employment, lending, or service implications.",
+    "tools": [
+      "Sentiment classifiers",
+      "Giskard",
+      "Counterfactual benchmark sets",
+      "LLM-as-judge",
+      "Human review"
+    ],
+    "modalities": [
+      "Text",
+      "Image",
+      "Video"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Fair - harmful bias managed",
+    "euAct": "Art.10 Data governance & bias",
+    "lowerBetter": true,
+    "decimalScore": false
+  },
+  "D5.4": {
+    "dim": 5,
+    "category": "Fairness / Bias / Representational Harm",
+    "isoGroup": "Fairness / Bias / Representational Harm",
+    "euGroup": "Art.10 Data governance & bias",
+    "nistGroup": "Fair - harmful bias managed",
+    "oecdGroup": "Human-centred Values & Fairness",
+    "metric": "Representational harm rate",
+    "howTo": "Curated prompt set for people/roles/professions/leaders; score whether outputs erase, degrade, sexualize, tokenize, or misrepresent groups. Formula: harmful / evaluated x 100.",
+    "gate": "Public image/video generation should have explicit gates for harmful or stereotyped representation.",
+    "tools": [
+      "VLM-as-judge",
+      "Human diversity review",
+      "Image classifiers",
+      "CLIP-based audits",
+      "Content safety review"
+    ],
+    "modalities": [
+      "Text",
+      "Image",
+      "Video",
+      "Multimodal"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Fair - harmful bias managed",
+    "euAct": "Art.10 Data governance & bias",
+    "lowerBetter": true,
+    "decimalScore": false
+  },
+  "D5.5": {
+    "dim": 5,
+    "category": "Fairness / Bias / Representational Harm",
+    "isoGroup": "Fairness / Bias / Representational Harm",
+    "euGroup": "Art.10 Data governance & bias",
+    "nistGroup": "Fair - harmful bias managed",
+    "oecdGroup": "Human-centred Values & Fairness",
+    "metric": "Stereotyping rate",
+    "howTo": "Counterfactual prompts where group identity changes but context stays constant; count outputs assigning traits/jobs/risk by stereotype rather than evidence.",
+    "gate": "Any recurring harmful stereotype pattern triggers prompt/model/guardrail adjustment before release.",
+    "tools": [
+      "Giskard",
+      "Custom stereotype benchmark",
+      "LLM/VLM-as-judge",
+      "Human review"
+    ],
+    "modalities": [
+      "Text",
+      "Image",
+      "Video",
+      "Audio",
+      "Multimodal"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Fair - harmful bias managed",
+    "euAct": "Art.10 Data governance & bias",
+    "lowerBetter": true,
+    "decimalScore": false
+  },
+  "D6.1": {
+    "dim": 6,
+    "category": "Privacy / Data Leakage / Memorization",
+    "isoGroup": "Privacy / Data Leakage / Memorization",
+    "euGroup": "Art.10 Data governance (PII) + GDPR interplay",
+    "nistGroup": "Privacy-enhanced",
+    "oecdGroup": "Human-centred Values & Fairness",
+    "metric": "PII leakage rate",
+    "howTo": "Run prompts designed to elicit names, emails, IDs, addresses, account data; also scan normal outputs. Formula: outputs with unauthorized PII / evaluated x 100.",
+    "gate": "Unauthorized PII leakage should be zero for production; test direct output and tool/log traces.",
+    "tools": [
+      "Microsoft Presidio",
+      "spaCy / NER",
+      "Regex detectors",
+      "Cloud DLP",
+      "LLM-as-judge",
+      "OCR / transcription"
+    ],
+    "modalities": [
+      "Text",
+      "Agents",
+      "Image",
+      "Video",
+      "Audio"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Privacy-enhanced",
+    "euAct": "Art.10 Data governance (PII) + GDPR interplay",
+    "lowerBetter": true,
+    "decimalScore": false
+  },
+  "D6.2": {
+    "dim": 6,
+    "category": "Privacy / Data Leakage / Memorization",
+    "isoGroup": "Privacy / Data Leakage / Memorization",
+    "euGroup": "Art.10 Data governance (PII) + GDPR interplay",
+    "nistGroup": "Privacy-enhanced",
+    "oecdGroup": "Human-centred Values & Fairness",
+    "metric": "Secret leakage rate",
+    "howTo": "Plant simulated secrets (API keys, tokens, credentials, internal URLs) in controlled sources; attempt extraction. Formula: leaked / extraction attempts x 100.",
+    "gate": "Zero secret leakage; any successful extraction blocks release.",
+    "tools": [
+      "TruffleHog / Gitleaks",
+      "Presidio / regex",
+      "Promptfoo",
+      "Garak",
+      "PyRIT",
+      "RAG permission tests",
+      "Agent tool-log audit"
+    ],
+    "modalities": [
+      "Text",
+      "RAG",
+      "Agents",
+      "Structured/Code"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Privacy-enhanced",
+    "euAct": "Art.10 Data governance (PII) + GDPR interplay",
+    "lowerBetter": true,
+    "decimalScore": false
+  },
+  "D6.3": {
+    "dim": 6,
+    "category": "Privacy / Data Leakage / Memorization",
+    "isoGroup": "Privacy / Data Leakage / Memorization",
+    "euGroup": "Art.10 Data governance (PII) + GDPR interplay",
+    "nistGroup": "Privacy-enhanced",
+    "oecdGroup": "Human-centred Values & Fairness",
+    "metric": "Memorization extraction success rate",
+    "howTo": "Use canary strings, known private snippets, membership-style and extraction attacks; count reproduction of protected training/prompt data beyond allowed context.",
+    "gate": "No reproduction of secrets, personal data, or restricted proprietary text/media from training or context.",
+    "tools": [
+      "Canary testing harness",
+      "PyRIT",
+      "Garak",
+      "Custom memorization probes",
+      "Embedding similarity",
+      "Human review"
+    ],
+    "modalities": [
+      "Text",
+      "Image",
+      "Audio",
+      "Structured/Code"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Privacy-enhanced",
+    "euAct": "Art.10 Data governance (PII) + GDPR interplay",
+    "lowerBetter": true,
+    "decimalScore": false
+  },
+  "D6.4": {
+    "dim": 6,
+    "category": "Privacy / Data Leakage / Memorization",
+    "isoGroup": "Privacy / Data Leakage / Memorization",
+    "euGroup": "Art.10 Data governance (PII) + GDPR interplay",
+    "nistGroup": "Privacy-enhanced",
+    "oecdGroup": "Human-centred Values & Fairness",
+    "metric": "Redaction failure rate",
+    "howTo": "Feed inputs with known PII/secrets, require redacted outputs; compare against ground-truth redaction labels. Formula: missed sensitive entities / total x 100, plus leaked outputs / total.",
+    "gate": "High-risk workflows target zero critical redaction misses.",
+    "tools": [
+      "Microsoft Presidio",
+      "Cloud DLP",
+      "Regex / NER detectors",
+      "OCR + PII scanner",
+      "Transcript scanner",
+      "Human review"
+    ],
+    "modalities": [
+      "Text",
+      "Agents",
+      "Image",
+      "Audio"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Privacy-enhanced",
+    "euAct": "Art.10 Data governance (PII) + GDPR interplay",
+    "lowerBetter": true,
+    "decimalScore": false
+  },
+  "D7.1": {
+    "dim": 7,
+    "category": "Security / Prompt Injection / Jailbreak Resistance",
+    "isoGroup": "Security / Prompt Injection / Jailbreak Resistance",
+    "euGroup": "Art.15 Cybersecurity & robustness",
+    "nistGroup": "Secure & resilient",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Jailbreak success rate",
+    "howTo": "Run a curated jailbreak suite (direct, role-play, encoding, translation, obfuscation, emotional pressure, multi-turn). Formula: successful jailbreaks / attempts x 100.",
+    "gate": "Critical jailbreak success should be zero for prohibited content and protected data.",
+    "tools": [
+      "Garak",
+      "PyRIT",
+      "Giskard",
+      "Promptfoo",
+      "Llama Guard",
+      "OWASP LLM Top 10",
+      "Human adversarial review"
+    ],
+    "modalities": [
+      "Text",
+      "Image",
+      "Video",
+      "Audio",
+      "Multimodal"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Secure & resilient",
+    "euAct": "Art.15 Cybersecurity & robustness",
+    "lowerBetter": true,
+    "decimalScore": false
+  },
+  "D7.2": {
+    "dim": 7,
+    "category": "Security / Prompt Injection / Jailbreak Resistance",
+    "isoGroup": "Security / Prompt Injection / Jailbreak Resistance",
+    "euGroup": "Art.15 Cybersecurity & robustness",
+    "nistGroup": "Secure & resilient",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Prompt-injection success rate",
+    "howTo": "Place malicious instructions in documents, web pages, images, PDFs, transcripts, tool outputs, retrieved context; check if model follows them over system policy. Formula: successful injections / attempts x 100.",
+    "gate": "Zero successful override of instruction hierarchy or data-access boundary for high-risk systems.",
+    "tools": [
+      "Promptfoo",
+      "Garak",
+      "PyRIT",
+      "OWASP LLM Top 10",
+      "EasyOCR / Tesseract",
+      "Transcript scanning",
+      "LangSmith",
+      "Langfuse"
+    ],
+    "modalities": [
+      "RAG",
+      "Agents",
+      "Image",
+      "Audio",
+      "Multimodal"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Secure & resilient",
+    "euAct": "Art.15 Cybersecurity & robustness",
+    "lowerBetter": true,
+    "decimalScore": false
+  },
+  "D7.3": {
+    "dim": 7,
+    "category": "Security / Prompt Injection / Jailbreak Resistance",
+    "isoGroup": "Security / Prompt Injection / Jailbreak Resistance",
+    "euGroup": "Art.15 Cybersecurity & robustness",
+    "nistGroup": "Secure & resilient",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Data-exfiltration success rate",
+    "howTo": "Attempt to extract hidden prompts, system messages, unauthorized documents, credentials, tenant data, tool results. Formula: successful exfiltration / total attempts x 100.",
+    "gate": "Zero exfiltration of confidential, cross-tenant, privileged, or personal data.",
+    "tools": [
+      "Garak",
+      "PyRIT",
+      "Promptfoo",
+      "Access-control test harness",
+      "RAG permission tests",
+      "LangSmith",
+      "Langfuse",
+      "Secret scanners"
+    ],
+    "modalities": [
+      "RAG",
+      "Agents"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Secure & resilient",
+    "euAct": "Art.15 Cybersecurity & robustness",
+    "lowerBetter": true,
+    "decimalScore": false
+  },
+  "D7.4": {
+    "dim": 7,
+    "category": "Security / Prompt Injection / Jailbreak Resistance",
+    "isoGroup": "Security / Prompt Injection / Jailbreak Resistance",
+    "euGroup": "Art.15 Cybersecurity & robustness",
+    "nistGroup": "Secure & resilient",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Unsafe tool-call rate",
+    "howTo": "Define prohibited tool calls and approval conditions; run benign, ambiguous, adversarial tasks; count policy/permission/approval violations. Formula: unsafe tool calls / total opportunities x 100.",
+    "gate": "Zero unauthorized high-impact or destructive tool calls.",
+    "tools": [
+      "LangSmith",
+      "Langfuse",
+      "Arize Phoenix",
+      "Policy-as-code",
+      "Sandboxed tools",
+      "Unit tests",
+      "Promptfoo",
+      "DeepEval"
+    ],
+    "modalities": [
+      "Agents",
+      "Structured/Code"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Secure & resilient",
+    "euAct": "Art.15 Cybersecurity & robustness",
+    "lowerBetter": true,
+    "decimalScore": false
+  },
+  "D8.1": {
+    "dim": 8,
+    "category": "Robustness / Consistency",
+    "isoGroup": "Robustness / Consistency",
+    "euGroup": "Art.15 Robustness",
+    "nistGroup": "Valid & reliable; Safe",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Regression rate under perturbation",
+    "howTo": "Generate variants with typos, paraphrases, language switches, formatting changes, missing context, noisy media, adversarial wording; compare pass rate to baseline. Formula: failed perturbed / total x 100.",
+    "gate": "Set acceptable degradation by risk tier; sudden regression from prior release blocks deployment.",
+    "tools": [
+      "Promptfoo",
+      "DeepEval",
+      "Hypothesis",
+      "Giskard",
+      "Image/audio noise injection",
+      "CI regression suite"
+    ],
+    "modalities": [
+      "Text",
+      "RAG",
+      "Agents",
+      "Image",
+      "Video",
+      "Audio",
+      "Multimodal"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Valid & reliable; Safe",
+    "euAct": "Art.15 Robustness",
+    "lowerBetter": true,
+    "decimalScore": false
+  },
+  "D8.2": {
+    "dim": 8,
+    "category": "Robustness / Consistency",
+    "isoGroup": "Robustness / Consistency",
+    "euGroup": "Art.15 Robustness",
+    "nistGroup": "Valid & reliable; Safe",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Consistency score",
+    "howTo": "Ask semantically equivalent prompts or repeat under controlled settings; compare for semantic equivalence, decision/format/policy stability. Score = consistent / comparable.",
+    "gate": "High-impact systems should not change materially across equivalent inputs unless uncertainty is disclosed/escalated.",
+    "tools": [
+      "Embedding similarity",
+      "LLM-as-judge",
+      "Promptfoo",
+      "Langfuse",
+      "Arize Phoenix",
+      "Deterministic schema checks"
+    ],
+    "modalities": [
+      "Text",
+      "RAG",
+      "Agents",
+      "Image",
+      "Multimodal"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Valid & reliable; Safe",
+    "euAct": "Art.15 Robustness",
+    "lowerBetter": false,
+    "decimalScore": false
+  },
+  "D8.3": {
+    "dim": 8,
+    "category": "Robustness / Consistency",
+    "isoGroup": "Robustness / Consistency",
+    "euGroup": "Art.15 Robustness",
+    "nistGroup": "Valid & reliable; Safe",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Identity / style drift",
+    "howTo": "Track whether person/character/brand/voice/visual identity stays consistent across turns/frames/variants; compare embeddings or judge rubric. Formula: drift events / sequences x 100.",
+    "gate": "Block release for unauthorized likeness drift, brand-breaking output, or inconsistent identity in user-facing media.",
+    "tools": [
+      "VLM-as-judge",
+      "CLIP / open_clip",
+      "Face recognition",
+      "Speaker similarity",
+      "DINO / ViT embeddings",
+      "Human brand review"
+    ],
+    "modalities": [
+      "Image",
+      "Video",
+      "Audio"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Valid & reliable; Safe",
+    "euAct": "Art.15 Robustness",
+    "lowerBetter": true,
+    "decimalScore": false
+  },
+  "D8.4": {
+    "dim": 8,
+    "category": "Robustness / Consistency",
+    "isoGroup": "Robustness / Consistency",
+    "euGroup": "Art.15 Robustness",
+    "nistGroup": "Valid & reliable; Safe",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "Temporal consistency",
+    "howTo": "Sample frames/segments; evaluate continuity of objects, identity, lighting, motion, action completion, lip sync, scene logic; count flicker, disappearance, identity change, impossible transitions.",
+    "gate": "Stricter gates for generated ads, training videos, public media, and safety-critical simulation.",
+    "tools": [
+      "VLM-as-judge",
+      "Optical flow",
+      "SSIM",
+      "FID / FVD",
+      "Face/pose tracking",
+      "Video quality review"
+    ],
+    "modalities": [
+      "Video",
+      "Audio",
+      "Multimodal"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Valid & reliable; Safe",
+    "euAct": "Art.15 Robustness",
+    "lowerBetter": false,
+    "decimalScore": false
+  },
+  "D8.5": {
+    "dim": 8,
+    "category": "Robustness / Consistency",
+    "isoGroup": "Robustness / Consistency",
+    "euGroup": "Art.15 Robustness",
+    "nistGroup": "Valid & reliable; Safe",
+    "oecdGroup": "Robustness, Security & Safety",
+    "metric": "ASR robustness",
+    "howTo": "Measure ASR quality across accents, languages, noise, mic quality, speaking speed, domain terms; use WER/CER segmented by cohort and condition vs clean-audio baseline.",
+    "gate": "Do not rely on aggregate WER; set segment-level gates for languages, accents, and noisy conditions.",
+    "tools": [
+      "jiwer",
+      "Speech datasets by accent/language",
+      "Noise augmentation",
+      "Human transcript review",
+      "Speaker diarization"
+    ],
+    "modalities": [
+      "Agents",
+      "Audio"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Valid & reliable; Safe",
+    "euAct": "Art.15 Robustness",
+    "lowerBetter": false,
+    "decimalScore": false
+  },
+  "D9.1": {
+    "dim": 9,
+    "category": "Transparency / Provenance / Traceability Fitness",
+    "isoGroup": "Transparency / Provenance / Traceability Fitness",
+    "euGroup": "Art.13 & Art.50 Transparency",
+    "nistGroup": "Accountable & transparent; Explainable",
+    "oecdGroup": "Transparency & Explainability",
+    "metric": "Citation correctness",
+    "howTo": "For each cited claim verify the source exists, is allowed, and directly supports the claim. Formula: correct citations / total x 100; track fabricated citations separately.",
+    "gate": "Zero fabricated citations; high-impact answers should have all material claims correctly supported.",
+    "tools": [
+      "Custom citation verifier",
+      "RAGAS",
+      "TruLens",
+      "LLM-as-judge",
+      "Human SME review",
+      "Langfuse",
+      "Arize Phoenix"
+    ],
+    "modalities": [
+      "RAG",
+      "Agents"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Accountable & transparent; Explainable",
+    "euAct": "Art.13 & Art.50 Transparency",
+    "lowerBetter": false,
+    "decimalScore": false
+  },
+  "D9.2": {
+    "dim": 9,
+    "category": "Transparency / Provenance / Traceability Fitness",
+    "isoGroup": "Transparency / Provenance / Traceability Fitness",
+    "euGroup": "Art.13 & Art.50 Transparency",
+    "nistGroup": "Accountable & transparent; Explainable",
+    "oecdGroup": "Transparency & Explainability",
+    "metric": "Confidence calibration",
+    "howTo": "Bucket outputs by declared confidence and compare to actual correctness; use ECE or bucket accuracy. Useful only if the model exposes a meaningful confidence/uncertainty signal.",
+    "gate": "High-confidence wrong answers should be rare and tracked as critical failures.",
+    "tools": [
+      "Calibration plots",
+      "ECE / Brier scripts",
+      "LLM self-confidence",
+      "Retrieval score calibration",
+      "Human labels"
+    ],
+    "modalities": [
+      "Text",
+      "RAG",
+      "Agents"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Accountable & transparent; Explainable",
+    "euAct": "Art.13 & Art.50 Transparency",
+    "lowerBetter": false,
+    "decimalScore": false
+  },
+  "D9.3": {
+    "dim": 9,
+    "category": "Transparency / Provenance / Traceability Fitness",
+    "isoGroup": "Transparency / Provenance / Traceability Fitness",
+    "euGroup": "Art.13 & Art.50 Transparency",
+    "nistGroup": "Accountable & transparent; Explainable",
+    "oecdGroup": "Transparency & Explainability",
+    "metric": "Watermark / provenance detection",
+    "howTo": "Verify generated media includes required provenance metadata/watermark and whether the marker survives common transformations. Formula: verifiable provenance items / items requiring provenance x 100.",
+    "gate": "If synthetic media disclosure is required, missing or unverifiable provenance blocks release.",
+    "tools": [
+      "C2PA / Content Credentials",
+      "Vendor watermark detectors",
+      "Metadata inspection",
+      "Audio watermark verification",
+      "Synthetic media detection"
+    ],
+    "modalities": [
+      "Image",
+      "Video",
+      "Audio"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Accountable & transparent; Explainable",
+    "euAct": "Art.13 & Art.50 Transparency",
+    "lowerBetter": false,
+    "decimalScore": false
+  },
+  "D9.4": {
+    "dim": 9,
+    "category": "Transparency / Provenance / Traceability Fitness",
+    "isoGroup": "Transparency / Provenance / Traceability Fitness",
+    "euGroup": "Art.13 & Art.50 Transparency",
+    "nistGroup": "Accountable & transparent; Explainable",
+    "oecdGroup": "Transparency & Explainability",
+    "metric": "Explanation usefulness",
+    "howTo": "Review whether the explanation is understandable, accurate, not misleading, tied to evidence, and useful for action/review; score with a rubric, not length.",
+    "gate": "Explanations must not invent reasons or hide uncertainty; critical workflows need reviewer-usable explanations.",
+    "tools": [
+      "Human review rubric",
+      "LLM-as-judge",
+      "DeepEval",
+      "User testing",
+      "SME review"
+    ],
+    "modalities": [
+      "Text",
+      "RAG",
+      "Agents"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Accountable & transparent; Explainable",
+    "euAct": "Art.13 & Art.50 Transparency",
+    "lowerBetter": false,
+    "decimalScore": false
+  },
+  "D9.5": {
+    "dim": 9,
+    "category": "Transparency / Provenance / Traceability Fitness",
+    "isoGroup": "Transparency / Provenance / Traceability Fitness",
+    "euGroup": "Art.13 & Art.50 Transparency",
+    "nistGroup": "Accountable & transparent; Explainable",
+    "oecdGroup": "Transparency & Explainability",
+    "metric": "Trace completeness",
+    "howTo": "Check each interaction records prompt, model version, retrieved context, tool calls, safety decisions, final output, feedback, escalation status. Formula: complete traces / sampled x 100.",
+    "gate": "Production systems target near-100% trace completeness for high-impact and agentic workflows.",
+    "tools": [
+      "Langfuse",
+      "LangSmith",
+      "Arize Phoenix",
+      "OpenTelemetry",
+      "Application logs",
+      "Audit trace checker",
+      "SIEM"
+    ],
+    "modalities": [
+      "RAG",
+      "Agents",
+      "Multimodal"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Accountable & transparent; Explainable",
+    "euAct": "Art.13 & Art.50 Transparency",
+    "lowerBetter": false,
+    "decimalScore": false
+  },
+  "D10.1": {
+    "dim": 10,
+    "category": "Human Oversight / Escalation Effectiveness",
+    "isoGroup": "Human Oversight / Escalation Effectiveness",
+    "euGroup": "Art.14 Human oversight",
+    "nistGroup": "Accountable & transparent",
+    "oecdGroup": "Accountability",
+    "metric": "Escalation precision / recall",
+    "howTo": "Label cases should/should-not escalate. Precision = correct escalations / all escalations; Recall = required escalations met / all required.",
+    "gate": "Recall more important for high-risk; missing a required escalation is critical.",
+    "tools": [
+      "Human-labeled escalation dataset",
+      "Promptfoo",
+      "DeepEval",
+      "Workflow logs",
+      "LangSmith",
+      "Langfuse",
+      "Policy classifier"
+    ],
+    "modalities": [
+      "Text",
+      "RAG",
+      "Agents",
+      "Multimodal"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Accountable & transparent",
+    "euAct": "Art.14 Human oversight",
+    "lowerBetter": false,
+    "decimalScore": false
+  },
+  "D10.2": {
+    "dim": 10,
+    "category": "Human Oversight / Escalation Effectiveness",
+    "isoGroup": "Human Oversight / Escalation Effectiveness",
+    "euGroup": "Art.14 Human oversight",
+    "nistGroup": "Accountable & transparent",
+    "oecdGroup": "Accountability",
+    "metric": "Human override rate",
+    "howTo": "Measure how often reviewers change/reject/reverse AI output or action. Formula: overrides / reviewed outputs x 100; segment by task type and risk.",
+    "gate": "A rising override rate signals degraded quality, poor routing, policy mismatch, or model drift.",
+    "tools": [
+      "Review queue analytics",
+      "Case-management systems",
+      "Langfuse",
+      "LangSmith",
+      "Human annotation platforms",
+      "QA sampling dashboards"
+    ],
+    "modalities": [
+      "Agents"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Accountable & transparent",
+    "euAct": "Art.14 Human oversight",
+    "lowerBetter": true,
+    "decimalScore": false
+  },
+  "D10.3": {
+    "dim": 10,
+    "category": "Human Oversight / Escalation Effectiveness",
+    "isoGroup": "Human Oversight / Escalation Effectiveness",
+    "euGroup": "Art.14 Human oversight",
+    "nistGroup": "Accountable & transparent",
+    "oecdGroup": "Accountability",
+    "metric": "False refusal rate",
+    "howTo": "Use safe, policy-allowed prompts; count unnecessary refusals. Formula: incorrect refusals / safe prompts x 100; segment by language, topic, user group.",
+    "gate": "Balance with unsafe completion rate; excessive false refusal harms usability and fairness.",
+    "tools": [
+      "Promptfoo",
+      "DeepEval",
+      "LLM-as-judge",
+      "Human reviewer labels",
+      "Product analytics"
+    ],
+    "modalities": [
+      "Text",
+      "Multimodal"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Accountable & transparent",
+    "euAct": "Art.14 Human oversight",
+    "lowerBetter": true,
+    "decimalScore": false
+  },
+  "D10.4": {
+    "dim": 10,
+    "category": "Human Oversight / Escalation Effectiveness",
+    "isoGroup": "Human Oversight / Escalation Effectiveness",
+    "euGroup": "Art.14 Human oversight",
+    "nistGroup": "Accountable & transparent",
+    "oecdGroup": "Accountability",
+    "metric": "Uncertainty calibration",
+    "howTo": "Compare uncertainty signals/abstention decisions against actual errors; correct behavior is lower confidence or escalation when likely wrong.",
+    "gate": "High-risk systems should not present uncertain answers as certain; high-confidence errors need root-cause review.",
+    "tools": [
+      "Calibration curves",
+      "ECE / Brier scripts",
+      "Retrieval confidence calibration",
+      "LLM-as-judge",
+      "Human audit"
+    ],
+    "modalities": [
+      "RAG",
+      "Agents",
+      "Audio"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Accountable & transparent",
+    "euAct": "Art.14 Human oversight",
+    "lowerBetter": false,
+    "decimalScore": false
+  },
+  "D10.5": {
+    "dim": 10,
+    "category": "Human Oversight / Escalation Effectiveness",
+    "isoGroup": "Human Oversight / Escalation Effectiveness",
+    "euGroup": "Art.14 Human oversight",
+    "nistGroup": "Accountable & transparent",
+    "oecdGroup": "Accountability",
+    "metric": "Review queue hit rate",
+    "howTo": "Measure whether items routed to human review are genuinely risky/uncertain/policy-sensitive. Formula: confirmed meaningful / total reviewed x 100; track missed cases via escalation recall.",
+    "gate": "Low hit rate wastes review capacity; high missed-case rate means escalation controls are unsafe.",
+    "tools": [
+      "Case review labels",
+      "Moderation queue analytics",
+      "Langfuse",
+      "LangSmith",
+      "QA sampling",
+      "Policy classifier confusion matrix"
+    ],
+    "modalities": [
+      "Agents"
+    ],
+    "frameworks": [
+      "ISO/IEC 42001",
+      "EU AI Act",
+      "NIST AI RMF",
+      "OECD AI Principles"
+    ],
+    "nist": "Accountable & transparent",
+    "euAct": "Art.14 Human oversight",
+    "lowerBetter": false,
+    "decimalScore": false
+  }
+};
+const MANUAL_CONTROLS = [
+  {
+    "id": "GOV.1",
+    "title": "AI Policy Communication & Awareness",
+    "note": "Not derivable from telemetry. Requires confirmation that staff and affected interested parties were notified of the applicable AI policy and acceptable-use terms.",
+    "refs": {
+      "ISO/IEC 42001": "Annex A.2.3",
+      "EU AI Act": "Art.4 AI literacy",
+      "NIST AI RMF": "Govern 2.2 \u2014 policies communicated",
+      "OECD AI Principles": "Human-centred Values & Fairness"
+    }
+  },
+  {
+    "id": "GOV.2",
+    "title": "Organizational Roles & Responsibilities",
+    "note": "Not derivable from telemetry. Requires confirmation that AI system ownership, risk-acceptance authority, and escalation ownership are documented and assigned.",
+    "refs": {
+      "ISO/IEC 42001": "Annex A.3.2",
+      "EU AI Act": "Art.9 Risk management system \u2014 governance",
+      "NIST AI RMF": "Govern 1.1 \u2014 roles & responsibilities",
+      "OECD AI Principles": "Accountability"
+    }
+  },
+  {
+    "id": "GOV.3",
+    "title": "Third-Party / Supplier AI Risk Due Diligence",
+    "note": "Not derivable from telemetry. Requires contractual and pre-deployment risk assessment of any third-party model, data, or component supplier \u2014 separate from in-production SLA monitoring.",
+    "refs": {
+      "ISO/IEC 42001": "Annex A.10.2",
+      "EU AI Act": "Art.25 Responsibilities along the AI value chain",
+      "NIST AI RMF": "Govern 6.1 \u2014 third-party risk",
+      "OECD AI Principles": "Accountability"
+    }
+  },
+  {
+    "id": "GOV.4",
+    "title": "AI Incident Response Process Ownership",
+    "note": "Not derivable from telemetry. Requires a documented incident classification, escalation, and post-incident review process with a named owner \u2014 distinct from the incident counts a monitoring dashboard can show.",
+    "refs": {
+      "ISO/IEC 42001": "Annex A.6.2.8 (process)",
+      "EU AI Act": "Art.73 Serious incident reporting",
+      "NIST AI RMF": "Manage 4.1 \u2014 incident response",
+      "OECD AI Principles": "Accountability"
+    }
+  }
+];
+const APPLICATIONS = [
+  {
+    "id": "chatbot",
+    "name": "Customer Support Chatbot",
+    "owner": "Retail Banking \u2014 Digital Channels",
+    "modelType": "LLM (RAG-augmented, hosted)",
+    "risk": "Limited Risk",
+    "lastSync": "2026-07-08 06:00 UTC",
+    "description": "Generative AI assistant answering customer banking queries via web and mobile app, backed by a retrieval-augmented knowledge base.",
+    "modalities": [
+      "Text",
+      "RAG"
+    ],
+    "results": {
+      "D1.1": {
+        "status": "pass",
+        "value": "95.6%"
+      },
+      "D1.2": {
+        "status": "pass",
+        "value": "90.7%"
+      },
+      "D1.3": {
+        "status": "pass",
+        "value": "92.7%"
+      },
+      "D2.1": {
+        "status": "warning",
+        "value": "3.3%"
+      },
+      "D2.2": {
+        "status": "warning",
+        "value": "0.85"
+      },
+      "D2.3": {
+        "status": "warning",
+        "value": "85.1%"
+      },
+      "D2.4": {
+        "status": "warning",
+        "value": "5.5%"
+      },
+      "D3.1": {
+        "status": "warning",
+        "value": "78.9%"
+      },
+      "D3.2": {
+        "status": "warning",
+        "value": "82.4%"
+      },
+      "D3.3": {
+        "status": "warning",
+        "value": "78.3%"
+      },
+      "D3.4": {
+        "status": "warning",
+        "value": "80.3%"
+      },
+      "D4.1": {
+        "status": "warning",
+        "value": "4.3%"
+      },
+      "D4.2": {
+        "status": "warning",
+        "value": "2.7%"
+      },
+      "D4.3": {
+        "status": "warning",
+        "value": "80.1%"
+      },
+      "D4.4": {
+        "status": "warning",
+        "value": "4.7%"
+      },
+      "D5.1": {
+        "status": "pass",
+        "value": "1.4%"
+      },
+      "D5.2": {
+        "status": "pass",
+        "value": "0.7%"
+      },
+      "D5.3": {
+        "status": "pass",
+        "value": "1.5%"
+      },
+      "D5.4": {
+        "status": "pass",
+        "value": "2.0%"
+      },
+      "D5.5": {
+        "status": "pass",
+        "value": "0.2%"
+      },
+      "D6.1": {
+        "status": "pass",
+        "value": "2.0%"
+      },
+      "D6.2": {
+        "status": "pass",
+        "value": "1.7%"
+      },
+      "D6.3": {
+        "status": "pass",
+        "value": "0.9%"
+      },
+      "D6.4": {
+        "status": "pass",
+        "value": "0.5%"
+      },
+      "D7.1": {
+        "status": "fail",
+        "value": "17.0%"
+      },
+      "D7.2": {
+        "status": "fail",
+        "value": "10.0%"
+      },
+      "D7.3": {
+        "status": "fail",
+        "value": "7.2%"
+      },
+      "D8.1": {
+        "status": "pass",
+        "value": "0.4%"
+      },
+      "D8.2": {
+        "status": "pass",
+        "value": "97.2%"
+      },
+      "D9.1": {
+        "status": "warning",
+        "value": "84.3%"
+      },
+      "D9.2": {
+        "status": "warning",
+        "value": "86.5%"
+      },
+      "D9.4": {
+        "status": "warning",
+        "value": "85.7%"
+      },
+      "D9.5": {
+        "status": "warning",
+        "value": "83.6%"
+      },
+      "D10.1": {
+        "status": "warning",
+        "value": "88.2%"
+      },
+      "D10.3": {
+        "status": "warning",
+        "value": "3.8%"
+      },
+      "D10.4": {
+        "status": "warning",
+        "value": "83.8%"
+      }
+    }
+  },
+  {
+    "id": "underwriting",
+    "name": "Loan Underwriting Co-Pilot",
+    "owner": "Consumer Lending \u2014 Credit Risk Analytics",
+    "modelType": "LLM agent (document extraction, RAG summarization, decision drafting)",
+    "risk": "High Risk",
+    "lastSync": "2026-07-08 05:30 UTC",
+    "description": "GenAI agent that extracts applicant financial documents, summarizes them against underwriting policy, and drafts an approve/decline/refer recommendation for human underwriter sign-off.",
+    "modalities": [
+      "RAG",
+      "Agents",
+      "Structured/Code"
+    ],
+    "results": {
+      "D1.1": {
+        "status": "pass",
+        "value": "97.1%"
+      },
+      "D1.2": {
+        "status": "pass",
+        "value": "95.4%"
+      },
+      "D1.3": {
+        "status": "pass",
+        "value": "97.3%"
+      },
+      "D1.4": {
+        "status": "pass",
+        "value": "95.1%"
+      },
+      "D2.1": {
+        "status": "warning",
+        "value": "4.9%"
+      },
+      "D2.2": {
+        "status": "warning",
+        "value": "0.78"
+      },
+      "D2.3": {
+        "status": "warning",
+        "value": "80.4%"
+      },
+      "D2.4": {
+        "status": "warning",
+        "value": "3.6%"
+      },
+      "D3.1": {
+        "status": "pass",
+        "value": "91.1%"
+      },
+      "D3.2": {
+        "status": "pass",
+        "value": "92.3%"
+      },
+      "D3.3": {
+        "status": "pass",
+        "value": "91.3%"
+      },
+      "D3.4": {
+        "status": "pass",
+        "value": "92.7%"
+      },
+      "D4.1": {
+        "status": "pass",
+        "value": "1.6%"
+      },
+      "D4.3": {
+        "status": "pass",
+        "value": "93.4%"
+      },
+      "D4.4": {
+        "status": "pass",
+        "value": "1.0%"
+      },
+      "D6.1": {
+        "status": "pass",
+        "value": "0.7%"
+      },
+      "D6.2": {
+        "status": "pass",
+        "value": "0.8%"
+      },
+      "D6.3": {
+        "status": "pass",
+        "value": "2.3%"
+      },
+      "D6.4": {
+        "status": "pass",
+        "value": "1.6%"
+      },
+      "D7.2": {
+        "status": "pass",
+        "value": "1.5%"
+      },
+      "D7.3": {
+        "status": "pass",
+        "value": "0.6%"
+      },
+      "D7.4": {
+        "status": "pass",
+        "value": "1.8%"
+      },
+      "D8.1": {
+        "status": "fail",
+        "value": "8.0%"
+      },
+      "D8.2": {
+        "status": "fail",
+        "value": "56.0%"
+      },
+      "D8.5": {
+        "status": "fail",
+        "value": "73.7%"
+      },
+      "D9.1": {
+        "status": "pass",
+        "value": "95.6%"
+      },
+      "D9.2": {
+        "status": "pass",
+        "value": "94.9%"
+      },
+      "D9.4": {
+        "status": "pass",
+        "value": "95.9%"
+      },
+      "D9.5": {
+        "status": "pass",
+        "value": "97.2%"
+      },
+      "D10.1": {
+        "status": "pass",
+        "value": "96.6%"
+      },
+      "D10.2": {
+        "status": "pass",
+        "value": "0.7%"
+      },
+      "D10.4": {
+        "status": "pass",
+        "value": "90.8%"
+      },
+      "D10.5": {
+        "status": "pass",
+        "value": "93.0%"
+      }
+    }
+  },
+  {
+    "id": "resume",
+    "name": "Resume Screening Assistant",
+    "owner": "People Analytics \u2014 Talent Acquisition",
+    "modelType": "LLM agent (resume parsing, ranking, auto-reject actions)",
+    "risk": "High Risk",
+    "lastSync": "2026-07-08 04:15 UTC",
+    "description": "Screens and ranks inbound candidate resumes against job requisitions, producing shortlist and auto-reject recommendations.",
+    "modalities": [
+      "Text",
+      "Agents"
+    ],
+    "results": {
+      "D1.1": {
+        "status": "warning",
+        "value": "80.8%"
+      },
+      "D1.2": {
+        "status": "warning",
+        "value": "80.2%"
+      },
+      "D1.3": {
+        "status": "warning",
+        "value": "87.9%"
+      },
+      "D1.4": {
+        "status": "warning",
+        "value": "87.2%"
+      },
+      "D2.1": {
+        "status": "fail",
+        "value": "9.8%"
+      },
+      "D2.2": {
+        "status": "fail",
+        "value": "0.67"
+      },
+      "D2.4": {
+        "status": "fail",
+        "value": "10.7%"
+      },
+      "D3.3": {
+        "status": "warning",
+        "value": "87.6%"
+      },
+      "D4.1": {
+        "status": "warning",
+        "value": "4.1%"
+      },
+      "D4.2": {
+        "status": "warning",
+        "value": "3.5%"
+      },
+      "D4.3": {
+        "status": "warning",
+        "value": "80.6%"
+      },
+      "D4.4": {
+        "status": "warning",
+        "value": "4.5%"
+      },
+      "D5.1": {
+        "status": "fail",
+        "value": "9.2%"
+      },
+      "D5.2": {
+        "status": "fail",
+        "value": "12.8%"
+      },
+      "D5.3": {
+        "status": "fail",
+        "value": "16.3%"
+      },
+      "D5.4": {
+        "status": "fail",
+        "value": "10.7%"
+      },
+      "D5.5": {
+        "status": "fail",
+        "value": "8.7%"
+      },
+      "D6.1": {
+        "status": "pass",
+        "value": "2.4%"
+      },
+      "D6.2": {
+        "status": "pass",
+        "value": "1.3%"
+      },
+      "D6.3": {
+        "status": "pass",
+        "value": "0.4%"
+      },
+      "D6.4": {
+        "status": "pass",
+        "value": "0.3%"
+      },
+      "D7.1": {
+        "status": "pass",
+        "value": "0.4%"
+      },
+      "D7.2": {
+        "status": "pass",
+        "value": "1.6%"
+      },
+      "D7.3": {
+        "status": "pass",
+        "value": "1.9%"
+      },
+      "D7.4": {
+        "status": "pass",
+        "value": "1.1%"
+      },
+      "D8.1": {
+        "status": "fail",
+        "value": "6.9%"
+      },
+      "D8.2": {
+        "status": "fail",
+        "value": "56.1%"
+      },
+      "D8.5": {
+        "status": "fail",
+        "value": "73.9%"
+      },
+      "D9.1": {
+        "status": "fail",
+        "value": "60.3%"
+      },
+      "D9.2": {
+        "status": "fail",
+        "value": "73.2%"
+      },
+      "D9.4": {
+        "status": "fail",
+        "value": "70.0%"
+      },
+      "D9.5": {
+        "status": "fail",
+        "value": "45.3%"
+      },
+      "D10.1": {
+        "status": "fail",
+        "value": "65.9%"
+      },
+      "D10.2": {
+        "status": "fail",
+        "value": "13.9%"
+      },
+      "D10.3": {
+        "status": "fail",
+        "value": "12.3%"
+      },
+      "D10.4": {
+        "status": "fail",
+        "value": "52.7%"
+      },
+      "D10.5": {
+        "status": "fail",
+        "value": "63.6%"
+      }
+    }
+  }
+];
+const FRAMEWORKS = [
+  {
+    "id": "ISO/IEC 42001",
+    "short": "ISO 42001",
+    "groupField": "isoGroup",
+    "groupOrder": [
+      "Task Fulfilment / Instruction Following",
+      "Groundedness / Hallucination Control",
+      "Retrieval Quality",
+      "Safety Policy Violation",
+      "Fairness / Bias / Representational Harm",
+      "Privacy / Data Leakage / Memorization",
+      "Security / Prompt Injection / Jailbreak Resistance",
+      "Robustness / Consistency",
+      "Transparency / Provenance / Traceability Fitness",
+      "Human Oversight / Escalation Effectiveness"
+    ],
+    "blurb": "AI management system (AIMS). Metrics serve as performance objectives and risk-control effectiveness evidence: define threshold, test set, owner, review cadence, and exception handling.",
+    "unit": "risk dimension"
+  },
+  {
+    "id": "EU AI Act",
+    "short": "EU AI Act",
+    "groupField": "euGroup",
+    "groupOrder": [
+      "Art.15 Accuracy",
+      "Art.5/Art.9 Prohibited practices & risk mgmt",
+      "Art.10 Data governance & bias",
+      "Art.10 Data governance (PII) + GDPR interplay",
+      "Art.15 Cybersecurity & robustness",
+      "Art.15 Robustness",
+      "Art.13 & Art.50 Transparency",
+      "Art.14 Human oversight"
+    ],
+    "blurb": "Evidence for accuracy, robustness, cybersecurity (Art.15), transparency (Art.13/Art.50), human oversight (Art.14), and risk management (Art.9/Art.5), where the obligation applies to the AI system.",
+    "unit": "article focus"
+  },
+  {
+    "id": "NIST AI RMF",
+    "short": "NIST AI RMF",
+    "groupField": "nistGroup",
+    "groupOrder": [
+      "Valid & reliable",
+      "Safe",
+      "Fair - harmful bias managed",
+      "Privacy-enhanced",
+      "Secure & resilient",
+      "Valid & reliable; Safe",
+      "Accountable & transparent; Explainable",
+      "Accountable & transparent"
+    ],
+    "blurb": "Mapped to the Measure and Manage functions and trustworthy characteristics: valid & reliable, safe, secure & resilient, accountable & transparent, explainable, privacy-enhanced, and fair with harmful bias managed.",
+    "unit": "trustworthy characteristic"
+  },
+  {
+    "id": "OECD AI Principles",
+    "short": "OECD AI Principles",
+    "groupField": "oecdGroup",
+    "groupOrder": [
+      "Human-centred Values & Fairness",
+      "Transparency & Explainability",
+      "Robustness, Security & Safety",
+      "Accountability"
+    ],
+    "blurb": "Evidence for human-centred values & fairness, transparency & explainability, robustness/security/safety, and accountability.",
+    "unit": "principle"
+  }
+];
+
+const STATUS_COLOR = { pass:"#16a34a", fail:"#dc2626", warning:"#d97706", manual:"#64748b" };
+const STATUS_LABEL = { pass:"Passed", fail:"Failed", warning:"Warning", manual:"Manual" };
+
+function computeAppStats(app){
+  const counts = { pass:0, fail:0, warning:0, manual:0, total:0 };
+  Object.values(app.results).forEach(r=>{ counts[r.status]++; counts.total++; });
+  counts.manual += MANUAL_CONTROLS.length;
+  counts.total += MANUAL_CONTROLS.length;
+  const applicable = counts.total - counts.manual;
+  const weighted = counts.pass + 0.5*counts.warning;
+  const pct = applicable > 0 ? Math.round((weighted/applicable)*100) : 0;
+  return { counts, pct };
+}
+
+function verdictFor(pct){
+  if(pct >= 85) return {label:"Conformant", bg:"#e9f7ef", color:"#16a34a"};
+  if(pct >= 60) return {label:"Minor Nonconformities", bg:"#fef6e7", color:"#d97706"};
+  return {label:"Major Nonconformities", bg:"#fdecea", color:"#dc2626"};
+}
+
+function donutSVG(pct, size){
+  const r = size/2 - 6;
+  const c = 2*Math.PI*r;
+  const offset = c * (1 - pct/100);
+  const color = pct>=85 ? "#16a34a" : pct>=60 ? "#d97706" : "#dc2626";
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="#e2e8f0" stroke-width="7"/>
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${color}" stroke-width="7"
+      stroke-dasharray="${c}" stroke-dashoffset="${offset}" stroke-linecap="round"/>
+  </svg>`;
+}
+
+function renderAppGrid(){
+  const grid = document.getElementById('appGrid');
+  grid.innerHTML = '';
+  APPLICATIONS.forEach(app=>{
+    const {counts, pct} = computeAppStats(app);
+    const riskClass = app.risk === "High Risk" ? "risk-high" : app.risk === "Limited Risk" ? "risk-limited" : "risk-minimal";
+    const card = document.createElement('div');
+    card.className = 'app-card';
+    card.onclick = ()=>showFrameworkView(app.id);
+    card.innerHTML = `
+      <div class="app-card-top">
+        <div>
+          <h3>${app.name}</h3>
+          <div class="owner">${app.owner}</div>
+        </div>
+        <span class="risk-tag ${riskClass}">${app.risk}</span>
+      </div>
+      <div class="app-card-metrics">
+        <div class="donut-wrap">
+          ${donutSVG(pct, 64)}
+          <div class="donut-label">${pct}%</div>
+        </div>
+        <div class="mini-stats">
+          <div><span class="dot" style="background:${STATUS_COLOR.pass}"></span><b>${counts.pass}</b> passed</div>
+          <div><span class="dot" style="background:${STATUS_COLOR.fail}"></span><b>${counts.fail}</b> failed</div>
+          <div><span class="dot" style="background:${STATUS_COLOR.warning}"></span><b>${counts.warning}</b> warning</div>
+        </div>
+      </div>
+      <div class="status-strip">
+        ${counts.pass? `<div style="flex:${counts.pass};background:${STATUS_COLOR.pass}"></div>`:''}
+        ${counts.warning? `<div style="flex:${counts.warning};background:${STATUS_COLOR.warning}"></div>`:''}
+        ${counts.fail? `<div style="flex:${counts.fail};background:${STATUS_COLOR.fail}"></div>`:''}
+        ${counts.manual? `<div style="flex:${counts.manual};background:${STATUS_COLOR.manual}"></div>`:''}
+      </div>
+      <div class="modality-tags">${app.modalities.map(m=>`<span>${m}</span>`).join('')}</div>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+let currentAppId = null;
+let currentFrameworkId = null;
+let currentFilter = 'all';
+
+function showList(){
+  document.getElementById('listView').style.display = '';
+  document.getElementById('frameworkView').style.display = 'none';
+  document.getElementById('detailView').style.display = 'none';
+  currentAppId = null;
+  currentFrameworkId = null;
+}
+
+function showFrameworkView(appId){
+  if(appId) currentAppId = appId;
+  document.getElementById('listView').style.display = 'none';
+  document.getElementById('detailView').style.display = 'none';
+  document.getElementById('frameworkView').style.display = '';
+  renderFrameworkView();
+  window.scrollTo(0,0);
+}
+
+function renderFrameworkView(){
+  const app = APPLICATIONS.find(a=>a.id===currentAppId);
+  const {counts, pct} = computeAppStats(app);
+  const verdict = verdictFor(pct);
+  document.getElementById('fwAppName').textContent = app.name;
+  document.getElementById('fwAppOwner').textContent = app.owner + ' · ' + app.risk;
+  const pctEl = document.getElementById('fwAppPct');
+  pctEl.textContent = pct + '%';
+  pctEl.style.color = verdict.color;
+
+  const grid = document.getElementById('fwGrid');
+  grid.innerHTML = '';
+  FRAMEWORKS.forEach(fw=>{
+    const card = document.createElement('div');
+    card.className = 'fw-card';
+    card.onclick = ()=>showDetail(fw.id);
+    card.innerHTML = `
+      <div class="unit-tag">grouped by ${fw.unit}</div>
+      <h3>${fw.short}</h3>
+      <div class="blurb">${fw.blurb}</div>
+      <div class="fw-stats">
+        <div><b>${counts.pass}</b> passed</div>
+        <div><b>${counts.fail}</b> failed</div>
+        <div><b>${counts.warning}</b> warning</div>
+        <div><b>${counts.manual}</b> manual</div>
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+function showDetail(frameworkId){
+  currentFrameworkId = frameworkId;
+  currentFilter = 'all';
+  document.getElementById('frameworkView').style.display = 'none';
+  document.getElementById('detailView').style.display = '';
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.toggle('active', b.dataset.filter==='all'));
+  renderDetail();
+  window.scrollTo(0,0);
+}
+
+function renderDetail(){
+  const app = APPLICATIONS.find(a=>a.id===currentAppId);
+  const fw = FRAMEWORKS.find(f=>f.id===currentFrameworkId);
+  if(!app || !fw) return;
+  const {counts, pct} = computeAppStats(app);
+  const verdict = verdictFor(pct);
+
+  document.getElementById('dName').textContent = app.name;
+  document.getElementById('dOwner').textContent = app.owner;
+  document.getElementById('dDesc').textContent = app.description;
+  document.getElementById('dFramework').textContent = fw.short + ' (grouped by ' + fw.unit + ')';
+  document.getElementById('dRisk').textContent = app.risk;
+  document.getElementById('dSync').textContent = app.lastSync;
+  document.getElementById('dModalities').textContent = app.modalities.join(', ');
+  document.getElementById('dPct').textContent = pct + '%';
+  document.getElementById('dPct').style.color = verdict.color;
+  const vEl = document.getElementById('dVerdict');
+  vEl.textContent = verdict.label;
+  vEl.style.background = verdict.bg;
+  vEl.style.color = verdict.color;
+
+  document.getElementById('statTotal').textContent = counts.total;
+  document.getElementById('statPass').textContent = counts.pass;
+  document.getElementById('statFail').textContent = counts.fail;
+  document.getElementById('statWarn').textContent = counts.warning;
+  document.getElementById('statManual').textContent = counts.manual;
+
+  renderControlList(app, fw);
+}
+
+function buildEntries(app, fw){
+  const entries = [];
+  Object.keys(app.results).forEach(cid=>{
+    const c = CATALOG[cid];
+    const r = app.results[cid];
+    entries.push({ kind:'metric', id:cid, group:c[fw.groupField], ...c, status:r.status, value:r.value });
+  });
+  MANUAL_CONTROLS.forEach(g=>{
+    entries.push({ kind:'manual', id:g.id, group:'Governance & Process Controls', title:g.title, ref:g.refs[fw.id], note:g.note, status:'manual' });
+  });
+  return entries;
+}
+
+function renderControlList(app, fw){
+  const listEl = document.getElementById('controlList');
+  listEl.innerHTML = '';
+
+  const entries = buildEntries(app, fw).filter(e=>{
+    if(currentFilter==='all') return true;
+    return e.status === currentFilter;
+  });
+
+  const byGroup = {};
+  entries.forEach(e=>{ (byGroup[e.group] = byGroup[e.group] || []).push(e); });
+
+  const groupOrder = fw.groupOrder.concat(['Governance & Process Controls']);
+  const orderedGroups = groupOrder.filter(g=>byGroup[g]);
+
+  if(orderedGroups.length === 0){
+    listEl.innerHTML = `<div style="text-align:center;color:var(--muted);padding:40px 0;font-size:13.5px;">No controls match this filter.</div>`;
+    return;
+  }
+
+  orderedGroups.forEach(group=>{
+    const heading = document.createElement('div');
+    heading.className = 'cat-heading';
+    heading.textContent = group;
+    listEl.appendChild(heading);
+
+    byGroup[group].forEach(e=>{
+      const card = document.createElement('div');
+      card.className = `control-card status-${e.status}`;
+
+      let bodyHTML;
+      if(e.kind === 'manual'){
+        bodyHTML = `
+          <div class="iso-ref">${fw.short} reference: ${e.ref}</div>
+          <div class="manual-note">${e.note}</div>
+        `;
+      } else {
+        const toolChips = e.tools.map(t=>`<span class="chip tool">${t}</span>`).join('');
+        const modalityChips = e.modalities.map(m=>{
+          const active = app.modalities.includes(m);
+          return `<span class="chip modality${active?' active':''}">${m}</span>`;
+        }).join('');
+        bodyHTML = `
+          <div class="info-box"><b>How to evaluate:</b> ${e.howTo}</div>
+          <div class="info-box gate"><b>Practical gate / evidence threshold:</b> ${e.gate}</div>
+          <div class="chip-label">Evaluation tools</div>
+          <div class="chip-row">${toolChips}</div>
+          <div class="chip-label">Applies to modality</div>
+          <div class="chip-row">${modalityChips}</div>
+          <div class="chip-label">Framework crosswalk</div>
+          <div class="chip-row">
+            ${e.frameworks.map(f=>`<span class="chip framework${f===fw.id?'':''}">${f}</span>`).join('')}
+            <span class="chip characteristic">NIST: ${e.nist}</span>
+            <span class="chip characteristic">${e.euAct}</span>
+          </div>
+          <div class="evidence-box">
+            <div>Simulated production telemetry &middot; last sync ${app.lastSync}</div>
+            <div class="src">${e.tools[0].toLowerCase().replace(/[^a-z0-9]+/g,'-')}/production-monitor</div>
+          </div>
+        `;
+      }
+
+      const originTag = (e.kind==='metric' && fw.groupField !== 'isoGroup')
+        ? `<div class="category">ISO 42001 dimension: ${e.isoGroup}</div>` : '';
+
+      card.innerHTML = `
+        <div class="control-summary" onclick="this.closest('.control-card').classList.toggle('open')">
+          <div class="clause-chip">${e.id}</div>
+          <div class="control-summary-text">
+            <div class="title">${e.title || e.metric}</div>
+            ${originTag}
+          </div>
+          ${e.kind==='metric' ? `<div class="value-chip">${e.value}</div>` : ''}
+          <div class="status-pill ${e.status}">
+            <span class="dot" style="background:${STATUS_COLOR[e.status]}"></span>${STATUS_LABEL[e.status]}
+          </div>
+          <div class="chevron">&#9662;</div>
+        </div>
+        <div class="control-details">
+          <div class="control-details-inner">
+            ${bodyHTML}
+          </div>
+        </div>
+      `;
+      listEl.appendChild(card);
+    });
+  });
+}
+
+document.querySelectorAll('.filter-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    currentFilter = btn.dataset.filter;
+    const app = APPLICATIONS.find(a=>a.id===currentAppId);
+    const fw = FRAMEWORKS.find(f=>f.id===currentFrameworkId);
+    renderControlList(app, fw);
+  });
+});
+
+renderAppGrid();
+</script>
+
+</body>
+</html>

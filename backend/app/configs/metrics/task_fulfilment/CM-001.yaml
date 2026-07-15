@@ -17,7 +17,7 @@ thresholds:
     high: 0.82
     medium: 0.9
     low: 0.95
-tool: promptfoo
+tool: deepeval
 agent_owner: quality_evaluator
 framework_mapping:
 - REQ_TASK_FULFILMENT_001

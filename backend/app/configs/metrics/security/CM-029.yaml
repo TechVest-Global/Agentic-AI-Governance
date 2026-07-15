@@ -22,7 +22,7 @@ thresholds:
     high: 0.97
     medium: 0.99
     low: 1.0
-tool: garak
+tool: inspect_ai
 secondary_tool: policy_as_code
 agent_owner: misuse_detector
 framework_mapping:

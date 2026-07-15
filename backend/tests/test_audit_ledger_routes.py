@@ -1,6 +1,11 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+import app.db.session as db_session
+from app.models.enums import LedgerActorType
+from app.schemas.governance import AuditLedgerEntryCreate
+from app.services import audit_ledger
 from fastapi.testclient import TestClient
+from sqlmodel import Session
 
 
 def create_system(client: TestClient) -> dict[str, object]:
@@ -85,6 +90,38 @@ def test_audit_ledger_entries_are_appended_listed_and_verified(
         "failed_entry_id": None,
         "reason": None,
     }
+
+
+def test_verify_ledger_chain_checks_beyond_the_old_1000_entry_cap(
+    client: TestClient,
+) -> None:
+    # verify_ledger_chain used to fetch only the first 1000 entries via
+    # list_ledger_entries(offset=0, limit=1000), so a run with more than 1000
+    # entries would silently report entry_count=1000 and valid=True even
+    # though the tail of the chain was never inspected. Insert more than 1000
+    # entries directly (bulk via the service, to keep the test fast) and
+    # confirm the verify endpoint reports the TRUE total.
+    system = create_system(client)
+    run = create_run(client, system["id"])
+    run_id = UUID(run["id"])
+    total_entries = 1005
+
+    with Session(db_session.engine) as session:
+        for i in range(total_entries):
+            audit_ledger.append_ledger_entry(
+                session,
+                run_id=run_id,
+                payload=AuditLedgerEntryCreate(
+                    event_type=f"bulk_event_{i}",
+                    actor_type=LedgerActorType.system,
+                ),
+            )
+
+    verify_response = client.get(f"/api/v1/evaluation-runs/{run['id']}/ledger/verify")
+    assert verify_response.status_code == 200
+    body = verify_response.json()
+    assert body["valid"] is True
+    assert body["entry_count"] == total_entries
 
 
 def test_audit_ledger_requires_existing_run(client: TestClient) -> None:

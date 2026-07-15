@@ -84,10 +84,20 @@ def set_current_agent(agent_name: str | None) -> None:
 
 
 def _append_log(entry: dict) -> None:
+    # Attribute the call to the executing agent so per-agent views can filter.
+    entry.setdefault("agent_name", _current_agent.get(None))
+
+    # Emit the call to Langfuse when tracing is configured (no-op otherwise).
+    # Guarded so tracing can never break the call path.
+    try:
+        from app.services.tracing.langfuse_tracer import record_llm_call
+
+        record_llm_call(entry)
+    except Exception:  # noqa: BLE001
+        pass
+
     buf = _log_buffer.get(None)
     if buf is not None:
-        # Attribute the call to the executing agent so per-agent views can filter.
-        entry.setdefault("agent_name", _current_agent.get(None))
         buf.append(entry)
 
 
@@ -201,6 +211,27 @@ class GatewayGovernanceModelClient:
                 if attempt < self._max_retries - 1:
                     _backoff(attempt)
             except Exception:
+                # Non-retryable failure (e.g. BadRequestError, AuthenticationError) —
+                # log the attempt before re-raising so it still leaves an audit trail,
+                # matching the exhausted-retries path below instead of vanishing silently.
+                _append_log({
+                    "task": request.task,
+                    "call_type": "governance",
+                    "model": getattr(self._inner, "deployment_name", self.provider),
+                    "deployment_name": getattr(self._inner, "deployment_name", None),
+                    "client_mode": "live",
+                    "routed_via": None,
+                    "prompt_tokens": None,
+                    "completion_tokens": None,
+                    "total_tokens": None,
+                    "estimated_cost_usd": None,
+                    "latency_ms": 0,
+                    "status": "error",
+                    "request_chars": len(request.prompt),
+                    "response_chars": 0,
+                    "trace_id": None,
+                    "policy_flags": [],
+                })
                 raise
 
         # Exhausted retries — log the failure before raising
@@ -242,6 +273,11 @@ class GatewayTargetModelClient:
         self._max_retries = max_retries
         self.provider = inner.provider
         self.credential_ref = inner.credential_ref
+        # Evaluators only ever see the Gateway-wrapped client (every target
+        # client is wrapped here — see model_clients/registry.py), so the
+        # media capability flag must be forwarded from the inner client
+        # rather than evaluators reaching past this wrapper to check it.
+        self.supports_media = getattr(inner, "supports_media", False)
 
     def invoke(self, request: TargetModelRequest) -> TargetModelResponse:
         logger.debug(
@@ -299,6 +335,27 @@ class GatewayTargetModelClient:
                 if attempt < self._max_retries - 1:
                     _backoff(attempt)
             except Exception:
+                # Non-retryable failure (e.g. BadRequestError, AuthenticationError) —
+                # log the attempt before re-raising so it still leaves an audit trail,
+                # matching the exhausted-retries path below instead of vanishing silently.
+                _append_log({
+                    "task": request.capability_name,
+                    "call_type": "target",
+                    "model": getattr(self._inner, "deployment_name", self.provider),
+                    "deployment_name": getattr(self._inner, "deployment_name", None),
+                    "client_mode": "live",
+                    "routed_via": None,
+                    "prompt_tokens": None,
+                    "completion_tokens": None,
+                    "total_tokens": None,
+                    "estimated_cost_usd": None,
+                    "latency_ms": 0,
+                    "status": "error",
+                    "request_chars": len(request.prompt),
+                    "response_chars": 0,
+                    "trace_id": None,
+                    "policy_flags": [],
+                })
                 raise
 
         # Exhausted retries — log the failure before raising

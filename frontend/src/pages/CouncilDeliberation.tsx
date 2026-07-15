@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -14,6 +14,8 @@ import { Card, CardHeader } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { useAppStore } from "@/store/useAppStore";
 import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
+
+const severityWeight: Record<string, number> = { info: 10, low: 30, medium: 55, high: 80, critical: 95 };
 
 const deliberationSteps = [
   {
@@ -115,6 +117,87 @@ export function CouncilDeliberation() {
   const [deliberationError, setDeliberationError] = useState<string | null>(null);
   const [deliberating, setDeliberating] = useState(false);
 
+  const backendVerdict = backend.report?.verdict;
+
+  // Real per-run walkthrough, built from this run's actual verdict/findings —
+  // only falls back to the fixed demo narrative when there's no live verdict,
+  // so a different registered system never shows another system's (fictional)
+  // "34% language difference" / "125,000 daily users" story.
+  const realThemes = useMemo(() => {
+    if (!backendVerdict || !backend.findings.length) return null;
+    return [...backend.findings]
+      .sort((a, b) => (severityWeight[b.severity] ?? 0) - (severityWeight[a.severity] ?? 0))
+      .slice(0, 4)
+      .map((finding) => ({
+        label: finding.title,
+        detail: finding.summary,
+        framework: finding.framework_refs.length
+          ? finding.framework_refs.join(", ")
+          : "Not yet mapped to a specific framework clause.",
+      }));
+  }, [backendVerdict, backend.findings]);
+
+  const realObjections = backendVerdict?.objections.length
+    ? backendVerdict.objections.map((objection) => ({
+        label: objection.category.replace(/_/g, " "),
+        detail: objection.argument,
+        impact: objection.suggested_fix,
+      }))
+    : null;
+
+  const realSteps = backendVerdict
+    ? [
+        {
+          id: "synthesis",
+          step: "Step 1",
+          title: "Synthesis Memo",
+          status: "Complete",
+          tone: "green" as const,
+          icon: CheckCircle2,
+          description: "The Council's synthesis of this run's specialist findings into a single narrative.",
+          content: (
+            <p className="text-[13px] leading-6 text-slate-700 dark:text-slate-300">
+              {backendVerdict.synthesis ?? backendVerdict.reasoning ?? "No synthesis text was recorded for this run."}
+            </p>
+          ),
+        },
+        {
+          id: "themes",
+          step: "Step 2",
+          title: "Key Risk Themes",
+          status: realThemes ? "Complete" : "No findings yet",
+          tone: realThemes ? ("green" as const) : ("slate" as const),
+          icon: CheckCircle2,
+          description: "The highest-severity findings from this run's specialist agents.",
+          themes: realThemes ?? [],
+        },
+        {
+          id: "advocate",
+          step: "Step 3",
+          title: "Devil's Advocate",
+          status: realObjections ? "Objection" : "No objections",
+          tone: realObjections ? ("amber" as const) : ("slate" as const),
+          icon: AlertTriangle,
+          description: "Objections the Devil's Advocate raised against this run's evidence.",
+          objections: realObjections ?? [],
+        },
+        {
+          id: "verdict-input",
+          step: "Step 4",
+          title: "Verdict",
+          status: "Complete",
+          tone: "blue" as const,
+          icon: MessageSquareText,
+          description: "The Verdict Agent's final confidence score and action tier for this run.",
+          inputs: [] as Array<{ label: string; value: string; description: string }>,
+          finalScore: Math.round(backendVerdict.confidence_score * 100),
+          tier: backendVerdict.action_tier.replace(/_/g, " "),
+        },
+      ]
+    : null;
+
+  const stepsToShow = realSteps ?? deliberationSteps;
+
   async function handleDeliberate() {
     setDeliberating(true);
     setDeliberationError(null);
@@ -201,7 +284,7 @@ export function CouncilDeliberation() {
 
       {/* Deliberation steps */}
       <div className="space-y-3">
-        {deliberationSteps.map((step) => {
+        {stepsToShow.map((step) => {
           const expanded = expandedStep === step.id;
           return (
             <Card key={step.id} className={clsx("overflow-hidden", expanded && "border-blue-300")}>
@@ -303,6 +386,11 @@ export function CouncilDeliberation() {
                   {step.id === "verdict-input" && step.inputs && (
                     <div className="grid gap-4 lg:grid-cols-[1fr_200px]">
                       <div className="space-y-2">
+                        {step.inputs.length === 0 && (
+                          <p className="text-[12px] leading-5 text-slate-500 dark:text-slate-400">
+                            This run's verdict doesn't record a per-factor breakdown — see the confidence score and tier alongside.
+                          </p>
+                        )}
                         {step.inputs.map((input) => (
                           <div key={input.label} className="rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 transition-colors hover:border-blue-200 dark:hover:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/30">
                             <div className="flex items-center justify-between">
@@ -317,7 +405,9 @@ export function CouncilDeliberation() {
                         ))}
                       </div>
                       <div className="rounded border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 p-4 text-center">
-                        <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-400">Projected Confidence</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-400">
+                          {realSteps ? "Final Confidence" : "Projected Confidence"}
+                        </p>
                         <p className="mt-2 text-[40px] font-bold leading-none text-blue-950 dark:text-blue-100">{step.finalScore}%</p>
                         <p className="mt-2 text-[12px] font-semibold text-amber-700 dark:text-amber-400">{step.tier} Tier</p>
                         <button

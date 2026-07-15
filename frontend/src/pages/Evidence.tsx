@@ -12,7 +12,10 @@ import clsx from "clsx";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { useActiveRun } from "@/hooks/useActiveRun";
-import { listEvidence, type EvidenceRecord } from "@/api/governanceApi";
+import {
+  listEvidence,
+  type EvidenceRecord,
+} from "@/api/governanceApi";
 
 type PassFilter = "all" | "passed" | "failed";
 

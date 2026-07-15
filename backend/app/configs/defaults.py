@@ -116,6 +116,30 @@ DEFAULT_METRIC_CONFIGS: tuple[MetricConfigCreate, ...] = (
 )
 
 
+# Per-clause metric-dimension curation. Each framework control declares the
+# metric dimensions it actually covers, so bootstrap links only the relevant CM
+# catalog metrics to that clause (instead of every metric of the framework).
+# Dimensions match the CM catalog's `dimension` field. A control_ref absent here
+# falls back to "all metrics of the framework".
+CONTROL_DIMENSIONS: dict[str, set[str]] = {
+    # NIST AI RMF
+    "GOVERN-1": {"oversight", "transparency"},
+    "MAP-1": {"task_fulfilment", "transparency"},
+    "MEASURE-1": {"groundedness", "retrieval", "safety", "fairness", "robustness"},
+    "MANAGE-1": {"security", "safety", "oversight"},
+    # ISO/IEC 42001
+    "AIMS-OPERATIONS": {"robustness", "oversight", "transparency"},
+    # EU AI Act
+    "ART-9": {"safety", "security", "robustness"},
+    "ART-10": {"fairness", "groundedness", "retrieval"},
+    "ART-13": {"transparency"},
+    "ART-14": {"oversight"},
+    # OWASP LLM Top 10
+    "LLM01": {"security"},
+    "LLM02": {"privacy"},
+}
+
+
 DEFAULT_FRAMEWORK_MAPPINGS: tuple[FrameworkMappingCreate, ...] = (
     FrameworkMappingCreate(
         framework_id="nist_ai_rmf",

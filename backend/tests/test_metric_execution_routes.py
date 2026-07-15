@@ -1,6 +1,10 @@
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
+
+import app.services.specialist_agents.metric_execution as metric_execution_module
+from app.services.evaluators.mock import MockMetricEvaluator
 
 
 def create_system(client: TestClient) -> dict[str, object]:
@@ -35,14 +39,16 @@ def create_metric(client: TestClient, metric_id: str) -> dict[str, object]:
     return response.json()
 
 
-def create_mapping(client: TestClient, metric_id: str) -> dict[str, object]:
+def create_mapping(
+    client: TestClient, metric_id: str, control_ref: str = "MAP-1"
+) -> dict[str, object]:
     response = client.post(
         "/api/v1/framework-mappings",
         json={
             "framework_id": "nist_ai_rmf",
             "framework_name": "NIST AI RMF",
             "framework_version": "1.0",
-            "control_ref": "MAP-1",
+            "control_ref": control_ref,
             "control_title": "Context is established",
             "control_category": "map",
             "jurisdiction": "US",
@@ -92,7 +98,10 @@ def test_mock_metric_execution_creates_evidence_and_metric_results(
     assert execution["evidence_created"] == 1
     assert execution["metric_results_created"] == 1
     assert execution["evidence"][0]["source_type"] == "mock_metric"
-    assert execution["evidence"][0]["source_name"] == "local_mock_runner"
+    # Evidence is attributed to the metric's configured tool ("promptfoo" per
+    # create_metric() above), not the request's source_name hint — see
+    # metric_execution.py's persistence loop.
+    assert execution["evidence"][0]["source_name"] == "promptfoo"
     assert execution["evidence"][0]["passed"] is True
     assert execution["metric_results"][0]["metric_id"] == "M-RUN"
     assert execution["metric_results"][0]["status"] == "passed"
@@ -155,6 +164,69 @@ def test_mock_metric_execution_validates_score(client: TestClient) -> None:
     assert response.status_code == 422
 
 
+def test_one_metric_erroring_does_not_discard_other_metrics_results(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One metric's evaluator raising must not discard the other metrics'
+    already-computed evidence/metric_results for the same run (previously
+    ThreadPoolExecutor.map re-raised on the first failure, and persistence
+    only happened after the whole pool finished, so a single transient
+    failure wiped out every other metric's results)."""
+    system = create_system(client)
+    create_metric(client, "M-OK")
+    create_metric(client, "M-FAIL")
+    create_mapping(client, "M-OK", control_ref="MAP-OK")
+    create_mapping(client, "M-FAIL", control_ref="MAP-FAIL")
+    run = create_run(client, system["id"], "M-OK")
+    # Widen the same run's selected metrics to include the failing one too.
+    response = client.post(
+        "/api/v1/evaluation-runs",
+        json={
+            "ai_system_id": system["id"],
+            "selected_frameworks": ["nist_ai_rmf"],
+            "selected_metrics": ["M-OK", "M-FAIL"],
+        },
+    )
+    assert response.status_code == 201
+    run = response.json()
+
+    class _FlakyEvaluator:
+        name = "mock"
+
+        def evaluate(self, evaluation_input):
+            if evaluation_input.metric.metric_id == "M-FAIL":
+                raise RuntimeError("simulated transient failure probing target")
+            return MockMetricEvaluator().evaluate(evaluation_input)
+
+    monkeypatch.setattr(
+        metric_execution_module, "get_evaluator", lambda name: _FlakyEvaluator()
+    )
+
+    response = client.post(
+        f"/api/v1/evaluation-runs/{run['id']}/metrics/run",
+        json={"mock_score": 0.9, "evaluator_name": "mock"},
+    )
+
+    assert response.status_code == 201, response.text
+    execution = response.json()
+    # Both metrics persisted: the successful one AND the errored one (as an
+    # error result), instead of the failure discarding everything.
+    assert execution["evidence_created"] == 2
+    assert execution["metric_results_created"] == 2
+    statuses = {mr["metric_id"]: mr["status"] for mr in execution["metric_results"]}
+    assert statuses["M-OK"] == "passed"
+    assert statuses["M-FAIL"] == "error"
+
+    run_response = client.get(f"/api/v1/evaluation-runs/{run['id']}")
+    assert run_response.status_code == 200
+    updated_run = run_response.json()
+    # Partial failure is surfaced via the same RunStatus.degraded convention
+    # run_agents already uses for partial specialist-agent failures.
+    assert updated_run["status"] == "degraded"
+    assert updated_run["result_summary"]["metrics_failed"] == 1
+    assert updated_run["result_summary"]["metric_results_created"] == 2
+
+
 def test_metric_execution_rejects_unknown_evaluator(client: TestClient) -> None:
     system = create_system(client)
     create_metric(client, "M-UNKNOWN-EVALUATOR")
@@ -176,5 +248,9 @@ def test_metric_execution_rejects_unknown_evaluator(client: TestClient) -> None:
         "presidio",
         "ragas",
         "deepeval",
+        "pyrit",
+        "inspect_ai",
+        "vision",
+        "asr",
         "auto",
     }

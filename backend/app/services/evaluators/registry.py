@@ -1,11 +1,15 @@
 from app.core.exceptions import ApplicationError
+from app.services.evaluators.audio_evaluator import AudioEvaluator
 from app.services.evaluators.base import MetricEvaluator
 from app.services.evaluators.deepeval_evaluator import DeepEvalEvaluator
 from app.services.evaluators.garak_evaluator import GarakEvaluator
+from app.services.evaluators.inspect_ai_evaluator import InspectAIEvaluator
 from app.services.evaluators.mock import MockMetricEvaluator
 from app.services.evaluators.presidio_evaluator import PresidioEvaluator
+from app.services.evaluators.pyrit_evaluator import PyritEvaluator
 from app.services.evaluators.ragas_evaluator import RagasEvaluator
 from app.services.evaluators.threshold import ThresholdMetricEvaluator
+from app.services.evaluators.vision_evaluator import VisionEvaluator
 
 EVALUATORS: dict[str, MetricEvaluator] = {
     evaluator.name: evaluator
@@ -16,6 +20,10 @@ EVALUATORS: dict[str, MetricEvaluator] = {
         PresidioEvaluator(),
         RagasEvaluator(),
         DeepEvalEvaluator(),
+        PyritEvaluator(),
+        InspectAIEvaluator(),
+        VisionEvaluator(),
+        AudioEvaluator(),
     )
 }
 

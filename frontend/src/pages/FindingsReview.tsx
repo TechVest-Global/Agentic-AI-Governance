@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/Badge";
 import { useAppStore } from "@/store/useAppStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { roleCan } from "@/lib/permissions";
+import { personaForRole } from "@/lib/persona";
 import { useActiveRun } from "@/hooks/useActiveRun";
 import {
   getFindings,
@@ -81,6 +82,8 @@ export function FindingsReview() {
   const navigateTo = useAppStore((s) => s.navigateTo);
   const role = useAuthStore((s) => s.user?.role);
   const canReview = roleCan(role, "canReviewFindings");
+  // Route to the persona-correct evidence page (auditors have their own route).
+  const evidencePath = personaForRole(role) === "auditor" ? "/evidence-review" : "/evidence";
 
   const { runId, loading: runsLoading } = useActiveRun();
   const [findings, setFindings] = useState<BackendFinding[]>([]);
@@ -275,7 +278,7 @@ export function FindingsReview() {
               canReview={canReview}
               effectiveStatus={effectiveStatus(finding)}
               onReview={applyReview}
-              onViewEvidence={() => navigateTo("/evidence")}
+              onViewEvidence={() => navigateTo(evidencePath)}
             />
           ))}
         </div>

@@ -1,12 +1,14 @@
 import logging
 from uuid import UUID
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.db import session as db_session
 from app.models.ai_system import AISystem
 from app.models.base import utc_now
-from app.models.enums import LedgerActorType, RunPhase, RunStatus
+from app.models.enums import AgentExecutionStatus, LedgerActorType, RunPhase, RunStatus
+from app.models.evaluation import EvaluationRun
+from app.models.verdict import Verdict
 from app.schemas.governance import (
     AgentRunCreate,
     AuditLedgerEntryCreate,
@@ -14,6 +16,7 @@ from app.schemas.governance import (
     ContextAssemblyRead,
     CouncilDeliberationCreate,
     EvaluationPlanCreate,
+    EvaluationPlanRead,
     GovernancePipelineRunCreate,
     GovernancePipelineRunRead,
     GovernanceStateEntryCreate,
@@ -45,19 +48,43 @@ def run_governance_pipeline_job(
     the pipeline executes. On failure the run is marked failed so watchers stop
     waiting instead of hanging on a non-terminal status. Must NOT reuse the
     request-scoped session (it is closed once the response is sent).
+
+    When the run is gated on plan approval, the pipeline pauses after building
+    the metric plan (returns None) and the run is left at RunStatus.planned —
+    the job must NOT finalize it as completed in that case.
     """
     try:
         with Session(db_session.engine) as session:
-            run_governance_pipeline(session, run_id=run_id, payload=payload)
+            result = run_governance_pipeline(session, run_id=run_id, payload=payload)
     except Exception as exc:  # noqa: BLE001 — background job: never let it crash silently
         logger.exception("Background orchestration failed for run %s", run_id)
         _finalize_run(run_id, status=RunStatus.failed, error=exc)
     else:
-        # Safety net: finalize on a FRESH session. The pipeline marks the run
-        # completed itself, but if its session is poisoned late in the flow
-        # (observed once: the final completed UPDATE flushed, then rolled back),
-        # the run would otherwise be parked at council_running forever and the
-        # Live Run view would hang on the council stage.
+        # result is None => paused for plan approval; leave the run parked at
+        # 'planned' for the reviewer. Otherwise finalize on a FRESH session: the
+        # pipeline marks the run completed itself, but if its session is poisoned
+        # late in the flow (observed once: the final completed UPDATE flushed,
+        # then rolled back), the run would otherwise be parked at council_running
+        # forever and the Live Run view would hang on the council stage.
+        if result is not None:
+            _finalize_run(run_id, status=RunStatus.completed)
+
+
+def resume_governance_pipeline_job(run_id: UUID) -> None:
+    """Resume a plan-approved run's pipeline off the request thread.
+
+    The approval endpoint records the decision and kicks this off. The pipeline
+    tail (metric execution -> agents -> council -> report) replays the options
+    captured at orchestrate time (run.pipeline_payload). Same finalize/failure
+    safety net as the initial job.
+    """
+    try:
+        with Session(db_session.engine) as session:
+            resume_governance_pipeline(session, run_id=run_id)
+    except Exception as exc:  # noqa: BLE001 — background job: never let it crash silently
+        logger.exception("Background resume-after-approval failed for run %s", run_id)
+        _finalize_run(run_id, status=RunStatus.failed, error=exc)
+    else:
         _finalize_run(run_id, status=RunStatus.completed)
 
 
@@ -72,8 +99,18 @@ def _finalize_run(
     Uses its own session/connection so a poisoned pipeline session can never
     prevent the run from reaching a terminal status (the frontend polls until
     it sees one). No-ops when the run is already terminal.
+
+    ``degraded`` counts as terminal here too: the pipeline itself decides when
+    a run is degraded (one or more specialist agents failed) and that decision
+    must not be silently overwritten back to ``completed`` by the job's
+    unconditional success finalize below.
     """
-    terminal = {RunStatus.completed, RunStatus.failed, RunStatus.cancelled}
+    terminal = {
+        RunStatus.completed,
+        RunStatus.failed,
+        RunStatus.cancelled,
+        RunStatus.degraded,
+    }
     try:
         with Session(db_session.engine) as session:
             run = get_run_or_raise(session, run_id)
@@ -101,7 +138,12 @@ def run_governance_pipeline(
     *,
     run_id: UUID,
     payload: GovernancePipelineRunCreate,
-) -> GovernancePipelineRunRead:
+) -> GovernancePipelineRunRead | None:
+    """Run the governance pipeline, or pause for plan approval.
+
+    Returns the pipeline result when the run executes end-to-end, or None when
+    it is gated on plan approval (paused at RunStatus.planned after planning).
+    """
     run = get_run_or_raise(session, run_id)
 
     # Layer 1 always runs so the state chain captures context assembly and the run
@@ -139,6 +181,89 @@ def run_governance_pipeline(
         ),
     )
 
+    # Human-in-the-loop gate: when approval is required and not yet granted, pause
+    # here. prepare_evaluation_plan already parked the run at RunStatus.planned;
+    # we capture the pipeline options and log an awaiting-approval ledger event,
+    # then return None so the caller leaves the run parked for the reviewer.
+    run = get_run_or_raise(session, run_id)
+    if payload.require_plan_approval and run.plan_approved_at is None:
+        _pause_for_approval(session, run_id=run_id, payload=payload)
+        return None
+
+    return _execute_and_report(
+        session,
+        run_id=run_id,
+        payload=payload,
+        context_result=context_result,
+        evaluation_plan=evaluation_plan,
+    )
+
+
+def _pause_for_approval(
+    session: Session,
+    *,
+    run_id: UUID,
+    payload: GovernancePipelineRunCreate,
+) -> None:
+    """Park a run awaiting plan approval, capturing options to replay on resume."""
+    run = get_run_or_raise(session, run_id)
+    # Persist the pipeline options so the resume step runs exactly what was
+    # planned/approved. model_dump(mode="json") keeps it JSON-column-safe.
+    run.pipeline_payload = payload.model_dump(mode="json")
+    run.updated_at = utc_now()
+    session.add(run)
+    session.commit()
+    audit_ledger.append_ledger_entry(
+        session,
+        run_id=run_id,
+        payload=AuditLedgerEntryCreate(
+            event_type="plan.awaiting_approval",
+            actor_type=LedgerActorType.system,
+            actor_id="orchestrator",
+            payload={
+                "phase": RunPhase.adaptive_orchestrator,
+                "message": "Metric plan awaiting human approval before execution.",
+            },
+        ),
+    )
+    logger.info("Run %s paused for metric-plan approval", run_id)
+
+
+def resume_governance_pipeline(
+    session: Session,
+    *,
+    run_id: UUID,
+) -> GovernancePipelineRunRead:
+    """Run the pipeline tail after a paused plan has been approved.
+
+    Replays the options captured at orchestrate time and re-loads the persisted
+    evaluation plan, then executes metrics -> agents -> council -> report.
+    """
+    run = get_run_or_raise(session, run_id)
+    payload = (
+        GovernancePipelineRunCreate.model_validate(run.pipeline_payload)
+        if run.pipeline_payload
+        else GovernancePipelineRunCreate()
+    )
+    evaluation_plan = adaptive_orchestrator.get_latest_plan(session, run_id=run_id)
+    return _execute_and_report(
+        session,
+        run_id=run_id,
+        payload=payload,
+        context_result=None,
+        evaluation_plan=evaluation_plan,
+    )
+
+
+def _execute_and_report(
+    session: Session,
+    *,
+    run_id: UUID,
+    payload: GovernancePipelineRunCreate,
+    context_result: ContextAssemblyRead | None,
+    evaluation_plan: EvaluationPlanRead,
+) -> GovernancePipelineRunRead:
+    """Pipeline tail: metric execution -> agents -> council -> report -> finalize."""
     metric_result = metric_execution.run_metrics(
         session,
         run_id=run_id,
@@ -251,9 +376,38 @@ def run_governance_pipeline(
     # Finalize: report building is read-only, so without this the run would be
     # left parked at council_running / deliberation_council — never a terminal
     # status. That made the SSE progress stream never close and the frontend
-    # completion poll hang forever. Mark the run completed at action_reporting.
+    # completion poll hang forever. Mark the run completed at action_reporting —
+    # UNLESS one or more specialist agents failed during evaluation. The council
+    # and report steps still run on whatever evidence WAS produced, but the
+    # failure is real and must be surfaced, not silently overwritten to
+    # "completed". The standalone /agents/run endpoint already preserves
+    # 'degraded' in this situation; the full pipeline must match it.
     run = get_run_or_raise(session, run_id)
-    run.status = RunStatus.completed
+    failed_executions = [
+        execution
+        for execution in agent_result.executions
+        if execution.status == AgentExecutionStatus.failed
+    ]
+    if failed_executions:
+        run.status = RunStatus.degraded
+        run.error_summary = {
+            **(run.error_summary or {}),
+            "degraded_reason": "specialist_agent_failure",
+            "message": (
+                f"{len(failed_executions)} of {len(agent_result.executions)} "
+                "specialist agent(s) failed during evaluation; the run "
+                "completed in a degraded state on the remaining evidence."
+            ),
+            "failed_agents": [
+                {
+                    "agent_name": execution.agent_name,
+                    "error": execution.error_summary,
+                }
+                for execution in failed_executions
+            ],
+        }
+    else:
+        run.status = RunStatus.completed
     run.current_phase = RunPhase.completed
     run.completed_at = run.completed_at or utc_now()
     run.updated_at = utc_now()
@@ -269,6 +423,65 @@ def run_governance_pipeline(
         council=council_result,
         report=report,
     )
+
+
+# Non-terminal statuses a run can be parked at mid-pipeline. Each phase commits
+# its own status so progress is observable, so a run interrupted between phases
+# is left at whichever of these it had reached.
+_INTERRUPTED_STATUSES = (
+    RunStatus.created,
+    RunStatus.context_assembly,
+    RunStatus.planned,
+    RunStatus.metrics_running,
+    RunStatus.agents_running,
+    RunStatus.council_running,
+)
+
+
+def reconcile_interrupted_runs(session: Session) -> int:
+    """Finalize runs orphaned by a worker restart mid-pipeline.
+
+    The pipeline runs as a FastAPI BackgroundTask, which does NOT survive a
+    process restart. A run executing when the server stopped is therefore left
+    at a non-terminal status with no task left to finish it — the Live Run
+    stream never closes and the completion poll hangs forever. On startup we
+    finalize these:
+      - a run that already produced a VERDICT reached the council phase, so the
+        assessment is effectively complete -> mark ``completed``;
+      - a run with no verdict died earlier and cannot resume -> mark ``failed``.
+    Returns the number of runs reconciled.
+    """
+    stuck = session.exec(
+        select(EvaluationRun).where(EvaluationRun.status.in_(_INTERRUPTED_STATUSES))
+    ).all()
+    reconciled = 0
+    for run in stuck:
+        has_verdict = (
+            session.exec(select(Verdict.id).where(Verdict.run_id == run.id)).first()
+            is not None
+        )
+        if has_verdict:
+            run.status = RunStatus.completed
+            run.current_phase = RunPhase.completed
+            run.result_summary = {
+                **(run.result_summary or {}),
+                "reconciled": "finalized_after_worker_restart",
+            }
+        else:
+            run.status = RunStatus.failed
+            run.error_summary = {
+                "error_type": "OrchestrationInterrupted",
+                "message": "Run was interrupted before completion (worker restart) and reconciled on startup.",
+            }
+        run.completed_at = run.completed_at or utc_now()
+        run.updated_at = utc_now()
+        session.add(run)
+        reconciled += 1
+
+    if reconciled:
+        session.commit()
+        logger.info("Reconciled %d interrupted run(s) on startup", reconciled)
+    return reconciled
 
 
 def _context_notes(notes: str | None, source: str, count: int) -> str | None:

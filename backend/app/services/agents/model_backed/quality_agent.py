@@ -10,7 +10,7 @@ metric-failure detection when the governance model returns non-JSON.
 from app.models.enums import Severity
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import finding, metric_failed, metric_pending
+from app.services.agents.helpers import finding
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 
 _QUALITY_METRIC_IDS = {"CM-001", "CM-002", "CM-003", "CM-004"}
@@ -54,7 +54,7 @@ You are a quality assurance specialist evaluating an AI system's task fulfillmen
 
 AI System: {system_name} (type: {system_type}, risk tier: {risk_tier})
 
-Failed or pending quality metrics:
+Quality metric statuses (verify passes against the probe evidence below):
 {metric_summary}
 
 Target model responses to structured task probes:
@@ -78,14 +78,10 @@ class QualityEvaluatorAgent(ModelBackedAgent):
     probe_dimension = "quality"
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
-        quality_metrics = [
-            m for m in context.metric_results
-            if (
-                m.metric_id in _QUALITY_METRIC_IDS
-                or any(k in f"{m.metric_id} {m.dimension}".lower() for k in _QUALITY_KEYWORDS)
-            )
-            and (metric_failed(m) or metric_pending(m))
-        ]
+        # High-risk verification mode: probe even when all owned metrics passed.
+        quality_metrics, attention_metrics = self._metrics_for_review(
+            context, metric_ids=_QUALITY_METRIC_IDS, keywords=_QUALITY_KEYWORDS
+        )
 
         if not quality_metrics:
             return []
@@ -117,7 +113,8 @@ class QualityEvaluatorAgent(ModelBackedAgent):
         if parsed is not None:
             return _findings_from_governance(parsed, context)
 
-        return _deterministic_fallback(quality_metrics, context)
+        # Fallback only on genuinely failed/pending metrics — never on passes.
+        return _deterministic_fallback(attention_metrics, context)
 
 
 def _findings_from_governance(

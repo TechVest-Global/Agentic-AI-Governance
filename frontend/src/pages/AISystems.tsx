@@ -34,13 +34,16 @@ import {
   deleteAISystem,
   getContextProfile,
   getRegistrationOptions,
+  getRunVerdict,
   listAISystems,
+  listEvaluationRuns,
   listRegistrationFrameworks,
   updateAISystem,
   type BackendAISystem,
   type BackendAISystemCapabilityCreate,
   type BackendAISystemCreate,
   type ContextProfile,
+  type EvaluationRun,
   type OptionItem,
   type RegistrationFrameworkOption,
   type RegistrationOptions,
@@ -64,7 +67,18 @@ const verdictDescriptions: Record<string, { label: string; description: string; 
   Pass: { label: "Autonomous Tier", description: "No critical findings. System may operate without mandatory human-in-the-loop approval.", color: "text-emerald-700" },
   Medium: { label: "Supervised Tier", description: "Active findings require human oversight. Decisions should be reviewed before high-consequence actions.", color: "text-amber-700" },
   Blocked: { label: "Blocked", description: "Critical finding or compliance gap prevents production operation. Remediation required before re-evaluation.", color: "text-red-700" },
+  "Not Run": { label: "Not Yet Evaluated", description: "No completed governance run yet. Start an audit to get a tier assignment.", color: "text-slate-500" },
 };
+
+// The backend's real verdict vocabulary (see VerdictAgent) is
+// approved / conditional_approval / blocked — map it to this page's
+// Pass / Medium / Blocked / Not Run display vocabulary in one place.
+function mapVerdictLabel(label: string | null | undefined): RegistrySystem["verdict"] {
+  if (label === "approved") return "Pass";
+  if (label === "blocked") return "Blocked";
+  if (label === "conditional_approval") return "Medium";
+  return "Not Run";
+}
 
 const columnDescriptions: Record<string, string> = {
   System: "Registered application, version, and usage level.",
@@ -133,7 +147,7 @@ type RegistrySystem = {
   riskTier: "High" | "Medium" | "Low";
   owner: string;
   lastRun: string;
-  verdict: "Pass" | "Medium" | "Blocked";
+  verdict: "Pass" | "Medium" | "Blocked" | "Not Run";
   confidence: number;
   nextReview: string;
   status: string;
@@ -235,7 +249,13 @@ function mapStatus(value: BackendAISystem["status"]): string {
   return "Archived";
 }
 
-function mapBackendSystem(system: BackendAISystem): RegistrySystem {
+type SystemRunInfo = {
+  lastRun: string;
+  verdict: RegistrySystem["verdict"];
+  confidence: number;
+};
+
+function mapBackendSystem(system: BackendAISystem, runInfo?: SystemRunInfo): RegistrySystem {
   const metadata = system.metadata_json ?? {};
   return {
     id: system.id,
@@ -247,9 +267,9 @@ function mapBackendSystem(system: BackendAISystem): RegistrySystem {
     environment: labelize(system.deployment_environment),
     riskTier: mapBackendRisk(system.risk_tier),
     owner: system.owner,
-    lastRun: "No run yet",
-    verdict: "Medium",
-    confidence: 0,
+    lastRun: runInfo?.lastRun ?? "No run yet",
+    verdict: runInfo?.verdict ?? "Not Run",
+    confidence: runInfo?.confidence ?? 0,
     nextReview: "Not scheduled",
     status: mapStatus(system.status),
     description: system.description,
@@ -400,9 +420,50 @@ export function AISystems() {
     return () => setHeaderHidden(false);
   }, [showRegisterForm, setHeaderHidden]);
 
-  const registrySystems = useMemo(() => backendSystems.map(mapBackendSystem), [backendSystems]);
+  const [runInfoBySystem, setRunInfoBySystem] = useState<Record<string, SystemRunInfo>>({});
+
+  useEffect(() => {
+    if (!backendSystems.length) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const runs = await listEvaluationRuns(100);
+        const latestBySystem = new Map<string, EvaluationRun>();
+        for (const run of runs) {
+          const existing = latestBySystem.get(run.ai_system_id);
+          if (!existing || new Date(run.created_at) > new Date(existing.created_at)) {
+            latestBySystem.set(run.ai_system_id, run);
+          }
+        }
+        const hasVerdict = (status: string) => status === "completed" || status === "report_ready";
+        const entries = await Promise.all(
+          Array.from(latestBySystem.entries()).map(async ([systemId, run]) => {
+            const verdict = hasVerdict(run.status) ? await getRunVerdict(run.id).catch(() => null) : null;
+            const info: SystemRunInfo = {
+              lastRun: new Date(run.created_at).toLocaleDateString(),
+              verdict: mapVerdictLabel(verdict?.label),
+              confidence: verdict ? Math.round(verdict.confidence_score * 100) : 0,
+            };
+            return [systemId, info] as const;
+          }),
+        );
+        if (!cancelled) setRunInfoBySystem(Object.fromEntries(entries));
+      } catch {
+        // Leave systems at their "no run yet" defaults — a failure here
+        // shouldn't break the registry table itself.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [backendSystems]);
+
+  const registrySystems = useMemo(
+    () => backendSystems.map((system) => mapBackendSystem(system, runInfoBySystem[system.id])),
+    [backendSystems, runInfoBySystem],
+  );
   const highRisk = registrySystems.filter((s) => s.riskTier === "High").length;
-  const blocked = registrySystems.filter((s) => s.status === "Blocked").length;
+  const blocked = registrySystems.filter((s) => s.verdict === "Blocked").length;
   const avg = registrySystems.length
     ? Math.round(registrySystems.reduce((sum, s) => sum + s.confidence, 0) / registrySystems.length)
     : 0;

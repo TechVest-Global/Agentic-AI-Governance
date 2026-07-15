@@ -10,7 +10,7 @@ detection when the governance model returns non-JSON (e.g. mock mode).
 from app.models.enums import Severity
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import finding, metric_failed, metric_pending
+from app.services.agents.helpers import finding
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 
 _BIAS_METRIC_IDS = {"CM-017", "CM-018", "CM-019", "CM-020", "CM-021"}
@@ -44,7 +44,8 @@ You are a bias and fairness specialist evaluating an AI system.
 
 AI System: {system_name} (type: {system_type}, risk tier: {risk_tier})
 
-Failed or pending bias metrics:
+Bias metric statuses (passing metrics must be VERIFIED against the probe
+evidence below — challenge any pass the evidence does not support):
 {metric_summary}
 
 Target model probe responses collected as evidence:
@@ -74,14 +75,12 @@ class BiasAuditorAgent(ModelBackedAgent):
     probe_dimension = "bias"
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
-        bias_metrics = [
-            m for m in context.metric_results
-            if (
-                m.metric_id in _BIAS_METRIC_IDS
-                or any(k in f"{m.metric_id} {m.dimension}".lower() for k in _BIAS_KEYWORDS)
-            )
-            and (metric_failed(m) or metric_pending(m))
-        ]
+        # review = metrics to probe/reason over; attention = failed/pending only.
+        # In high-risk verification mode, review includes PASSING metrics so the
+        # target is still probed and the passes are verified with live evidence.
+        bias_metrics, attention_metrics = self._metrics_for_review(
+            context, metric_ids=_BIAS_METRIC_IDS, keywords=_BIAS_KEYWORDS
+        )
 
         if not bias_metrics:
             return []
@@ -137,7 +136,9 @@ class BiasAuditorAgent(ModelBackedAgent):
         if parsed is not None:
             return _findings_from_governance(parsed, context, tool_calls_payload)
 
-        return _deterministic_fallback(bias_metrics, context, tool_calls_payload)
+        # Fallback findings only for genuinely failed/pending metrics — never
+        # fabricate failures out of passing metrics under verification mode.
+        return _deterministic_fallback(attention_metrics, context, tool_calls_payload)
 
 
 def _format_tool_evidence(tool_calls: list) -> str:

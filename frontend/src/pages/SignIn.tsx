@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from "react";
 import { Shield, Eye, EyeOff, AlertCircle, Loader2 } from "lucide-react";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useThemeStore } from "@/store/useThemeStore";
+import { API_BASE_URL } from "@/api/governanceApi";
 
 // Rate limiting: max 5 attempts per 15 minutes (client-side guard; server enforces the real limit)
 const MAX_ATTEMPTS = 5;
@@ -80,23 +81,22 @@ export function SignIn({ onSwitchToSignUp }: { onSwitchToSignUp: () => void }) {
 
     setLoading(true);
     try {
-      // Simulate API call — replace with real fetch to /api/v1/auth/sign-in
-      await new Promise((res) => setTimeout(res, 900));
-
       const safeEmail = sanitizeInput(email.toLowerCase().trim());
 
-      // Demo credential check (remove in production — use real backend auth).
-      // Two accounts demo the strict role lock: an Auditor and an Engineer.
-      const demo = DEMO_ACCOUNTS.find((a) => a.email === safeEmail);
-      if (demo && password === DEMO_PASSWORD) {
+      // Two demo accounts (auditor@governai.com / dev@governai.com, shared
+      // password below) are recognized by the real backend sign-in endpoint,
+      // so the "click to autofill" demo credentials keep working exactly as
+      // before — they're just verified server-side now instead of in this file.
+      const response = await fetch(`${API_BASE_URL}/auth/sign-in`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: safeEmail, password }),
+      });
+
+      if (response.ok) {
+        const { user, token } = await response.json();
         clearRateLimit();
-        signIn({
-          id: demo.id,
-          email: safeEmail,
-          name: demo.name,
-          role: demo.role,
-          initials: demo.initials,
-        });
+        signIn(user, token);
         return;
       }
 

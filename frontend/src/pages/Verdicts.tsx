@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { PolarAngleAxis, RadialBar, RadialBarChart, ResponsiveContainer } from "recharts";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import {
@@ -21,6 +22,18 @@ import { Card, CardHeader } from "@/components/ui/Card";
 import { useAppStore } from "@/store/useAppStore";
 import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
 import { useChartTheme } from "@/hooks/useChartTheme";
+import type { BackendFinding, VerdictRequiredAction } from "@/api/governanceApi";
+
+const severityWeight: Record<string, number> = { info: 10, low: 30, medium: 55, high: 80, critical: 95 };
+
+function dimensionLabel(dimension: string) {
+  return dimension
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+type RealRiskDimension = { name: string; score: number; findings: BackendFinding[] };
 
 const riskDescriptions: Record<string, string> = {
   Bias: "Age-based language disparity detected in 24 probe pairs. Score penalized for cohort underrepresentation and blast radius multiplier.",
@@ -609,15 +622,42 @@ export function Verdicts() {
   const [hoveredRisk, setHoveredRisk] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState<"approve" | "override" | null>(null);
   const [selectedAudit, setSelectedAudit] = useState<AgentAuditReport | null>(null);
+  const [selectedRealDimension, setSelectedRealDimension] = useState<RealRiskDimension | null>(null);
   const targetSystemName = backend.report?.ai_system.name ?? "TechVest RAG Chatbot";
   const backendVerdict = backend.report?.verdict;
   const confidenceScore = backendVerdict ? Math.round(backendVerdict.confidence_score * 100) : 75;
   const actionTier = backendVerdict?.action_tier ? backendVerdict.action_tier.replace(/_/g, " ") : "Supervised tier";
   const verdictLabel = backendVerdict?.label ?? "Medium";
 
+  // Real per-dimension risk, built from this run's actual findings — only
+  // falls back to the fixed demo dimensions/scores when there's no live
+  // finding data at all, so a different registered system never shows
+  // another system's (fictional) bias/drift findings.
+  const realRiskSeries = useMemo<RealRiskDimension[] | null>(() => {
+    if (!backend.findings.length) return null;
+    const byDimension = new Map<string, BackendFinding[]>();
+    for (const finding of backend.findings) {
+      const key = dimensionLabel(finding.dimension);
+      byDimension.set(key, [...(byDimension.get(key) ?? []), finding]);
+    }
+    return Array.from(byDimension.entries())
+      .map(([name, findings]) => ({
+        name,
+        score: Math.max(...findings.map((f) => severityWeight[f.severity] ?? 50)),
+        findings,
+      }))
+      .sort((a, b) => b.score - a.score);
+  }, [backend.findings]);
+
+  const realRequiredActions: VerdictRequiredAction[] | null =
+    backendVerdict?.required_actions?.length ? backendVerdict.required_actions : null;
+
   return (
     <div className="space-y-5">
       {selectedAudit && <AgentAuditReportModal report={selectedAudit} onClose={() => setSelectedAudit(null)} />}
+      {selectedRealDimension && (
+        <RealDimensionModal dimension={selectedRealDimension} onClose={() => setSelectedRealDimension(null)} />
+      )}
 
       {/* Intro */}
       <div className="flex items-start justify-between border-b border-slate-200 dark:border-slate-700 pb-5">
@@ -725,15 +765,29 @@ export function Verdicts() {
         <Card>
           <CardHeader
             title="Risk Dimensions"
-            eyebrow="Hover each bar for finding detail. Click any dimension to open the agent report"
-            action={<Info className="h-4 w-4 text-slate-400 dark:text-slate-500" />}
+            eyebrow={
+              realRiskSeries
+                ? "From this run's actual findings. Click any dimension to see the findings behind it"
+                : "Hover each bar for finding detail. Click any dimension to open the agent report"
+            }
+            action={
+              realRiskSeries ? (
+                <Badge tone="green">Live findings</Badge>
+              ) : (
+                <Info className="h-4 w-4 text-slate-400 dark:text-slate-500" />
+              )
+            }
           />
           <div className="space-y-3 p-4">
-            {riskSeries.map((risk) => (
+            {(realRiskSeries ?? riskSeries).map((risk) => (
               <button
                 key={risk.name}
                 type="button"
-                onClick={() => setSelectedAudit(agentAuditReports[risk.name])}
+                onClick={() =>
+                  realRiskSeries
+                    ? setSelectedRealDimension(risk as RealRiskDimension)
+                    : setSelectedAudit(agentAuditReports[risk.name])
+                }
                 className={clsx(
                   "grid w-full grid-cols-[110px_1fr_44px] items-center gap-3 rounded p-1.5 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800",
                   "cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -751,7 +805,7 @@ export function Verdicts() {
                       style={{ width: `${risk.score}%` }}
                     />
                   </div>
-                  {hoveredRisk === risk.name && riskDescriptions[risk.name] && (
+                  {!realRiskSeries && hoveredRisk === risk.name && riskDescriptions[risk.name] && (
                     <div className="absolute bottom-full left-0 z-10 mb-2 w-72 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 text-[11px] leading-4 text-slate-700 dark:text-slate-300 shadow-lg">
                       {riskDescriptions[risk.name]}
                     </div>
@@ -760,7 +814,9 @@ export function Verdicts() {
                 <p className="text-right text-[12px] font-semibold text-slate-950 dark:text-white">{risk.score}</p>
               </button>
             ))}
-            <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">Scores out of 100. Red = high risk contribution. Click a dimension for the full agent audit packet.</p>
+            <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+              Scores out of 100. Red = high risk contribution. Click a dimension for {realRiskSeries ? "its findings" : "the full agent audit packet"}.
+            </p>
           </div>
         </Card>
       </div>
@@ -769,10 +825,31 @@ export function Verdicts() {
       <Card>
         <CardHeader
           title="Prescribed Remediation Actions"
-          eyebrow="Click each action to expand · Navigate to the relevant page to act"
+          eyebrow={
+            realRequiredActions
+              ? "From the Deliberation Council's verdict for this run · Click to expand"
+              : "Click each action to expand · Navigate to the relevant page to act"
+          }
+          action={realRequiredActions ? <Badge tone="green">Live verdict</Badge> : undefined}
         />
         <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
-          {prescribedActions.map((action) => {
+          {(realRequiredActions
+            ? realRequiredActions.map((action, index) => ({
+                id: `real-${index}`,
+                title: action.action,
+                detail: action.context ?? action.action,
+                target: action.owner,
+                urgency: action.severity,
+                urgencyTone: action.severity === "critical" || action.severity === "high" ? ("red" as const) : ("amber" as const),
+                navigateTo: "/reports",
+                icon: AlertTriangle,
+                iconColor:
+                  action.severity === "critical" || action.severity === "high"
+                    ? "text-red-600 dark:text-red-400"
+                    : "text-amber-600 dark:text-amber-400",
+              }))
+            : prescribedActions
+          ).map((action) => {
             const isExpanded = expandedAction === action.id;
             return (
               <div key={action.id}>
@@ -818,8 +895,69 @@ export function Verdicts() {
   );
 }
 
+function RealDimensionModal({ dimension, onClose }: { dimension: RealRiskDimension; onClose: () => void }) {
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/60 dark:bg-slate-950/80 px-4 py-6 backdrop-blur-[2px]">
+      <div className="w-full max-w-3xl rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl">
+        <div className="sticky top-0 z-10 flex items-start justify-between border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-5 py-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-blue-700 dark:text-blue-400" />
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-700 dark:text-blue-400">
+                {dimension.name} — Findings for this run
+              </p>
+            </div>
+            <h2 className="mt-1 text-[20px] font-semibold text-slate-950 dark:text-white">
+              {dimension.findings.length} finding{dimension.findings.length === 1 ? "" : "s"}
+            </h2>
+          </div>
+          <button
+            onClick={onClose}
+            title="Close"
+            className="flex h-9 w-9 items-center justify-center rounded border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="space-y-3 bg-slate-50 dark:bg-slate-800 px-5 py-5">
+          {dimension.findings.map((finding) => (
+            <div key={finding.id} className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-[13px] font-semibold text-slate-950 dark:text-white">{finding.title}</p>
+                <Badge
+                  tone={
+                    finding.severity === "critical" || finding.severity === "high"
+                      ? "red"
+                      : finding.severity === "medium"
+                        ? "amber"
+                        : "slate"
+                  }
+                >
+                  {finding.severity}
+                </Badge>
+              </div>
+              {finding.agent_name && (
+                <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">{finding.agent_name}</p>
+              )}
+              <p className="mt-2 text-[12px] leading-5 text-slate-700 dark:text-slate-300">{finding.summary}</p>
+              {finding.recommended_action && (
+                <p className="mt-2 text-[11px] leading-4 text-slate-600 dark:text-slate-400">
+                  <span className="font-semibold">Recommended action:</span> {finding.recommended_action}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 function AgentAuditReportModal({ report, onClose }: { report: AgentAuditReport; onClose: () => void }) {
-  return (
+  // Portaled to <body> so the fixed, scrollable overlay is viewport-relative,
+  // not relative to the transformed `animate-rise` page wrapper.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/60 dark:bg-slate-950/80 px-4 py-6 backdrop-blur-[2px]">
       <div className="w-full max-w-6xl rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl">
         <div className="sticky top-0 z-10 flex items-start justify-between border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-5 py-4">
@@ -1038,7 +1176,8 @@ function AgentAuditReportModal({ report, onClose }: { report: AgentAuditReport; 
           </section>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

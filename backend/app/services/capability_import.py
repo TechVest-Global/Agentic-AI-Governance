@@ -11,7 +11,9 @@ Idempotent: endpoints already present (by endpoint_ref or name) are skipped.
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import socket
 import urllib.error
 import urllib.request
 from urllib.parse import urlparse, urlunparse
@@ -51,6 +53,53 @@ def _auth_header_name(system: AISystem) -> str:
     or ['auth_header']."""
     meta = system.metadata_json or {}
     return str(meta.get("catalog_auth_header") or meta.get("auth_header") or "x-api-key")
+
+
+def _assert_safe_target_host(url: str) -> None:
+    """Block SSRF to link-local / cloud-metadata / other non-routable addresses.
+
+    This app's own registered systems legitimately live on localhost or private
+    RFC1918 ranges (e.g. an HR gateway at ``http://localhost:5000``), so those
+    are deliberately allowed. What we block is link-local addresses (the
+    169.254.0.0/16 block, which covers the 169.254.169.254 cloud-metadata
+    endpoint used by AWS/GCP/Azure to serve instance credentials) plus other
+    clearly-non-routable ranges: multicast, "reserved", and unspecified
+    (0.0.0.0 / ::) addresses.
+    """
+    hostname = urlparse(url).hostname
+    if not hostname:
+        raise ApplicationError(
+            status_code=422,
+            code="INVALID_TARGET_ENDPOINT",
+            message="Target endpoint URL has no resolvable hostname.",
+            details={"url": url},
+        )
+
+    try:
+        ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        try:
+            resolved = socket.gethostbyname(hostname)
+        except OSError as exc:
+            raise ApplicationError(
+                status_code=502,
+                code="CATALOG_FETCH_FAILED",
+                message=f"Could not resolve target endpoint host '{hostname}'.",
+                details={"url": url, "host": hostname},
+            ) from exc
+        ip = ipaddress.ip_address(resolved)
+
+    if ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+        raise ApplicationError(
+            status_code=422,
+            code="TARGET_HOST_BLOCKED",
+            message=(
+                f"Target endpoint host '{hostname}' resolves to a blocked address "
+                f"({ip}) not permitted for outbound catalog requests "
+                "(SSRF protection)."
+            ),
+            details={"url": url, "host": hostname, "resolved_ip": str(ip)},
+        )
 
 
 def _fetch_catalog(url: str, header_name: str, api_key: str | None) -> dict:
@@ -104,8 +153,10 @@ def import_capabilities_from_catalog(
             message="System has no target endpoint configured; cannot fetch a catalog.",
         )
 
+    catalog_url = _catalog_url(system.target_endpoint_ref)
+    _assert_safe_target_host(catalog_url)
     catalog = _fetch_catalog(
-        _catalog_url(system.target_endpoint_ref),
+        catalog_url,
         _auth_header_name(system),
         api_key,
     )

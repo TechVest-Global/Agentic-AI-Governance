@@ -11,7 +11,7 @@ returns non-JSON.
 from app.models.enums import Severity
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import finding, metric_failed, metric_pending
+from app.services.agents.helpers import finding
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 
 _TRANSPARENCY_METRIC_IDS = {"CM-035", "CM-036", "CM-037", "CM-038", "CM-039"}
@@ -51,7 +51,7 @@ You are a transparency and explainability specialist evaluating an AI system.
 
 AI System: {system_name} (type: {system_type}, risk tier: {risk_tier})
 
-Failed or pending transparency metrics:
+Transparency metric statuses (verify passes against the probe evidence below):
 {metric_summary}
 
 Target model probe responses collected as evidence:
@@ -101,14 +101,10 @@ class ComplianceMapperAgent(ModelBackedAgent):
                 )
             )
 
-        transparency_metrics = [
-            m for m in context.metric_results
-            if (
-                m.metric_id in _TRANSPARENCY_METRIC_IDS
-                or any(k in f"{m.metric_id} {m.dimension}".lower() for k in _TRANSPARENCY_KEYWORDS)
-            )
-            and (metric_failed(m) or metric_pending(m))
-        ]
+        # High-risk verification mode: probe even when all owned metrics passed.
+        transparency_metrics, attention_metrics = self._metrics_for_review(
+            context, metric_ids=_TRANSPARENCY_METRIC_IDS, keywords=_TRANSPARENCY_KEYWORDS
+        )
 
         if not transparency_metrics:
             return findings
@@ -141,7 +137,8 @@ class ComplianceMapperAgent(ModelBackedAgent):
         if parsed is not None:
             return findings + _findings_from_governance(parsed, context)
 
-        return findings + _deterministic_fallback(transparency_metrics, context)
+        # Fallback only on genuinely failed/pending metrics — never on passes.
+        return findings + _deterministic_fallback(attention_metrics, context)
 
 
 def _findings_from_governance(

@@ -4,6 +4,7 @@ from app.api.routes import (
     agents,
     ai_systems,
     audit_ledger,
+    auth,
     boundary,
     configs,
     council,
@@ -17,6 +18,7 @@ from app.api.routes import (
 )
 
 api_router = APIRouter()
+api_router.include_router(auth.router, tags=["auth"])
 api_router.include_router(system.router, tags=["system"])
 api_router.include_router(configs.router, tags=["governance-config"])
 api_router.include_router(ai_systems.router, tags=["ai-systems"])
