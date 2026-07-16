@@ -374,6 +374,7 @@ const pageDescriptions: Record<PageId, string> = {
   "application-detail":"Assurance detail for a single application.",
   compliance:          "Framework compliance across your applications.",
   "client-reports":    "Assurance reports available to download or read in-app.",
+  "assurance-tools":   "The independent checks and methods used to assess your applications.",
   // ── Retired auditor screens ──
   overview:            "Your assurance priorities across every AI system in scope — pending reviews, critical findings, verdicts, sign-offs, and remediation.",
   "my-assignments":    "AI systems and reviews assigned specifically to you.",

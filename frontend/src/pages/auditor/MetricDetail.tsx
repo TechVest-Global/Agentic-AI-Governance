@@ -1,6 +1,8 @@
 import clsx from "clsx";
+import { Compass, FlaskConical, Paperclip, Scale, type LucideIcon } from "lucide-react";
 import type { MetricConfigFull, MetricResult, RunMetricPlanEntry } from "@/api/governanceApi";
-import { frameworkLabel, humanizeDimension, metricOutcome, type MetricOutcome } from "./clientComponents";
+import { frameworkLabel, humanizeDimension, metricOutcome, toolLabel, type MetricOutcome } from "./clientComponents";
+import { dimensionInfo, metricDescription } from "./assuranceCopy";
 
 /**
  * MetricDetailSections — the shared, definition-first body for an expanded
@@ -34,13 +36,44 @@ function humanizeToken(s: string): string {
 }
 function displayToolToken(s: string | null | undefined): string | null {
   const value = s?.trim();
-  if (!value || /mock|simulated|simulation|developer/i.test(value)) return null;
-  return value;
+  if (!value) return null;
+  return toolLabel(value);
 }
 
 /** Uppercase micro-label above a chip row (mirrors the mockup's chip-label). */
-export function ChipLabel({ children }: { children: React.ReactNode }) {
-  return <p className="mb-1.5 mt-3 text-[11.5px] font-bold uppercase tracking-[0.06em] text-slate-400 dark:text-slate-500">{children}</p>;
+export function ChipLabel({ children, icon: Icon }: { children: React.ReactNode; icon?: LucideIcon }) {
+  return (
+    <p className="mb-1.5 mt-3 flex items-center gap-1.5 text-[11.5px] font-bold uppercase tracking-[0.06em] text-slate-400 dark:text-slate-500">
+      {Icon && <Icon className="h-3.5 w-3.5" aria-hidden />}
+      {children}
+    </p>
+  );
+}
+
+/** Score-vs-threshold meter — a visual read of where this run landed against the
+ * pass mark. Calm: neutral track, outcome-tinted fill, a tick at the threshold. */
+function ScoreMeter({ score, threshold, outcome }: { score: number; threshold: number; outcome: MetricOutcome }) {
+  const clamp = (n: number) => Math.max(0, Math.min(1, n));
+  const s = clamp(score) * 100;
+  const t = clamp(threshold) * 100;
+  const fill = outcome === "passed" ? "bg-emerald-500" : outcome === "failed" ? "bg-red-400" : "bg-amber-400";
+  const tone = outcome === "passed" ? "text-emerald-600 dark:text-emerald-400" : outcome === "failed" ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400";
+  return (
+    <div className="rounded-xl border border-hairline px-4 py-3.5 dark:border-white/10">
+      <div className="flex items-baseline justify-between">
+        <span className="text-[12px] text-slate-500 dark:text-slate-400">This run scored</span>
+        <span className={clsx("font-display text-[22px] leading-none tabular-nums", tone)}>{score.toFixed(2)}</span>
+      </div>
+      <div className="relative mt-2.5 h-2 rounded-full bg-slate-100 dark:bg-slate-800">
+        <div className={clsx("absolute inset-y-0 left-0 rounded-full", fill)} style={{ width: `${s}%` }} />
+        <span className="absolute -top-1 -bottom-1 w-[2px] rounded bg-slate-500 dark:bg-slate-300" style={{ left: `calc(${t}% - 1px)` }} aria-hidden />
+      </div>
+      <div className="mt-1.5 flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500">
+        <span>0.00</span>
+        <span>passes at ≥ <span className="font-mono">{threshold.toFixed(2)}</span></span>
+      </div>
+    </div>
+  );
 }
 
 /** Soft callout box — the neutral "how to read this" panel, or a yellow gate. */
@@ -81,7 +114,11 @@ export function MetricDetailSections({
   showTechnicalFooter?: boolean;
 }) {
   const outcome = metricOutcome(metric);
-  const definition = realDescription(config);
+  // Prefer the engine's own description; fall back to curated auditor copy (the
+  // CM-* catalog currently ships a placeholder description, so without this the
+  // "What it checks" line would be blank for almost every metric).
+  const definition = realDescription(config) ?? metricDescription(metric.metric_id);
+  const dimInfo = dimensionInfo(config?.dimension ?? metric.dimension);
 
   const score = metric.normalized_score;
   const threshold = metric.threshold;
@@ -90,7 +127,6 @@ export function MetricDetailSections({
 
   // How it's measured: the intended tool + optional secondary + scoring formula.
   const scoring = (config?.scoring_config ?? {}) as Record<string, unknown>;
-  const formula = asString(scoring.formula);
   const tools = Array.from(
     new Set([displayToolToken(config?.tool_name), displayToolToken(asString(scoring.secondary_tool))].filter((t): t is string => Boolean(t))),
   );
@@ -120,27 +156,37 @@ export function MetricDetailSections({
         <span className="font-semibold text-ink dark:text-white">This run:</span> {resultSentence(outcome, scoreStr, thresholdStr, metric.status)}
       </InfoBox>
 
-      {thresholdStr && (
+      {score != null && threshold != null ? (
+        <ScoreMeter score={score} threshold={threshold} outcome={outcome} />
+      ) : thresholdStr ? (
         <InfoBox tone="gate">
           <span className="font-semibold">Pass threshold:</span> this check passes when the normalized score reaches{" "}
-          <span className="font-semibold">{thresholdStr}</span> or above
-          {scoreStr && <> — this run scored <span className="font-semibold">{scoreStr}</span></>}.
+          <span className="font-semibold">{thresholdStr}</span> or above.
         </InfoBox>
+      ) : null}
+
+      {dimInfo && (
+        <>
+          <ChipLabel icon={Compass}>Governance area</ChipLabel>
+          <div className="rounded-lg border border-hairline bg-slate-50/70 px-3 py-2.5 dark:border-white/10 dark:bg-slate-800/40">
+            <p className="text-[13px] font-semibold text-ink dark:text-white">{dimInfo.title}</p>
+            <p className="mt-0.5 text-[12.5px] leading-relaxed text-slate-500 dark:text-slate-400">{dimInfo.blurb}</p>
+          </div>
+        </>
       )}
 
-      {(tools.length > 0 || formula) && (
+      {tools.length > 0 && (
         <>
-          <ChipLabel>How it's measured</ChipLabel>
+          <ChipLabel icon={FlaskConical}>How it's measured</ChipLabel>
           <div className="flex flex-wrap items-center gap-1.5">
-            {tools.map((t) => <Chip key={t} variant="tool">{humanizeToken(t)}</Chip>)}
-            {formula && <span className="text-[12.5px] text-slate-400">formula <span className="font-mono text-slate-500 dark:text-slate-400">{formula}</span></span>}
+            {tools.map((t) => <Chip key={t} variant="tool">{t}</Chip>)}
           </div>
         </>
       )}
 
       {frameworks.length > 0 && (
         <>
-          <ChipLabel>Framework crosswalk</ChipLabel>
+          <ChipLabel icon={Scale}>Framework crosswalk</ChipLabel>
           <div className="flex flex-wrap gap-1.5">
             {frameworks.map((f) => <Chip key={f} variant="framework">{frameworkLabel(f)}</Chip>)}
             <Chip variant="characteristic">{humanizeDimension(config?.dimension ?? metric.dimension)}</Chip>
@@ -150,7 +196,7 @@ export function MetricDetailSections({
 
       {evidenceRequired.length > 0 && (
         <>
-          <ChipLabel>Evidence expected</ChipLabel>
+          <ChipLabel icon={Paperclip}>Evidence expected</ChipLabel>
           <div className="flex flex-wrap gap-1.5">
             {evidenceRequired.map((e) => <Chip key={e}>{humanizeToken(e)}</Chip>)}
           </div>
@@ -168,7 +214,7 @@ export function MetricDetailSections({
             ].filter(Boolean).join(" · ")}
           </span>
           <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11.5px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-            {runTool ? `${runTool} · ${metric.metric_id}` : metric.metric_id}
+            {runTool ? `${toolLabel(runTool)} · ${metric.metric_id}` : metric.metric_id}
           </span>
         </div>
       )}

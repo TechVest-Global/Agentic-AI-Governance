@@ -446,6 +446,39 @@ export function frameworkLabel(id: string): string {
   return known[id.toLowerCase()] ?? id.replace(/[_-]/g, " ").toUpperCase();
 }
 
+/**
+ * Auditor-friendly name for an engine tool/adapter. The auditor is shown WHAT a
+ * check does ("Adversarial security probe"), not the vendor tool name (garak /
+ * deepeval / ragas / …) — the lead's point: auditors don't care which library
+ * produced a result. Keyed by the raw `tool_name`; unknown tools fall back to a
+ * humanized token, and deterministic/mock runners collapse to "Baseline check".
+ * Single source of truth used everywhere a method is shown (Metrics, Evidence,
+ * Compliance, metric detail). See the Assurance Tools page for full descriptions.
+ */
+const TOOL_LABELS: Record<string, string> = {
+  garak: "Adversarial security probe",
+  pyrit: "Red-team attack simulation",
+  presidio: "Privacy & PII scan",
+  deepeval: "AI safety & quality judge",
+  ragas: "Grounding & citation check",
+  inspect_ai: "Agent tool-use safety check",
+  vision: "Visual content safety check",
+  audio: "Voice & transcription check",
+  langfuse: "Operational monitoring",
+  evidently: "Stability & drift monitoring",
+  promptfoo: "Scenario prompt test",
+};
+
+export function toolLabel(tool: string | null | undefined): string {
+  const raw = (tool ?? "").trim();
+  if (!raw) return "—";
+  if (/mock|simulated|simulation|developer|threshold|metric_execution_engine|metric_runner/i.test(raw)) {
+    return "Baseline check";
+  }
+  const key = raw.toLowerCase().replace(/[\s-]+/g, "_");
+  return TOOL_LABELS[key] ?? raw.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 /* ───────────────────────────────────────── control evidence + status ── */
 // Per AUDITOR_MASTER_SPEC §2: distinguish how a control is evidenced (Automated
 // by our metrics / Manual documentary / Not applicable) from its status. Honesty

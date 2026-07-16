@@ -9,6 +9,7 @@ const routeMatchers: Array<[RegExp, PageId]> = [
   [/^\/application(?:\/.*)?$/, "application-detail"],
   [/^\/compliance(?:\/.*)?$/, "compliance"],
   [/^\/client-reports(?:\/.*)?$/, "client-reports"],
+  [/^\/assurance-tools(?:\/.*)?$/, "assurance-tools"],
   // ── Auditor workspace — retired routes (kept resolvable, not in nav) ──
   [/^\/overview(?:\/.*)?$/, "overview"],
   [/^\/my-assignments(?:\/.*)?$/, "my-assignments"],
