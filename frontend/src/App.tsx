@@ -32,6 +32,7 @@ import { Applications } from "@/pages/auditor/Applications";
 import { ApplicationRecord } from "@/pages/auditor/ApplicationRecord";
 import { Compliance } from "@/pages/auditor/Compliance";
 import { ClientReports } from "@/pages/auditor/ClientReports";
+import { AssuranceTools } from "@/pages/auditor/AssuranceTools";
 // Retired auditor screens — retained (components still routable if linked) but
 // no longer in the auditor nav. Kept mapped so PageId coverage stays complete.
 import { AuditorOverview } from "@/pages/auditor/AuditorOverview";
@@ -70,6 +71,7 @@ const pages = {
   "application-detail": ApplicationRecord,
   compliance: Compliance,
   "client-reports": ClientReports,
+  "assurance-tools": AssuranceTools,
   "audit-ledger": AuditLedger,          // demoted, reachable via Reports link
   // ── Retired auditor screens (kept mapped, no longer in nav) ──
   overview: AuditorOverview,

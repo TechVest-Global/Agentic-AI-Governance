@@ -10,10 +10,12 @@ import {
   type RunMetricPlanEntry,
 } from "@/api/governanceApi";
 import { MetricDetailSections } from "./MetricDetail";
+import { dimensionInfo } from "./assuranceCopy";
 import {
   frameworkLabel,
   humanizeDimension,
   metricOutcome,
+  toolLabel,
 } from "./clientComponents";
 
 type CtrlStatus = "passed" | "failed" | "needs_review" | "manual";
@@ -337,16 +339,20 @@ function DimensionControlList({
   if (groups.length === 0) return <Empty>{empty}</Empty>;
   return (
     <div className="space-y-6">
-      {groups.map((group) => (
+      {groups.map((group) => {
+        const dim = dimensionInfo(group.dimension);
+        return (
         <section key={group.dimension}>
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">{group.dimension}</p>
-          <div className="space-y-2.5">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">{group.dimension}</p>
+          {dim && <p className="mb-2 mt-0.5 max-w-3xl text-[12px] leading-relaxed text-slate-400 dark:text-slate-500">{dim.blurb}</p>}
+          <div className={clsx("space-y-2.5", !dim && "mt-2")}>
             {group.rows.map((row) => (
               <DimensionControlRow key={`${row.control.framework_id}:${row.control.control_ref}`} row={row} onOpen={() => onOpen(row)} />
             ))}
           </div>
         </section>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -408,21 +414,11 @@ function ControlDetailDrawer({
         </div>
 
         <div className="space-y-4 px-5 py-5">
-          <DrawerSection title="Control meaning">
-            <p className="text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">
-              {control.requirement_text || control.control_title || "No requirement text is available for this control."}
-            </p>
-          </DrawerSection>
-
           <DrawerSection title="Why it passed or failed">
             <p className="text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">{controlOutcomeExplanation(view)}</p>
           </DrawerSection>
 
-          <DrawerSection title="Score vs threshold">
-            <p className="text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">{scoreExplanation(view)}</p>
-          </DrawerSection>
-
-          <DrawerSection title={`Mapped metrics (${view.mappedMetricCount})`}>
+          <DrawerSection title={view.mappedMetricCount === 1 ? "Assessed check" : `Assessed checks (${view.mappedMetricCount})`}>
             {metrics.length === 0 ? (
               <p className="text-[13px] text-slate-400">No metric results are linked to this control.</p>
             ) : (
@@ -453,23 +449,6 @@ function ControlDetailDrawer({
               {view.evidenceCount} evidence record{view.evidenceCount === 1 ? "" : "s"} linked through {view.mappedMetricCount} mapped metric{view.mappedMetricCount === 1 ? "" : "s"}.
               {control.evidence_requirements.length > 0 && <> Required evidence: {control.evidence_requirements.join(", ")}.</>}
             </p>
-          </DrawerSection>
-
-          <DrawerSection title="Tool / adapter used">
-            <p className="text-[13px] text-slate-700 dark:text-slate-300">{view.tool}</p>
-          </DrawerSection>
-
-          <DrawerSection title="Framework crosswalk">
-            <div className="flex flex-wrap gap-1.5">
-              <span className="rounded bg-slate-100 dark:bg-slate-800 px-2 py-1 text-[11px] text-slate-600 dark:text-slate-300">
-                {frameworkLabel(control.framework_id)} {control.control_ref}
-              </span>
-              {control.control_category && (
-                <span className="rounded bg-slate-100 dark:bg-slate-800 px-2 py-1 text-[11px] text-slate-600 dark:text-slate-300">
-                  {control.control_category}
-                </span>
-              )}
-            </div>
           </DrawerSection>
         </div>
       </aside>
@@ -627,8 +606,8 @@ function toolsForControl(
 
 function displayTool(tool: string | null | undefined): string | null {
   const clean = tool?.trim();
-  if (!clean || /mock|simulated|simulation|developer/i.test(clean)) return null;
-  return clean.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  if (!clean) return null;
+  return toolLabel(clean);
 }
 
 function countViews(rows: ControlView[]): Counts {

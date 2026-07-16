@@ -19,6 +19,7 @@ import {
   SlidersHorizontal,
   Split,
   Terminal,
+  Wrench,
 } from "lucide-react";
 import type { AgentStatus, AiSystem, AuditEvent, Finding, GovernanceRun, NavigationItem } from "@/types";
 
@@ -39,6 +40,9 @@ export const navigation: NavigationItem[] = [
   { id: "applications", label: "Applications", section: "My Workspace", path: "/applications", icon: Boxes, personas: ["auditor"] },
   { id: "compliance", label: "Compliance", section: "Compliance & Reporting", path: "/compliance", icon: Scale, personas: ["auditor"] },
   { id: "client-reports", label: "Reports", section: "Compliance & Reporting", path: "/client-reports", icon: FileText, personas: ["auditor"] },
+  // Reference-only: reachable from a link on the Metrics/Evidence tabs, not in the rail
+  // (a standalone tools catalog confuses the client flow; method names are friendly inline).
+  { id: "assurance-tools", label: "Assurance Tools", section: "Compliance & Reporting", path: "/assurance-tools", icon: Wrench, personas: ["auditor"], hidden: true },
   // Reachable, not listed in the rail: the application record detail and the
   // demoted activity ledger (linked from Reports).
   { id: "application-detail", label: "Application", section: "My Workspace", path: "/application", icon: ShieldCheck, personas: ["auditor"], hidden: true },

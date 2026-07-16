@@ -29,6 +29,7 @@ export type PageId =
   | "application-detail"
   | "compliance"
   | "client-reports"
+  | "assurance-tools"
   // Auditor workspace — retired from nav (components retained, no longer surfaced)
   | "overview"
   | "my-assignments"

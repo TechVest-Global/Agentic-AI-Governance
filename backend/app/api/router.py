@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.routes import (
     agents,
     ai_systems,
+    assessment_requests,
     audit_ledger,
     auth,
     boundary,
@@ -22,6 +23,7 @@ api_router.include_router(auth.router, tags=["auth"])
 api_router.include_router(system.router, tags=["system"])
 api_router.include_router(configs.router, tags=["governance-config"])
 api_router.include_router(ai_systems.router, tags=["ai-systems"])
+api_router.include_router(assessment_requests.router, tags=["assessment-requests"])
 api_router.include_router(evaluation_runs.router, tags=["evaluation-runs"])
 api_router.include_router(agents.router, tags=["agents"])
 api_router.include_router(council.router, tags=["council"])

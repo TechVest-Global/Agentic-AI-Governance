@@ -1,9 +1,8 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   ChevronRight,
   Download,
-  FileSearch,
   RefreshCw,
   ShieldCheck,
 } from "lucide-react";
@@ -14,10 +13,13 @@ import { useAuditorApplication } from "@/hooks/useAuditorApplication";
 import { ControlAssurance } from "./ControlAssurance";
 import { MetricDetailSections } from "./MetricDetail";
 import {
+  createAssessmentRequest,
   getRunVerdict,
   getFrameworkMap,
+  listAssessmentRequests,
   listEvaluationRuns,
   listMetricConfigs,
+  type AssessmentRequest,
   type BackendFinding,
   type EvaluationRun,
   type EvidenceRecord,
@@ -38,6 +40,7 @@ import {
   metricOutcome,
   metricFailed,
   metricPassed,
+  toolLabel,
   verdictToClient,
   type MetricOutcome,
   type TabDef,
@@ -50,7 +53,7 @@ import {
  * All values come from the selected app's real run via useAuditorApplication.
  */
 
-const TAB_IDS = ["summary", "compliance", "metrics", "evidence", "history"] as const;
+const TAB_IDS = ["summary", "compliance", "metrics", "history"] as const;
 type TabId = (typeof TAB_IDS)[number];
 
 const IN_FLIGHT_STATUSES = new Set([
@@ -106,7 +109,6 @@ export function ApplicationRecord() {
     { id: "summary", label: "Summary" },
     { id: "compliance", label: "Compliance", count: system.selected_frameworks.length || undefined },
     { id: "metrics", label: "Metrics", count: metricCounts.total || undefined },
-    { id: "evidence", label: "Evidence", count: app.report?.evidence.length || undefined },
     { id: "history", label: "History" },
   ];
 
@@ -179,7 +181,6 @@ export function ApplicationRecord() {
               />
             )}
             {tab === "metrics" && <MetricsTab report={app.report} />}
-            {tab === "evidence" && <EvidenceTab evidence={app.report?.evidence ?? []} />}
             {tab === "history" && <HistoryTab appId={appId} currentRunId={app.assessedRun?.id ?? null} />}
           </div>
         </>
@@ -237,7 +238,42 @@ function ScoreBar({ counts }: { counts: { passed: number; failed: number; needsR
 
 /* ───────────────────────────────────────────────────── hero actions ── */
 
-function HeroActions({ report, system }: { report: GovernanceReport | null; system: { name: string } }) {
+function HeroActions({ report, system }: { report: GovernanceReport | null; system: { id: string; name: string } }) {
+  const [requests, setRequests] = useState<AssessmentRequest[]>([]);
+  const [composing, setComposing] = useState(false);
+  const [note, setNote] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listAssessmentRequests(system.id)
+      .then((r) => { if (!cancelled) setRequests(r); })
+      .catch(() => { /* status pill just stays hidden if this fails */ });
+    return () => { cancelled = true; };
+  }, [system.id]);
+
+  // Requests come back newest-first; only the most recent one gates the button
+  // (an old dismissed/resolved request shouldn't block asking again).
+  const openRequest = requests[0] && (requests[0].status === "pending" || requests[0].status === "in_progress")
+    ? requests[0]
+    : null;
+
+  async function sendRequest() {
+    setSending(true);
+    setSendError(null);
+    try {
+      const created = await createAssessmentRequest(system.id, { note: note.trim() || undefined });
+      setRequests((prev) => [created, ...prev]);
+      setComposing(false);
+      setNote("");
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "Could not send the request.");
+    } finally {
+      setSending(false);
+    }
+  }
+
   function exportReport() {
     if (!report) return;
     const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
@@ -248,27 +284,72 @@ function HeroActions({ report, system }: { report: GovernanceReport | null; syst
     a.click();
     URL.revokeObjectURL(url);
   }
+
   return (
-    <div className="flex shrink-0 items-center gap-2">
-      <button
-        type="button"
-        disabled
-        title="Re-assessment requests aren't available yet — this needs a backend request endpoint."
-        aria-disabled
-        className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-hairline dark:border-slate-700 px-3 py-1.5 text-[12px] font-medium text-slate-400 dark:text-slate-500"
-      >
-        <RefreshCw className="h-3.5 w-3.5" aria-hidden />
-        Request re-assessment
-      </button>
-      <button
-        type="button"
-        onClick={exportReport}
-        disabled={!report}
-        className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
-      >
-        <Download className="h-3.5 w-3.5" aria-hidden />
-        Export report
-      </button>
+    <div className="flex shrink-0 flex-col items-end gap-2">
+      <div className="flex items-center gap-2">
+        {openRequest ? (
+          <span
+            title={`Sent ${timeAgo(openRequest.created_at)}${openRequest.note ? ` — “${openRequest.note}”` : ""}`}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-hairline dark:border-slate-700 px-3 py-1.5 text-[12px] font-medium text-slate-500 dark:text-slate-400"
+          >
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+            {openRequest.status === "pending" ? "Re-assessment requested" : "Re-assessment in progress"}
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setComposing((v) => !v)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-hairline dark:border-slate-700 px-3 py-1.5 text-[12px] font-medium text-slate-600 dark:text-slate-300 hover:border-brand-300 dark:hover:border-brand-700 hover:text-ink dark:hover:text-white"
+          >
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+            Request re-assessment
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={exportReport}
+          disabled={!report}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+        >
+          <Download className="h-3.5 w-3.5" aria-hidden />
+          Export report
+        </button>
+      </div>
+
+      {composing && (
+        <div className="w-72 rounded-lg border border-hairline dark:border-slate-700 bg-white dark:bg-slate-900 p-3 shadow-sm">
+          <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+            Note to the developer (optional)
+          </label>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="e.g. please re-run after the latest prompt changes"
+            rows={3}
+            maxLength={2000}
+            className="mt-1 w-full resize-none rounded border border-hairline dark:border-slate-700 bg-transparent p-2 text-[12px] text-ink dark:text-white placeholder:text-slate-400"
+          />
+          {sendError && <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">{sendError}</p>}
+          <div className="mt-2 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => { setComposing(false); setSendError(null); }}
+              className="rounded px-2 py-1 text-[12px] text-slate-500 hover:text-ink dark:hover:text-white"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={sendRequest}
+              disabled={sending}
+              className="rounded bg-brand-600 px-3 py-1 text-[12px] font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+            >
+              {sending ? "Sending…" : "Send request"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -300,6 +381,7 @@ function SummaryTab({
       .slice(0, 5);
   }, [report]);
   const openTotal = (report?.findings ?? []).filter((f) => f.status?.toLowerCase() === "open").length;
+  const requiredActions = report?.verdict?.required_actions ?? [];
 
   return (
     <div className="space-y-5">
@@ -317,6 +399,30 @@ function SummaryTab({
         <p className="mt-1.5 text-[13.5px] leading-relaxed text-slate-700 dark:text-slate-300">{plain}</p>
       </section>
 
+      {/* required actions — the engine's prescribed next steps (what to do) */}
+      {requiredActions.length > 0 && (
+        <section>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">Required actions</p>
+          <ul className="mt-2 divide-y divide-hairline dark:divide-white/10 overflow-hidden rounded-xl border border-hairline dark:border-white/10 bg-white dark:bg-slate-900">
+            {requiredActions.map((a, i) => {
+              const sev = SEVERITY_META[a.severity] ?? SEVERITY_META.low;
+              return (
+                <li key={i} className="flex items-start gap-3 px-4 py-3">
+                  <span className={clsx("mt-1.5 h-2 w-2 shrink-0 rounded-full", sev.dot)} aria-hidden />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] leading-relaxed text-ink dark:text-white">{a.action}</p>
+                    <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+                      <span className={clsx("font-semibold uppercase tracking-wide", sev.text)}>{sev.label}</span>
+                      {a.owner && <> · Owner: {humanizeToken(a.owner)}</>}
+                    </p>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
       {/* recent important issues — calm list, no red blocks */}
       <section>
         <div className="flex items-baseline justify-between">
@@ -333,6 +439,14 @@ function SummaryTab({
           </ul>
         )}
       </section>
+
+      {/* evidence integrity — a factual assurance line; each check's records are
+          viewable from its detail in Metrics / Compliance. */}
+      {(report?.evidence.length ?? 0) > 0 && (
+        <p className="text-[11px] text-slate-400 dark:text-slate-500">
+          {report!.evidence.length} sealed evidence records back these results — each linked to a check. Open any check in Metrics or Compliance to view its evidence.
+        </p>
+      )}
     </div>
   );
 }
@@ -524,12 +638,15 @@ function MetricsTab({ report }: { report: GovernanceReport | null }) {
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-hairline dark:border-white/10 bg-white dark:bg-slate-900 px-4 py-3">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[12px] text-slate-500 dark:text-slate-400">
-          <span><span className="font-semibold tabular-nums text-ink dark:text-white">{assessed.total}</span>{plannedTotal && plannedTotal > assessed.total ? `/${plannedTotal}` : ""} assessed</span>
-          <span><span className="font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">{assessed.passed}</span> passed</span>
-          <span><span className="font-semibold tabular-nums text-slate-700 dark:text-slate-200">{assessed.failed}</span> failed</span>
-          <span><span className="font-semibold tabular-nums text-amber-700 dark:text-amber-400">{assessed.needsReview}</span> manual review</span>
-          <span><span className="font-semibold tabular-nums text-ink dark:text-white">{filteredRows.length}</span> shown</span>
+        <div className="flex flex-wrap items-center justify-between gap-x-5 gap-y-1.5 text-[12px] text-slate-500 dark:text-slate-400">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
+            <span><span className="font-semibold tabular-nums text-ink dark:text-white">{assessed.total}</span>{plannedTotal && plannedTotal > assessed.total ? `/${plannedTotal}` : ""} assessed</span>
+            <span><span className="font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">{assessed.passed}</span> passed</span>
+            <span><span className="font-semibold tabular-nums text-slate-700 dark:text-slate-200">{assessed.failed}</span> failed</span>
+            <span><span className="font-semibold tabular-nums text-amber-700 dark:text-amber-400">{assessed.needsReview}</span> manual review</span>
+            <span><span className="font-semibold tabular-nums text-ink dark:text-white">{filteredRows.length}</span> shown</span>
+          </div>
+          <MethodsRefLink />
         </div>
       </div>
 
@@ -553,10 +670,10 @@ function MetricsTab({ report }: { report: GovernanceReport | null }) {
           options={[["all", "All dimensions"], ...dimensions.map((d) => [d, humanizeDimension(d)] as [string, string])]}
         />
         <FilterSelect
-          label="Tool"
+          label="Method"
           value={toolFilter}
           onChange={setToolFilter}
-          options={[["all", "All tools"], ...tools.map((tool) => [tool, tool] as [string, string])]}
+          options={[["all", "All methods"], ...tools.map((tool) => [tool, toolLabel(tool)] as [string, string])]}
         />
         <FilterSelect
           label="Framework"
@@ -569,15 +686,13 @@ function MetricsTab({ report }: { report: GovernanceReport | null }) {
       {/* metrics table */}
       <div className="overflow-hidden rounded-xl border border-hairline dark:border-white/10 bg-white dark:bg-slate-900">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1320px] border-collapse text-left">
+          <table className="w-full min-w-[1040px] border-collapse text-left">
             <thead>
               <tr className="border-b border-hairline dark:border-white/10 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">
-                <Th className="pl-4">Metric ID</Th>
-                <Th>Metric name</Th>
+                <Th className="pl-4">Metric</Th>
                 <Th>Dimension</Th>
-                <Th>Tool / adapter</Th>
-                <Th className="text-right">Raw score</Th>
-                <Th className="text-right">Normalized</Th>
+                <Th>Method</Th>
+                <Th className="text-right">Score</Th>
                 <Th className="text-right">Threshold</Th>
                 <Th>Result</Th>
                 <Th className="text-right">Evidence</Th>
@@ -596,13 +711,12 @@ function MetricsTab({ report }: { report: GovernanceReport | null }) {
                     onClick={() => setSelectedMetric(metric)}
                     className="cursor-pointer text-[12.5px] hover:bg-slate-50/70 dark:hover:bg-slate-800/40"
                   >
-                    <td className="py-2.5 pl-4 pr-3 font-mono text-[11px] font-semibold text-slate-500 dark:text-slate-400">{metric.metric_id}</td>
-                    <td className="px-3 py-2.5">
+                    <td className="py-2.5 pl-4 pr-3">
                       <p className="max-w-[260px] truncate font-medium text-ink dark:text-white" title={row.name}>{row.name}</p>
+                      <p className="font-mono text-[10px] text-slate-400 dark:text-slate-500">{metric.metric_id}</p>
                     </td>
                     <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300">{humanizeDimension(metric.dimension)}</td>
-                    <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300">{row.tool}</td>
-                    <td className="px-3 py-2.5 text-right font-mono tabular-nums text-slate-600 dark:text-slate-300">{formatScore(metric.raw_score)}</td>
+                    <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300">{toolLabel(row.tool)}</td>
                     <td className="px-3 py-2.5 text-right font-mono tabular-nums text-slate-700 dark:text-slate-200">
                       {r.normalized_score != null ? r.normalized_score.toFixed(2) : "—"}
                     </td>
@@ -701,7 +815,7 @@ function MetricDetailDrawer({
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <ResultChip result={row.result} />
             <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:text-slate-300">{humanizeDimension(metric.dimension)}</span>
-            <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:text-slate-300">{row.tool}</span>
+            <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:text-slate-300">{toolLabel(row.tool)}</span>
           </div>
         </div>
 
@@ -719,8 +833,8 @@ function MetricDetailDrawer({
             <p className="text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">{scoreExplanation(metric, row.result)}</p>
           </DrawerSection>
 
-          <DrawerSection title="Tool used">
-            <p className="text-[13px] text-slate-700 dark:text-slate-300">{row.tool}</p>
+          <DrawerSection title="Assurance method">
+            <p className="text-[13px] text-slate-700 dark:text-slate-300">{toolLabel(row.tool)}</p>
           </DrawerSection>
 
           <DrawerSection title={`Evidence records (${metric.evidence_ids.length})`}>
@@ -831,12 +945,12 @@ function EvidenceRecordRow({ evidence }: { evidence: EvidenceRecord }) {
   return (
     <div className="rounded-lg border border-hairline dark:border-white/10 px-3 py-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="min-w-0 truncate text-[13px] font-medium text-ink dark:text-white">{evidence.source_name}</p>
+        <p className="min-w-0 truncate text-[13px] font-medium text-ink dark:text-white">{toolLabel(evidence.tool_name ?? evidence.source_name)}</p>
         <span className="text-[12px] font-semibold text-slate-600 dark:text-slate-300">{result}</span>
       </div>
       <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400">
-        {evidence.tool_name ? `${displayToolName(evidence.tool_name)} - ` : ""}{humanizeToken(evidence.source_type)}
-        {evidence.normalized_score != null && ` - score ${formatScore(evidence.normalized_score)}`}
+        {evidenceTypeLabel(evidence.source_type)}
+        {evidence.normalized_score != null && ` · score ${formatScore(evidence.normalized_score)}`}
       </p>
     </div>
   );
@@ -879,9 +993,21 @@ function metricToolLabel(metric: MetricResult, config: MetricConfigFull | null, 
 }
 
 function displayToolName(tool: string | null | undefined): string {
-  const clean = tool?.trim();
-  if (!clean || /mock|simulated|simulation|developer/i.test(clean)) return "Not recorded";
-  return humanizeToken(clean);
+  return toolLabel(tool);
+}
+
+// Auditor-friendly evidence-type label: drop the leading engine-tool token from
+// source_type (e.g. "deepeval_llm_judge" → "LLM judge", "ragas_rag_probe" →
+// "RAG probe") so the auditor reads the kind of evidence, not the vendor tool.
+const _EVIDENCE_TOOL_TOKENS = new Set([
+  "deepeval", "ragas", "garak", "presidio", "pyrit", "langfuse", "evidently", "promptfoo", "inspect", "vision", "audio",
+]);
+function evidenceTypeLabel(sourceType: string): string {
+  const parts = sourceType.split(/[_-]+/).filter(Boolean);
+  const rest = parts.length > 1 && _EVIDENCE_TOOL_TOKENS.has(parts[0].toLowerCase()) ? parts.slice(1) : parts;
+  return rest
+    .map((w) => (/^(llm|rag|pii|ai)$/i.test(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(" ");
 }
 
 function humanizeToken(value: string): string {
@@ -950,74 +1076,10 @@ function linkedFindings(metric: MetricResult, findings: BackendFinding[]): Backe
 
 /* ────────────────────────────────────────────────────────── Evidence ── */
 
-function EvidenceTab({ evidence }: { evidence: EvidenceRecord[] }) {
-  const [openId, setOpenId] = useState<string | null>(null);
-  if (evidence.length === 0) return <PanelNote>No evidence artifacts are available for this assessment yet.</PanelNote>;
-  return (
-    <div className="space-y-3">
-      <p className="text-[12px] text-slate-500 dark:text-slate-400">{evidence.length} sealed evidence records supporting this assessment. Read-only.</p>
-      <div className="overflow-hidden rounded-xl border border-hairline dark:border-white/10 bg-white dark:bg-slate-900">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] border-collapse text-left">
-            <thead>
-              <tr className="border-b border-hairline dark:border-white/10 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">
-                <Th className="pl-4">Evidence source</Th>
-                <Th>Tool</Th>
-                <Th>Type</Th>
-                <Th className="text-right">Score</Th>
-                <Th>Result</Th>
-                <Th className="pr-4">Sensitivity</Th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-hairline dark:divide-white/10">
-              {evidence.map((e) => {
-                const open = openId === e.id;
-                return (
-                  <Fragment key={e.id}>
-                    <tr
-                      onClick={() => setOpenId(open ? null : e.id)}
-                      className="cursor-pointer text-[12.5px] hover:bg-slate-50/70 dark:hover:bg-slate-800/40"
-                    >
-                      <td className="py-2.5 pl-4 pr-3">
-                        <div className="flex items-center gap-2">
-                          <FileSearch className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
-                          <span className="font-medium text-ink dark:text-white">{e.source_name}</span>
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300">{e.tool_name ?? "—"}</td>
-                      <td className="px-3 py-2.5 text-slate-500 dark:text-slate-400">{e.source_type.replace(/_/g, " ")}</td>
-                      <td className="px-3 py-2.5 text-right font-mono tabular-nums text-slate-600 dark:text-slate-300">
-                        {e.normalized_score != null ? `${e.normalized_score.toFixed(2)}${e.threshold != null ? ` / ${e.threshold.toFixed(2)}` : ""}` : "—"}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <span className={clsx("text-[12px] font-semibold",
-                          e.passed === true ? "text-emerald-700 dark:text-emerald-400" : e.passed === false ? "text-red-600 dark:text-red-400" : "text-slate-400")}>
-                          {e.passed === true ? "Pass" : e.passed === false ? "Fail" : "N/A"}
-                        </span>
-                      </td>
-                      <td className="py-2.5 pl-3 pr-4">
-                        {e.sensitivity
-                          ? <span className="rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium capitalize text-slate-500 dark:text-slate-400">{e.sensitivity}</span>
-                          : <span className="text-[11px] text-slate-300 dark:text-slate-600">—</span>}
-                      </td>
-                    </tr>
-                    {open && e.trace_id && (
-                      <tr className="bg-slate-50/60 dark:bg-slate-800/30">
-                        <td colSpan={6} className="px-4 py-2 text-[11px] text-slate-500 dark:text-slate-400">
-                          <span className="text-slate-400">Trace id:</span> <span className="font-mono">{e.trace_id}</span>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
+// Evidence tab removed — it duplicated the Metrics tab (one record per metric).
+// Evidence stays reachable in context: the metric drawer's "Evidence records"
+// and the Compliance control drawer's "Evidence summary". A sealed-record count
+// is surfaced on the Summary tab.
 
 /* ─────────────────────────────────────────────────────────── History ── */
 
@@ -1082,6 +1144,15 @@ function HistoryTab({ appId, currentRunId }: { appId: string; currentRunId: stri
   );
 }
 
+const HISTORY_DOT: Record<string, string> = {
+  compliant: "bg-emerald-500",
+  conditional: "bg-amber-500",
+  not_compliant: "bg-red-500",
+  under_review: "bg-violet-500",
+  in_progress: "bg-blue-500",
+  not_assessed: "bg-slate-300 dark:bg-slate-600",
+};
+
 function HistoryRow({ run, verdict, isCurrent }: { run: EvaluationRun; verdict: Verdict | null; isCurrent: boolean }) {
   const status = runStatusMeta(run.status);
   const runInFlight = IN_FLIGHT_STATUSES.has(run.status);
@@ -1091,32 +1162,60 @@ function HistoryRow({ run, verdict, isCurrent }: { run: EvaluationRun; verdict: 
     runInFlight,
   });
   const when = new Date(run.created_at);
+  const hasVerdict = verdict != null || runInFlight;
+  const dot = HISTORY_DOT[client.key] ?? "bg-slate-300 dark:bg-slate-600";
+  const conf = verdict?.confidence_score;
   return (
     <li className="relative mb-3 last:mb-0">
-      <span className={clsx("absolute -left-[26px] top-1.5 h-2.5 w-2.5 rounded-full ring-4 ring-[#f6f7f9] dark:ring-slate-950",
-        isCurrent ? "bg-brand-500" : "bg-slate-300 dark:bg-slate-600")} aria-hidden />
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-hairline dark:border-white/10 bg-white dark:bg-slate-900 px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[13px] font-semibold text-ink dark:text-white" title={when.toLocaleString()}>
-              {when.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
-              {", "}
-              {when.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
-            </span>
-            <span className="text-[11px] text-slate-400">· {timeAgo(run.created_at)}</span>
-            {isCurrent && (
-              <span className="rounded-full bg-brand-50 dark:bg-brand-950/40 px-2 py-0.5 text-[10px] font-semibold text-brand-700 dark:text-brand-300">Current</span>
-            )}
-          </div>
+      <span className={clsx("absolute -left-[27px] top-3 h-3 w-3 rounded-full ring-4 ring-[#f6f7f9] dark:ring-slate-950", dot)} aria-hidden />
+      <div className={clsx(
+        "rounded-xl border px-4 py-3 transition-colors",
+        isCurrent
+          ? "border-brand-300 bg-brand-50/40 dark:border-brand-800/70 dark:bg-brand-950/20"
+          : "border-hairline bg-white dark:border-white/10 dark:bg-slate-900",
+      )}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {hasVerdict ? <VerdictPill meta={client} size="sm" /> : <span className="text-[12px] font-medium text-slate-400">No verdict recorded</span>}
+          <span className={clsx("rounded-full px-2 py-0.5 text-[11px] font-medium", status.tone)}>{status.label}</span>
         </div>
-        {verdict != null || runInFlight ? <VerdictPill meta={client} size="sm" /> : <span className="text-[11px] text-slate-400">No verdict</span>}
-        <span className={clsx("rounded-full px-2 py-0.5 text-[11px] font-medium", status.tone)}>{status.label}</span>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-400 dark:text-slate-500">
+          <span className="font-medium text-slate-500 dark:text-slate-400" title={when.toLocaleString()}>
+            {when.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}, {when.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+          </span>
+          <span>· {timeAgo(run.created_at)}</span>
+          {isCurrent && (
+            <span className="rounded-full bg-brand-100 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700 dark:bg-brand-900/50 dark:text-brand-300">Current assessment</span>
+          )}
+        </div>
+        {conf != null && (
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+            <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+              <div className="h-full rounded-full bg-slate-400 dark:bg-slate-500" style={{ width: `${Math.round(conf * 100)}%` }} />
+            </div>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">{Math.round(conf * 100)}% engine confidence</span>
+          </div>
+        )}
       </div>
     </li>
   );
 }
 
 /* ───────────────────────────────────────────────────────────── util ── */
+
+/** Subtle link to the (rail-hidden) Assurance Tools reference — so an auditor
+ * can learn what a method means without a standalone catalog in the sidebar. */
+function MethodsRefLink() {
+  const navigateTo = useAppStore((s) => s.navigateTo);
+  return (
+    <button
+      onClick={() => navigateTo("/assurance-tools")}
+      className="inline-flex shrink-0 items-center gap-0.5 text-[11px] font-medium text-brand-700 dark:text-brand-400 hover:underline"
+    >
+      About these methods
+      <ChevronRight className="h-3 w-3" aria-hidden />
+    </button>
+  );
+}
 
 function PanelNote({ children }: { children: React.ReactNode }) {
   return (

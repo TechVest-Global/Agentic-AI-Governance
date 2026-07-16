@@ -7,6 +7,7 @@ import clsx from "clsx";
 import { SearchOverlay } from "@/components/SearchOverlay";
 import { RunSwitcher } from "@/components/layout/RunSwitcher";
 import { NotificationsMenu } from "@/components/layout/NotificationsMenu";
+import { RequestsInboxMenu } from "@/components/layout/RequestsInboxMenu";
 import { navigation } from "@/data/mockData";
 import type { PageId as PageIdType } from "@/types";
 
@@ -217,6 +218,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
 
+            {/* assessment-requests inbox — developer-only: these are asks
+                the developer acts on, not something an auditor needs to see
+                surfaced back at themselves */}
+            {persona === "developer" && <RequestsInboxMenu />}
+
             {/* notifications */}
             <NotificationsMenu />
 
@@ -374,6 +380,7 @@ const pageDescriptions: Record<PageId, string> = {
   "application-detail":"Assurance detail for a single application.",
   compliance:          "Framework compliance across your applications.",
   "client-reports":    "Assurance reports available to download or read in-app.",
+  "assurance-tools":   "The independent checks and methods used to assess your applications.",
   // ── Retired auditor screens ──
   overview:            "Your assurance priorities across every AI system in scope — pending reviews, critical findings, verdicts, sign-offs, and remediation.",
   "my-assignments":    "AI systems and reviews assigned specifically to you.",

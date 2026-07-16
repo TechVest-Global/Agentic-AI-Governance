@@ -688,6 +688,58 @@ export async function deleteAISystem(systemId: string): Promise<void> {
   });
 }
 
+export type AssessmentRequestStatus = "pending" | "in_progress" | "resolved" | "dismissed";
+
+export type AssessmentRequest = {
+  id: string;
+  ai_system_id: string;
+  note?: string | null;
+  status: AssessmentRequestStatus;
+  requested_by_name: string;
+  requested_by_email: string;
+  requested_by_role: string;
+  resolved_run_id?: string | null;
+  resolved_at?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+};
+
+/** Auditor → developer "request re-assessment" ask. Auditors never trigger
+ * runs directly; this is the structured request that stands in for that. */
+export async function createAssessmentRequest(
+  systemId: string,
+  payload: { note?: string },
+): Promise<AssessmentRequest> {
+  return request<AssessmentRequest>(`/ai-systems/${systemId}/assessment-requests`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listAssessmentRequests(systemId: string): Promise<AssessmentRequest[]> {
+  return request<AssessmentRequest[]>(`/ai-systems/${systemId}/assessment-requests`);
+}
+
+/** Cross-system inbox feed — powers the top-bar requests inbox and its badge. */
+export async function listAllAssessmentRequests(
+  statuses?: AssessmentRequestStatus[],
+): Promise<AssessmentRequest[]> {
+  const params = new URLSearchParams();
+  for (const s of statuses ?? []) params.append("status", s);
+  const qs = params.toString();
+  return request<AssessmentRequest[]>(`/assessment-requests${qs ? `?${qs}` : ""}`);
+}
+
+export async function updateAssessmentRequestStatus(
+  requestId: string,
+  payload: { status: AssessmentRequestStatus; resolved_run_id?: string },
+): Promise<AssessmentRequest> {
+  return request<AssessmentRequest>(`/assessment-requests/${requestId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function createAISystemCapability(
   systemId: string,
   payload: BackendAISystemCapabilityCreate,
@@ -1255,7 +1307,7 @@ export async function uploadContextDocument(
   return response.json();
 }
 
-const TERMINAL_STATUSES = new Set(["completed", "report_ready", "failed", "cancelled", "canceled"]);
+const TERMINAL_STATUSES = new Set(["completed", "report_ready", "degraded", "failed", "cancelled", "canceled"]);
 
 export async function waitForRunCompletion(
   runId: string,
