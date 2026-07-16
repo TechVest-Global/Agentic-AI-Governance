@@ -178,7 +178,13 @@ export function Reports() {
                 <Badge tone="amber">{backend.report.counts.findings ?? 0} findings</Badge>
               </>
             )}
-            {backend.error && <Badge tone="slate">Mock fallback</Badge>}
+            {/* Tied to whether the rows on screen are actually the hardcoded
+                fallback content, not just to a connection error — an empty
+                (but error-free) framework map falls back to mock rows too,
+                and the badge needs to say so either way. */}
+            {Object.keys(backendRowsByFramework).length === 0 && (
+              <Badge tone="slate">Mock fallback</Badge>
+            )}
           </div>
         </div>
       </Card>

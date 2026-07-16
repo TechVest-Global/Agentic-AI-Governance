@@ -32,6 +32,8 @@ class TechVestTargetModelClient:
     """Target model client for the TechVest RAG chatbot API."""
 
     provider = "techvest_chatbot"
+    # Real text-only production chat API — does not accept or return media.
+    supports_media = False
 
     def __init__(self, *, endpoint: str, api_key: str, timeout: float = 60.0) -> None:
         # Accept either a base URL or one that already includes the chat path,

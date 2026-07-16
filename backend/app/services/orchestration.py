@@ -6,7 +6,7 @@ from sqlmodel import Session, select
 from app.db import session as db_session
 from app.models.ai_system import AISystem
 from app.models.base import utc_now
-from app.models.enums import LedgerActorType, RunPhase, RunStatus
+from app.models.enums import AgentExecutionStatus, LedgerActorType, RunPhase, RunStatus
 from app.models.evaluation import EvaluationRun
 from app.models.verdict import Verdict
 from app.schemas.governance import (
@@ -99,8 +99,18 @@ def _finalize_run(
     Uses its own session/connection so a poisoned pipeline session can never
     prevent the run from reaching a terminal status (the frontend polls until
     it sees one). No-ops when the run is already terminal.
+
+    ``degraded`` counts as terminal here too: the pipeline itself decides when
+    a run is degraded (one or more specialist agents failed) and that decision
+    must not be silently overwritten back to ``completed`` by the job's
+    unconditional success finalize below.
     """
-    terminal = {RunStatus.completed, RunStatus.failed, RunStatus.cancelled}
+    terminal = {
+        RunStatus.completed,
+        RunStatus.failed,
+        RunStatus.cancelled,
+        RunStatus.degraded,
+    }
     try:
         with Session(db_session.engine) as session:
             run = get_run_or_raise(session, run_id)
@@ -366,9 +376,38 @@ def _execute_and_report(
     # Finalize: report building is read-only, so without this the run would be
     # left parked at council_running / deliberation_council — never a terminal
     # status. That made the SSE progress stream never close and the frontend
-    # completion poll hang forever. Mark the run completed at action_reporting.
+    # completion poll hang forever. Mark the run completed at action_reporting —
+    # UNLESS one or more specialist agents failed during evaluation. The council
+    # and report steps still run on whatever evidence WAS produced, but the
+    # failure is real and must be surfaced, not silently overwritten to
+    # "completed". The standalone /agents/run endpoint already preserves
+    # 'degraded' in this situation; the full pipeline must match it.
     run = get_run_or_raise(session, run_id)
-    run.status = RunStatus.completed
+    failed_executions = [
+        execution
+        for execution in agent_result.executions
+        if execution.status == AgentExecutionStatus.failed
+    ]
+    if failed_executions:
+        run.status = RunStatus.degraded
+        run.error_summary = {
+            **(run.error_summary or {}),
+            "degraded_reason": "specialist_agent_failure",
+            "message": (
+                f"{len(failed_executions)} of {len(agent_result.executions)} "
+                "specialist agent(s) failed during evaluation; the run "
+                "completed in a degraded state on the remaining evidence."
+            ),
+            "failed_agents": [
+                {
+                    "agent_name": execution.agent_name,
+                    "error": execution.error_summary,
+                }
+                for execution in failed_executions
+            ],
+        }
+    else:
+        run.status = RunStatus.completed
     run.current_phase = RunPhase.completed
     run.completed_at = run.completed_at or utc_now()
     run.updated_at = utc_now()

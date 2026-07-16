@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useForm, useFieldArray, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -501,6 +501,25 @@ function Select({
   );
 }
 
+// Walks react-hook-form's FieldErrors tree and returns the DOM node registered
+// for the first invalid field (RHF attaches the input's `ref` to each leaf
+// error). Used to scroll a submit-time validation failure into view when the
+// offending field is scrolled out of sight in this long form.
+function findFirstErrorRef(node: unknown): HTMLElement | null {
+  if (!node || typeof node !== "object") return null;
+  const obj = node as Record<string, unknown>;
+  const ref = obj.ref as { scrollIntoView?: unknown } | undefined;
+  if (ref && typeof ref.scrollIntoView === "function") {
+    return ref as unknown as HTMLElement;
+  }
+  for (const key of Object.keys(obj)) {
+    if (key === "ref" || key === "type" || key === "message") continue;
+    const found = findFirstErrorRef(obj[key]);
+    if (found) return found;
+  }
+  return null;
+}
+
 type Props = {
   options: RegistrationOptions | null;
   frameworks: RegistrationFrameworkOption[];
@@ -537,6 +556,11 @@ export function RegisterAISystemModal({
     mode: "onBlur",
   });
 
+  // Kept in sync every render so the async submit handler below can read the
+  // post-`trigger()` error tree without relying on a stale closure value.
+  const errorsRef = useRef(errors);
+  errorsRef.current = errors;
+
   const ownersArr = useFieldArray({ control, name: "owners" });
   const modelsArr = useFieldArray({ control, name: "models" });
   const endpointsArr = useFieldArray({ control, name: "endpoints" });
@@ -560,7 +584,14 @@ export function RegisterAISystemModal({
     setValue("submitIntent", intent);
     setSubmitError(null);
     const valid = await trigger();
-    if (!valid) return;
+    if (!valid) {
+      // Defer to the next tick so the re-render carrying the fresh error refs
+      // (from the trigger() above) has landed before we read errorsRef.
+      setTimeout(() => {
+        findFirstErrorRef(errorsRef.current)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 0);
+      return;
+    }
     const payload = buildPayload(getValues());
     try {
       setIsSubmitting(true);

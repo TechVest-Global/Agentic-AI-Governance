@@ -65,6 +65,14 @@ class GovernanceModelResponse:
 class TargetModelClient(Protocol):
     provider: str
     credential_ref: str | None
+    # Whether this client actually attaches TargetModelRequest.media to the
+    # outbound call and populates TargetModelResponse.media from what the
+    # target returns. Clients that don't (most real text-only production
+    # APIs) silently drop media — multimodal evaluators (vision/audio) MUST
+    # check this flag before scoring, or they end up fabricating a result
+    # against media that was never actually transmitted. Default False;
+    # concrete clients override to True once they genuinely wire media I/O.
+    supports_media: bool
 
     def invoke(self, request: TargetModelRequest) -> TargetModelResponse:
         """Call the audited application or model through an isolated target boundary."""

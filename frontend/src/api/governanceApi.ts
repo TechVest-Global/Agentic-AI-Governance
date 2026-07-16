@@ -1,5 +1,12 @@
+import { useAuthStore } from "@/store/useAuthStore";
+
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "http://127.0.0.1:8000/api/v1";
+
+function authHeaders(): Record<string, string> {
+  const token = useAuthStore.getState().token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 
 export type BackendAISystem = {
@@ -503,6 +510,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
       "Content-Type": "application/json",
+      ...authHeaders(),
       ...(init?.headers ?? {}),
     },
     ...init,
@@ -1239,7 +1247,7 @@ export async function uploadContextDocument(
   // Note: no Content-Type header — the browser sets the multipart boundary.
   const response = await fetch(
     `${API_BASE_URL}/ai-systems/${systemId}/retrieval-context/upload`,
-    { method: "POST", body: form },
+    { method: "POST", body: form, headers: authHeaders() },
   );
   if (!response.ok) {
     throw new Error(await response.text());

@@ -211,8 +211,12 @@ def approve_plan(
     run.current_phase = RunPhase.metric_execution
     run.updated_at = now
     session.add(run)
-    session.commit()
 
+    # Build (but don't independently commit) the ledger entry so the run's
+    # status change and its audit record land in a single transaction. If the
+    # ledger insert fails (unique constraint race, DB blip), the whole commit
+    # below rolls back rather than leaving the run advanced with no matching
+    # ledger entry.
     audit_ledger.append_ledger_entry(
         session,
         run_id=run_id,
@@ -228,7 +232,9 @@ def approve_plan(
                 "selected_metrics": payload.selected_metrics if manual_selection else None,
             },
         ),
+        commit=False,
     )
+    session.commit()
 
     session.refresh(run)
     return run

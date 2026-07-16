@@ -129,6 +129,60 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
     assert updated_run["result_summary"]["council_label"] == "conditional_approval"
 
 
+def test_full_pipeline_stays_degraded_when_an_agent_fails(
+    client: TestClient, monkeypatch
+) -> None:
+    """Fix regression test: driving the FULL pipeline through /orchestrate must
+    preserve a 'degraded' run status when a specialist agent fails, matching what
+    the standalone /agents/run endpoint already does (see
+    test_agent_routes.py::test_agent_failure_is_stored_as_degraded_execution).
+
+    Previously, _execute_and_report's final step unconditionally overwrote
+    run.status to 'completed' after the council/report steps ran, silently
+    discarding the degraded signal that agent_execution.run_agents() had set.
+    """
+    assert client.post("/api/v1/governance-config/bootstrap").status_code == 200
+    system = create_system(client)
+    run = create_run(client, system["id"])
+
+    class FailingAgent:
+        name = "failing_agent"
+
+        def evaluate(self, context: object) -> list[object]:
+            raise RuntimeError("agent tool unavailable")
+
+    monkeypatch.setattr(
+        "app.services.specialist_agents.agent_execution.select_agents",
+        lambda agent_names=None: [FailingAgent()],
+    )
+
+    response = client.post(
+        f"/api/v1/evaluation-runs/{run['id']}/orchestrate",
+        json={"mock_score": 1.0, "requested_by": "backend_test"},
+    )
+    assert response.status_code == 202
+
+    run_after = client.get(f"/api/v1/evaluation-runs/{run['id']}").json()
+    assert run_after["status"] == "degraded"
+    assert run_after["current_phase"] == "completed"
+    assert run_after["error_summary"]["degraded_reason"] == "specialist_agent_failure"
+    assert run_after["error_summary"]["failed_agents"] == [
+        {
+            "agent_name": "failing_agent",
+            "error": {
+                "error_type": "RuntimeError",
+                "message": "agent tool unavailable",
+            },
+        }
+    ]
+
+    # The pipeline still ran council + report to completion on whatever
+    # evidence was produced — a degraded run is not a stopped-dead run.
+    report = client.get(f"/api/v1/evaluation-runs/{run['id']}/report").json()
+    assert report["run"]["id"] == run["id"]
+    assert report["counts"]["agent_executions"] == 1
+
+
 def test_governance_pipeline_pauses_for_plan_approval_then_resumes(
     client: TestClient,
 ) -> None:

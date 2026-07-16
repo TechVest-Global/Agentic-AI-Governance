@@ -107,7 +107,7 @@ def run_metrics(
     # session (SQLModel sessions are not thread-safe) for any reads its evaluator
     # does; all writes below happen back on the main session, in plan order, so
     # persistence stays single-threaded and deterministic.
-    def _evaluate(metric):
+    def _evaluate(metric) -> MetricEvaluationResult:
         # contextvars don't cross thread boundaries — rebind the parent's audit
         # buffer so this worker's LLM calls are captured too.
         bind_log_capture(capture_buffer)
@@ -124,9 +124,32 @@ def run_metrics(
                         target_client=target_client,
                     )
                 )
-            except Exception:
+            except Exception as exc:
+                # A single metric's transient failure (network blip probing the
+                # target, judge timeout, ...) must not discard every other
+                # metric's already-computed results for this run — pool.map(...)
+                # raises on the FIRST failing future, and persistence below only
+                # runs after the whole pool completes. Return an "error" result
+                # for THIS metric instead of re-raising so the run still
+                # persists whatever evidence/metric_results DID succeed.
                 logger.exception("Metric evaluation failed for %s", metric.metric_id)
-                raise
+                return MetricEvaluationResult(
+                    source_type="metric_evaluation_error",
+                    tool_name=metric.tool_name or "unknown",
+                    raw_score=None,
+                    normalized_score=None,
+                    threshold=None,
+                    passed=False,
+                    status=MetricResultStatus.error,
+                    payload={
+                        "metric_id": metric.metric_id,
+                        "metric_name": metric.name,
+                        "dimension": metric.dimension,
+                        "evaluator_name": evaluator.name,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                )
 
     metrics = list(plan.metrics)
     if metrics:
@@ -197,13 +220,22 @@ def run_metrics(
         evidence_records.append(evidence)
         metric_results.append(metric_result)
 
-    run.status = RunStatus.metrics_running
+    failed_metric_count = sum(
+        1 for evaluation in evaluations if evaluation.status == MetricResultStatus.error
+    )
+
+    # Consistent with run_agents' RunStatus.degraded convention (see
+    # agent_execution.py): some metrics erroring means the run's evidence is
+    # incomplete, not fully healthy, but every metric that DID succeed is still
+    # persisted below rather than discarded.
+    run.status = RunStatus.degraded if failed_metric_count else RunStatus.metrics_running
     run.current_phase = RunPhase.metric_execution
     run.started_at = run.started_at or utc_now()
     run.result_summary = {
         "metric_plan_count": plan.metric_count,
         "evidence_created": len(evidence_records),
         "metric_results_created": len(metric_results),
+        "metrics_failed": failed_metric_count,
         "evaluator_name": evaluator.name,
         "mock_execution": evaluator.name == "mock",
     }

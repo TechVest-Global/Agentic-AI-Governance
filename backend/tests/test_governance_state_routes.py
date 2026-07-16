@@ -1,6 +1,10 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+import app.db.session as db_session
+from app.schemas.governance import GovernanceStateEntryCreate
+from app.services import governance_state
 from fastapi.testclient import TestClient
+from sqlmodel import Session
 
 
 def create_run(client: TestClient) -> dict[str, object]:
@@ -106,6 +110,39 @@ def test_state_entries_can_be_filtered_by_phase_and_source(
     assert [entry["phase"] for entry in source_response.json()] == [
         "context_assembly"
     ]
+
+
+def test_verify_state_chain_checks_beyond_the_old_1000_entry_cap(
+    client: TestClient,
+) -> None:
+    # verify_state_chain used to fetch only the first 1000 entries via
+    # list_state_entries(offset=0, limit=1000), so a run with more than 1000
+    # entries would silently report entry_count=1000 and valid=True even
+    # though the tail of the chain was never inspected. Insert more than 1000
+    # entries directly (bulk via the service, to keep the test fast) and
+    # confirm the verify endpoint reports the TRUE total.
+    run = create_run(client)
+    run_id = UUID(run["id"])
+    total_entries = 1005
+
+    with Session(db_session.engine) as session:
+        for i in range(total_entries):
+            governance_state.append_state_entry(
+                session,
+                run_id=run_id,
+                payload=GovernanceStateEntryCreate(
+                    entry_type=f"bulk_entry_{i}",
+                    source="test_harness",
+                    phase="metric_execution",
+                    payload={},
+                ),
+            )
+
+    verify_response = client.get(f"/api/v1/evaluation-runs/{run['id']}/state/verify")
+    assert verify_response.status_code == 200
+    body = verify_response.json()
+    assert body["valid"] is True
+    assert body["entry_count"] == total_entries
 
 
 def test_state_requires_existing_run(client: TestClient) -> None:

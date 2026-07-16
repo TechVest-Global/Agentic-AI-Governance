@@ -179,6 +179,9 @@ class HRGatewayTargetModelClient:
     """Target model client for the HR Recruitment AI Gateway."""
 
     provider = "hr_ai_gateway"
+    # Real structured-JSON production gateway — its 13 endpoints are text/JSON
+    # only, no media in or out.
+    supports_media = False
 
     def __init__(self, *, endpoint: str, api_key: str, timeout: float = 90.0) -> None:
         self._endpoint = endpoint.rstrip("/")
