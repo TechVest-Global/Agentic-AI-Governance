@@ -7,6 +7,7 @@ import clsx from "clsx";
 import { SearchOverlay } from "@/components/SearchOverlay";
 import { RunSwitcher } from "@/components/layout/RunSwitcher";
 import { NotificationsMenu } from "@/components/layout/NotificationsMenu";
+import { RequestsInboxMenu } from "@/components/layout/RequestsInboxMenu";
 import { navigation } from "@/data/mockData";
 import type { PageId as PageIdType } from "@/types";
 
@@ -216,6 +217,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             >
               {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
+
+            {/* assessment-requests inbox — developer-only: these are asks
+                the developer acts on, not something an auditor needs to see
+                surfaced back at themselves */}
+            {persona === "developer" && <RequestsInboxMenu />}
 
             {/* notifications */}
             <NotificationsMenu />

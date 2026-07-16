@@ -1,6 +1,7 @@
 """SQLModel entities for the governance backend."""
 
 from app.models.agent import AgentExecution
+from app.models.assessment_request import AssessmentRequest
 from app.models.ai_system import (
     AISystem,
     AISystemAgentConfig,
@@ -30,6 +31,7 @@ from app.models.verdict import Verdict
 
 __all__ = [
     "AgentExecution",
+    "AssessmentRequest",
     "AISystem",
     "AISystemAgentConfig",
     "AISystemCapability",

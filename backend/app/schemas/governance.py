@@ -9,6 +9,7 @@ from app.models.enums import (
     AgentExecutionStatus,
     AISystemStatus,
     ApplicabilityType,
+    AssessmentRequestStatus,
     CapabilityType,
     EndpointStatus,
     FindingStatus,
@@ -1242,3 +1243,26 @@ class AISystemRegistrationRead(APIModel):
     profile_completeness: float = 0.0
     missing_recommended_fields: list[str] = Field(default_factory=list)
     registration_status: Literal["draft", "registered"] = "registered"
+
+
+class AssessmentRequestCreate(APIModel):
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class AssessmentRequestRead(APIModel):
+    id: UUID
+    ai_system_id: UUID
+    note: str | None = None
+    status: AssessmentRequestStatus
+    requested_by_name: str
+    requested_by_email: str
+    requested_by_role: str
+    resolved_run_id: UUID | None = None
+    resolved_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class AssessmentRequestStatusUpdate(APIModel):
+    status: AssessmentRequestStatus
+    resolved_run_id: UUID | None = None

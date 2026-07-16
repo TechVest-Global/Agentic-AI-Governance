@@ -13,10 +13,13 @@ import { useAuditorApplication } from "@/hooks/useAuditorApplication";
 import { ControlAssurance } from "./ControlAssurance";
 import { MetricDetailSections } from "./MetricDetail";
 import {
+  createAssessmentRequest,
   getRunVerdict,
   getFrameworkMap,
+  listAssessmentRequests,
   listEvaluationRuns,
   listMetricConfigs,
+  type AssessmentRequest,
   type BackendFinding,
   type EvaluationRun,
   type EvidenceRecord,
@@ -235,7 +238,42 @@ function ScoreBar({ counts }: { counts: { passed: number; failed: number; needsR
 
 /* ───────────────────────────────────────────────────── hero actions ── */
 
-function HeroActions({ report, system }: { report: GovernanceReport | null; system: { name: string } }) {
+function HeroActions({ report, system }: { report: GovernanceReport | null; system: { id: string; name: string } }) {
+  const [requests, setRequests] = useState<AssessmentRequest[]>([]);
+  const [composing, setComposing] = useState(false);
+  const [note, setNote] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listAssessmentRequests(system.id)
+      .then((r) => { if (!cancelled) setRequests(r); })
+      .catch(() => { /* status pill just stays hidden if this fails */ });
+    return () => { cancelled = true; };
+  }, [system.id]);
+
+  // Requests come back newest-first; only the most recent one gates the button
+  // (an old dismissed/resolved request shouldn't block asking again).
+  const openRequest = requests[0] && (requests[0].status === "pending" || requests[0].status === "in_progress")
+    ? requests[0]
+    : null;
+
+  async function sendRequest() {
+    setSending(true);
+    setSendError(null);
+    try {
+      const created = await createAssessmentRequest(system.id, { note: note.trim() || undefined });
+      setRequests((prev) => [created, ...prev]);
+      setComposing(false);
+      setNote("");
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "Could not send the request.");
+    } finally {
+      setSending(false);
+    }
+  }
+
   function exportReport() {
     if (!report) return;
     const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
@@ -246,27 +284,72 @@ function HeroActions({ report, system }: { report: GovernanceReport | null; syst
     a.click();
     URL.revokeObjectURL(url);
   }
+
   return (
-    <div className="flex shrink-0 items-center gap-2">
-      <button
-        type="button"
-        disabled
-        title="Re-assessment requests aren't available yet — this needs a backend request endpoint."
-        aria-disabled
-        className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-hairline dark:border-slate-700 px-3 py-1.5 text-[12px] font-medium text-slate-400 dark:text-slate-500"
-      >
-        <RefreshCw className="h-3.5 w-3.5" aria-hidden />
-        Request re-assessment
-      </button>
-      <button
-        type="button"
-        onClick={exportReport}
-        disabled={!report}
-        className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
-      >
-        <Download className="h-3.5 w-3.5" aria-hidden />
-        Export report
-      </button>
+    <div className="flex shrink-0 flex-col items-end gap-2">
+      <div className="flex items-center gap-2">
+        {openRequest ? (
+          <span
+            title={`Sent ${timeAgo(openRequest.created_at)}${openRequest.note ? ` — “${openRequest.note}”` : ""}`}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-hairline dark:border-slate-700 px-3 py-1.5 text-[12px] font-medium text-slate-500 dark:text-slate-400"
+          >
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+            {openRequest.status === "pending" ? "Re-assessment requested" : "Re-assessment in progress"}
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setComposing((v) => !v)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-hairline dark:border-slate-700 px-3 py-1.5 text-[12px] font-medium text-slate-600 dark:text-slate-300 hover:border-brand-300 dark:hover:border-brand-700 hover:text-ink dark:hover:text-white"
+          >
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+            Request re-assessment
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={exportReport}
+          disabled={!report}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+        >
+          <Download className="h-3.5 w-3.5" aria-hidden />
+          Export report
+        </button>
+      </div>
+
+      {composing && (
+        <div className="w-72 rounded-lg border border-hairline dark:border-slate-700 bg-white dark:bg-slate-900 p-3 shadow-sm">
+          <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+            Note to the developer (optional)
+          </label>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="e.g. please re-run after the latest prompt changes"
+            rows={3}
+            maxLength={2000}
+            className="mt-1 w-full resize-none rounded border border-hairline dark:border-slate-700 bg-transparent p-2 text-[12px] text-ink dark:text-white placeholder:text-slate-400"
+          />
+          {sendError && <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">{sendError}</p>}
+          <div className="mt-2 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => { setComposing(false); setSendError(null); }}
+              className="rounded px-2 py-1 text-[12px] text-slate-500 hover:text-ink dark:hover:text-white"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={sendRequest}
+              disabled={sending}
+              className="rounded bg-brand-600 px-3 py-1 text-[12px] font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+            >
+              {sending ? "Sending…" : "Send request"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -122,6 +122,13 @@ class LedgerActorType(StrEnum):
     tool = "tool"
 
 
+class AssessmentRequestStatus(StrEnum):
+    pending = "pending"
+    in_progress = "in_progress"
+    resolved = "resolved"
+    dismissed = "dismissed"
+
+
 class DriftSource(StrEnum):
     model = "model"          # model weights / version changed
     context = "context"      # prompt template or RAG context changed
