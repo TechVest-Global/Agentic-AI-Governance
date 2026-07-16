@@ -18,7 +18,7 @@ import {
 // outcome mix, average confidence). Bounded so the dashboard stays snappy.
 const REPORT_SAMPLE_SIZE = 10;
 
-const TERMINAL_STATUSES = new Set(["completed", "report_ready", "failed", "cancelled", "canceled"]);
+const TERMINAL_STATUSES = new Set(["completed", "report_ready", "degraded", "failed", "cancelled", "canceled"]);
 
 export type RiskSlice = { name: string; value: number; color: string };
 export type ConfidencePoint = { label: string; score: number; runId: string };

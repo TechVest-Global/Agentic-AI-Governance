@@ -29,8 +29,8 @@ import { metricOutcome } from "@/pages/auditor/clientComponents";
 // stays responsive; raise once pagination/summary endpoints exist.
 const RUN_SAMPLE_SIZE = 20;
 
-const COMPLETED_STATUSES = new Set(["completed", "report_ready"]);
-const TERMINAL_STATUSES = new Set(["completed", "report_ready", "failed", "cancelled", "canceled"]);
+const COMPLETED_STATUSES = new Set(["completed", "report_ready", "degraded"]);
+const TERMINAL_STATUSES = new Set(["completed", "report_ready", "degraded", "failed", "cancelled", "canceled"]);
 
 export type ReviewItem = {
   run: EvaluationRun;

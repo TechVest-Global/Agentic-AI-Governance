@@ -1255,7 +1255,7 @@ export async function uploadContextDocument(
   return response.json();
 }
 
-const TERMINAL_STATUSES = new Set(["completed", "report_ready", "failed", "cancelled", "canceled"]);
+const TERMINAL_STATUSES = new Set(["completed", "report_ready", "degraded", "failed", "cancelled", "canceled"]);
 
 export async function waitForRunCompletion(
   runId: string,
