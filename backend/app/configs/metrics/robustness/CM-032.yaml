@@ -17,6 +17,11 @@ thresholds:
     high: 0.85
     medium: 0.92
     low: 0.96
+  mitre_atlas:
+    critical: 0.75
+    high: 0.83
+    medium: 0.9
+    low: 0.95
 tool: evidently
 secondary_tool: openclip
 agent_owner: drift_analyst
