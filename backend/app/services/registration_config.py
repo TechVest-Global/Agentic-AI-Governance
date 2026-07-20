@@ -43,6 +43,14 @@ _FRAMEWORK_DESCRIPTIONS: dict[str, str] = {
         "OWASP LLM Top 10 — the top security risks for LLM applications "
         "(prompt injection, insecure output handling, data leakage, …)."
     ),
+    "owasp_agentic_ai": (
+        "OWASP Agentic AI — threats and mitigations for autonomous agents "
+        "(tool misuse, excessive agency, goal manipulation, deceptive behaviour)."
+    ),
+    "mitre_atlas": (
+        "MITRE ATLAS — adversarial attacker tactics against AI systems "
+        "(prompt injection, jailbreak, evasion, and impact techniques)."
+    ),
 }
 
 # Curated catalogs for fields the backend has no enum for. Values are the

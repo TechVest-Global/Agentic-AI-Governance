@@ -2,6 +2,11 @@
 
 Control references align with the seeded ``FrameworkMapping`` rows in
 ``app/configs/defaults.py`` (AIMS-OPERATIONS).
+
+The AIMS-A.6.2.4 / AIMS-A.6.2.6 / AIMS-A.9.2 references extend the management
+system with **Annex A lifecycle controls** that matter for agentic systems:
+verification and validation of autonomous behaviour, operation and monitoring of
+autonomous operation, and responsible use with human oversight of AI actions.
 """
 
 from app.configs.frameworks.base import (
@@ -39,6 +44,31 @@ ISO_42001_KNOWLEDGE = FrameworkKnowledge(
             scoring_guidance=(
                 "Score lower when PII-bearing traffic is present without evidence "
                 "of masking or access controls."
+            ),
+        ),
+        # ── Annex A lifecycle controls — agentic extensions ──
+        RegulatoryRubricItem(
+            rubric_id="iso-agentic-verification",
+            dimension="Operations",
+            description=(
+                "Autonomous / agentic behaviour is verified and validated before "
+                "and during operation (Annex A.6.2.4)."
+            ),
+            scoring_guidance=(
+                "Score higher when the agent's actions are validated against "
+                "intended behaviour and stay stable under perturbation."
+            ),
+        ),
+        RegulatoryRubricItem(
+            rubric_id="iso-agentic-responsible-use",
+            dimension="Operations",
+            description=(
+                "Responsible use with human oversight of AI system actions is "
+                "defined and monitored (Annex A.9.2)."
+            ),
+            scoring_guidance=(
+                "Score higher when consequential actions have defined oversight, "
+                "intended-use limits, and monitored operation."
             ),
         ),
     ),
