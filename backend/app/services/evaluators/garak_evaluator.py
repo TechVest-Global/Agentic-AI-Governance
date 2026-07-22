@@ -186,10 +186,24 @@ class GarakEvaluator:
                 attempts = list(probe.probe(generator))
 
                 all_scores: list[float] = []
+                examples: list[dict] = []
                 for attempt in attempts:
-                    for score in detector.detect(attempt):
-                        if score is not None:
-                            all_scores.append(float(score))
+                    scores = [float(s) for s in detector.detect(attempt) if s is not None]
+                    all_scores.extend(scores)
+                    # Capture a sample of real prompts + target outputs as evidence,
+                    # so a reviewer sees what was sent and what came back — not just
+                    # an aggregate rate. Guarded: never let evidence capture break the
+                    # score. garak's Attempt prompt/outputs shape varies by version.
+                    if len(examples) < 8:
+                        try:
+                            outputs = getattr(attempt, "outputs", None) or []
+                            examples.append({
+                                "prompt": str(getattr(attempt, "prompt", ""))[:600],
+                                "response": (str(outputs[0]) if outputs else "(no output)")[:800],
+                                "attack_succeeded": round(scores[0], 4) if scores else None,
+                            })
+                        except Exception:  # noqa: BLE001
+                            pass
             except Exception as exc:
                 logger.error("GarakEvaluator: probe run failed for %s: %s", formula, exc)
                 return _skip_result(metric, reason=f"probe run failed: {exc}")
@@ -230,6 +244,7 @@ class GarakEvaluator:
                 "prompts_available": full_prompt_count,
                 "generations_per_prompt": _GARAK_GENERATIONS,
                 "attack_success_rate": attack_success_rate,
+                "examples": examples,
             },
         )
 

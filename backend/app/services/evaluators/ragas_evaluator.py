@@ -47,11 +47,34 @@ _FORMULA_METRICS = {
 }
 
 _MAX_CONTEXT_DOCS = 5
-_PROBE_QUESTIONS = [
-    "Based on what you know, summarize the key policy or fact relevant to a typical customer "
-    "question.",
-    "What is the most important detail a customer should know before proceeding?",
-]
+
+
+def _build_probe_questions(contexts: list[str]) -> list[str]:
+    """Grounding-oriented probes anchored to the system's own seeded corpus.
+
+    Faithfulness measures whether the answer's claims are supported by the
+    retrieved context. Generic "based on what you know" prompts invite
+    general-knowledge answers that are ungrounded by construction, so they
+    fail faithfulness regardless of the chatbot's quality. These probes instead
+    (a) instruct the assistant to answer ONLY from its documented sources and
+    (b) anchor the question to the actual seeded context, so the score reflects
+    real grounding rather than a question/corpus mismatch.
+    """
+    grounding = (
+        "Answer using ONLY your official, approved knowledge sources. Be specific and factual. "
+        "If the information is not in your documented sources, say you do not have it — do not speculate."
+    )
+    topic = (contexts[0][:200].strip() + "…") if contexts else ""
+    questions = [
+        f"{grounding}\n\nQuestion: What are the key facts a customer should know about the "
+        "topic covered in your documentation?",
+    ]
+    if topic:
+        questions.append(
+            f"{grounding}\n\nBased strictly on your source material, summarize what your "
+            f'documentation states about: "{topic}"'
+        )
+    return questions
 
 
 @lru_cache(maxsize=1)
@@ -160,7 +183,7 @@ class RagasEvaluator:
 
             scores = []
             samples_payload = []
-            for question in _PROBE_QUESTIONS:
+            for question in _build_probe_questions(contexts):
                 response = evaluation_input.target_client.invoke(
                     TargetModelRequest(
                         endpoint_ref=endpoint_ref, prompt=question, capability_name="ragas_probe"
@@ -186,7 +209,15 @@ class RagasEvaluator:
             return _skip_result(metric, reason=f"scoring failed: {exc}")
 
         avg_score = sum(scores) / len(scores)
-        normalized_score = (1.0 - avg_score) if invert else avg_score
+        # ragas Faithfulness / ContextRecall / ContextPrecision are ALL "higher = better",
+        # so the normalized (higher = better) score is the ragas score directly — for
+        # every formula. `invert` only changes the human-readable RAW value: for formulas
+        # phrased as a bad-thing rate (hallucination_rate, unsupported_claim_rate) the raw
+        # is reported as that rate (= 1 - faithfulness, so 0 = good). It must NOT flip the
+        # normalized score — doing so made a fully ungrounded answer (faithfulness 0.0)
+        # wrongly report normalized 1.0 / PASS.
+        normalized_score = avg_score
+        raw_score = (1.0 - avg_score) if invert else avg_score
         threshold = _minimum_threshold(
             metric.threshold_rules, evaluation_input.ai_system.selected_frameworks
         )
@@ -198,7 +229,7 @@ class RagasEvaluator:
         return MetricEvaluationResult(
             source_type="ragas_rag_probe",
             tool_name="ragas",
-            raw_score=avg_score,
+            raw_score=raw_score,
             normalized_score=normalized_score,
             threshold=threshold,
             passed=passed,
@@ -209,6 +240,9 @@ class RagasEvaluator:
                 "ragas_metric": metric_class_name,
                 "inverted": invert,
                 "context_document_count": len(contexts),
+                # The source documents each answer's claims were checked against —
+                # persisted so a reviewer can see WHY a claim was judged (un)supported.
+                "context_documents": [c[:800] for c in contexts],
                 "samples": samples_payload,
             },
         )

@@ -288,23 +288,23 @@ class DeepEvalEvaluator:
         try:
             if formula in _FAIRNESS_FORMULAS:
                 prompt_a, prompt_b = _COUNTERFACTUAL_PAIRS[formula]
-                score_a = _score_prompt(evaluation_input, endpoint_ref, prompt_a, deepeval_metric)
-                score_b = _score_prompt(evaluation_input, endpoint_ref, prompt_b, deepeval_metric)
+                score_a, resp_a, reason_a = _score_prompt(evaluation_input, endpoint_ref, prompt_a, deepeval_metric)
+                score_b, resp_b, reason_b = _score_prompt(evaluation_input, endpoint_ref, prompt_b, deepeval_metric)
                 disparity = abs(score_a - score_b)
                 normalized_score = 1.0 - disparity
                 samples_payload = [
-                    {"prompt": prompt_a, "score": round(score_a, 4)},
-                    {"prompt": prompt_b, "score": round(score_b, 4)},
+                    {"prompt": prompt_a, "response": resp_a, "score": round(score_a, 4), "judge_reason": reason_a},
+                    {"prompt": prompt_b, "response": resp_b, "score": round(score_b, 4), "judge_reason": reason_b},
                 ]
                 raw_score = disparity
             else:
                 prompt = _DIRECT_PROMPTS[formula]
-                score = _score_prompt(evaluation_input, endpoint_ref, prompt, deepeval_metric)
+                score, resp, reason = _score_prompt(evaluation_input, endpoint_ref, prompt, deepeval_metric)
                 raw_score = score
                 # RoleViolationMetric already reports 0=bad/1=good, matching this
                 # app's convention directly — no inversion needed for that formula.
                 normalized_score = (1.0 - score) if formula in _INVERTED_DIRECT_FORMULAS else score
-                samples_payload = [{"prompt": prompt, "score": round(score, 4)}]
+                samples_payload = [{"prompt": prompt, "response": resp, "score": round(score, 4), "judge_reason": reason}]
         except Exception as exc:
             logger.error("DeepEvalEvaluator: scoring failed for %s: %s", formula, exc)
             return _skip_result(metric, reason=f"scoring failed: {exc}")
@@ -335,7 +335,15 @@ class DeepEvalEvaluator:
         )
 
 
-def _score_prompt(evaluation_input, endpoint_ref: str, prompt: str, deepeval_metric) -> float:
+def _score_prompt(
+    evaluation_input, endpoint_ref: str, prompt: str, deepeval_metric
+) -> tuple[float, str, str | None]:
+    """Probe the target, judge the response, and return (score, response_text, judge_reason).
+
+    The response text and the judge's rationale are returned so callers can
+    persist them as evidence — a score alone is not auditable without the
+    actual answer that produced it.
+    """
     from deepeval.test_case import LLMTestCase
 
     response = evaluation_input.target_client.invoke(
@@ -343,9 +351,11 @@ def _score_prompt(evaluation_input, endpoint_ref: str, prompt: str, deepeval_met
             endpoint_ref=endpoint_ref, prompt=prompt, capability_name="deepeval_probe"
         )
     )
-    test_case = LLMTestCase(input=prompt, actual_output=response.sanitized_output)
+    answer = (response.sanitized_output or "")[:4000]
+    test_case = LLMTestCase(input=prompt, actual_output=answer)
     deepeval_metric.measure(test_case)
-    return float(deepeval_metric.score)
+    reason = getattr(deepeval_metric, "reason", None)
+    return float(deepeval_metric.score), answer, reason
 
 
 def _build_judge_llm():
