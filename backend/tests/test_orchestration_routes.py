@@ -153,7 +153,7 @@ def test_full_pipeline_stays_degraded_when_an_agent_fails(
 
     monkeypatch.setattr(
         "app.services.specialist_agents.agent_execution.select_agents",
-        lambda agent_names=None: [FailingAgent()],
+        lambda agent_names=None, **_kwargs: [FailingAgent()],
     )
 
     response = client.post(

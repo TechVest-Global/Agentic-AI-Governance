@@ -9,6 +9,7 @@ from app.models.enums import (
     AgentExecutionStatus,
     AISystemStatus,
     ApplicabilityType,
+    AssessmentRequestStatus,
     CapabilityType,
     EndpointStatus,
     FindingStatus,
@@ -70,6 +71,7 @@ class AISystemCapabilityCreate(APIModel):
     name: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
     capability_type: CapabilityType = CapabilityType.other
+    modality: Modality = Modality.text
     endpoint_ref: str = Field(min_length=1, max_length=500)
     http_method: str = Field(default="POST", pattern="^(GET|POST|PUT|PATCH|DELETE)$")
     input_schema: dict[str, Any] = Field(default_factory=dict)
@@ -79,6 +81,29 @@ class AISystemCapabilityCreate(APIModel):
     requires_human_review: bool = False
     enabled: bool = True
     metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("http_method", mode="before")
+    @classmethod
+    def normalize_http_method(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().upper()
+        return value
+
+
+class AISystemCapabilityUpdate(APIModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+    capability_type: CapabilityType | None = None
+    modality: Modality | None = None
+    endpoint_ref: str | None = Field(default=None, min_length=1, max_length=500)
+    http_method: str | None = Field(default=None, pattern="^(GET|POST|PUT|PATCH|DELETE)$")
+    input_schema: dict[str, Any] | None = None
+    output_schema: dict[str, Any] | None = None
+    permissions: list[str] | None = None
+    side_effect_level: SideEffectLevel | None = None
+    requires_human_review: bool | None = None
+    enabled: bool | None = None
+    metadata_json: dict[str, Any] | None = None
 
     @field_validator("http_method", mode="before")
     @classmethod
@@ -1242,3 +1267,26 @@ class AISystemRegistrationRead(APIModel):
     profile_completeness: float = 0.0
     missing_recommended_fields: list[str] = Field(default_factory=list)
     registration_status: Literal["draft", "registered"] = "registered"
+
+
+class AssessmentRequestCreate(APIModel):
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class AssessmentRequestRead(APIModel):
+    id: UUID
+    ai_system_id: UUID
+    note: str | None = None
+    status: AssessmentRequestStatus
+    requested_by_name: str
+    requested_by_email: str
+    requested_by_role: str
+    resolved_run_id: UUID | None = None
+    resolved_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class AssessmentRequestStatusUpdate(APIModel):
+    status: AssessmentRequestStatus
+    resolved_run_id: UUID | None = None

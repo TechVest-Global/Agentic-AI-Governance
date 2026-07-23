@@ -89,6 +89,7 @@ def test_auto_routing_dispatches_cm026_to_pyrit_evaluator(monkeypatch):
         session=None,  # type: ignore[arg-type]
         ai_system=_ai_system(),
         target_client=MockTargetModelClient(provider="mock"),
+        target_endpoint_ref="config://routing-test",
     )
 
     result = get_evaluator("auto").evaluate(evaluation_input)
@@ -109,6 +110,7 @@ def test_auto_routing_dispatches_cm029_to_inspect_ai_evaluator():
         session=None,  # type: ignore[arg-type]
         ai_system=_ai_system(),
         target_client=MockTargetModelClient(provider="mock"),
+        target_endpoint_ref="config://routing-test",
     )
 
     result = get_evaluator("auto").evaluate(evaluation_input)

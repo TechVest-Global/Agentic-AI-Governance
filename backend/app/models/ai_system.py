@@ -93,6 +93,7 @@ class AISystemCapability(TimestampMixin, UUIDPrimaryKey, table=True):
     name: str = Field(index=True, min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
     capability_type: CapabilityType = Field(default=CapabilityType.other, index=True)
+    modality: Modality = Field(default=Modality.text, index=True)
     endpoint_ref: str = Field(min_length=1, max_length=500)
     http_method: str = Field(default="POST", max_length=10)
     input_schema: dict[str, Any] = Field(

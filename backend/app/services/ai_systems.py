@@ -13,6 +13,7 @@ from app.models.base import utc_now
 from app.models.enums import AISystemStatus
 from app.schemas.governance import (
     AISystemCapabilityCreate,
+    AISystemCapabilityUpdate,
     AISystemCreate,
     AISystemUpdate,
     ApplicationContextProfileCreate,
@@ -123,6 +124,23 @@ def get_capability(
     capability = session.exec(statement).one_or_none()
     if capability is None:
         raise ResourceNotFoundError("AI system capability", str(capability_id))
+    return capability
+
+
+def update_capability(
+    session: Session,
+    system_id: UUID,
+    capability_id: UUID,
+    payload: AISystemCapabilityUpdate,
+) -> AISystemCapability:
+    capability = get_capability(session, system_id, capability_id)
+    values = payload.model_dump(exclude_unset=True)
+    for field, value in values.items():
+        setattr(capability, field, value)
+    capability.updated_at = utc_now()
+    session.add(capability)
+    session.commit()
+    session.refresh(capability)
     return capability
 
 

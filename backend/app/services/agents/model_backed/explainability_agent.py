@@ -14,7 +14,7 @@ returns non-JSON.
 from app.models.enums import Severity
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import finding
+from app.services.agents.helpers import coverage_gap_finding, finding
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 
 _EXPLAINABILITY_METRIC_IDS = {
@@ -105,6 +105,20 @@ class ExplainabilityAgent(ModelBackedAgent):
             return []
 
         probes: list[TargetProbeResult] = self._run_probes(_PROBE_PROMPTS, context=context)
+        # Probes may be gated (e.g. modality mismatch) while the ragas tool call
+        # below is independent of them — note the gap, don't discard the
+        # tool-based evidence that's still real.
+        coverage_gap = (
+            [
+                coverage_gap_finding(
+                    agent_name=self.name,
+                    dimension=self.probe_dimension or self.name,
+                    reason=context.probe_skips[self.name][0]["reason"],
+                )
+            ]
+            if not probes and context.probe_skips.get(self.name)
+            else []
+        )
 
         tool_calls = self._call_evidence_tool(
             tool_name="ragas",
@@ -151,10 +165,12 @@ class ExplainabilityAgent(ModelBackedAgent):
         ]
 
         if parsed is not None:
-            return _findings_from_governance(parsed, context, tool_calls_payload)
+            return coverage_gap + _findings_from_governance(parsed, context, tool_calls_payload)
 
         # Fallback only on genuinely failed/pending metrics — never on passes.
-        return _deterministic_fallback(attention_metrics, context, tool_calls_payload)
+        return coverage_gap + _deterministic_fallback(
+            attention_metrics, context, tool_calls_payload
+        )
 
 
 def _format_tool_evidence(tool_calls: list) -> str:

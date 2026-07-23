@@ -19,7 +19,10 @@ from app.services.model_clients.gateway import (
     set_current_agent,
     start_log_capture,
 )
-from app.services.model_clients.registry import get_target_model_client_for_system
+from app.services.model_clients.registry import (
+    get_governance_model_client,
+    get_target_model_client_for_system,
+)
 from app.services.run_validation import get_run_or_raise
 from app.services.specialist_agents.metric_plans import build_metric_plan
 
@@ -85,7 +88,11 @@ def run_agents(
     summaries: list[AgentRunSummary] = []
     executions: list[AgentExecution] = []
     failed_execution_count = 0
-    for agent in select_agents(payload.agent_names):
+    for agent in select_agents(
+        payload.agent_names,
+        target_client=context.target_client,
+        governance_client=get_governance_model_client(),
+    ):
         execution = AgentExecution(
             run_id=run_id,
             agent_name=agent.name,
@@ -134,6 +141,7 @@ def run_agents(
         execution.metadata_json = {
             **(execution.metadata_json or {}),
             "probe_count": context.probe_counts.get(agent.name, 0),
+            "probes_skipped": context.probe_skips.get(agent.name, []),
         }
         execution.completed_at = utc_now()
         execution.updated_at = utc_now()

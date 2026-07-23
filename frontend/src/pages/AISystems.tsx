@@ -12,6 +12,7 @@ import {
   Pencil,
   Play,
   Plus,
+  RefreshCw,
   Server,
   ShieldAlert,
   Trash2,
@@ -26,6 +27,7 @@ import { MetricCard } from "@/components/ui/MetricCard";
 import { useAppStore } from "@/store/useAppStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useSelectionStore } from "@/store/useSelectionStore";
+import { useRequestsInboxNav } from "@/store/useRequestsInboxNav";
 import { personaForRole } from "@/lib/persona";
 import { useEvaluationRunner } from "@/hooks/useEvaluationRunner";
 import {
@@ -36,9 +38,13 @@ import {
   getRegistrationOptions,
   getRunVerdict,
   listAISystems,
+  listAssessmentRequests,
   listEvaluationRuns,
   listRegistrationFrameworks,
   updateAISystem,
+  updateAssessmentRequestStatus,
+  type AssessmentRequest,
+  type AssessmentRequestStatus,
   type BackendAISystem,
   type BackendAISystemCapabilityCreate,
   type BackendAISystemCreate,
@@ -349,6 +355,9 @@ export function AISystems() {
   const canEditTechnical = persona === "developer";
   const canDelete = persona === "developer";
   const [expandedSystem, setExpandedSystem] = useState<string | null>(null);
+  // Set when the requests inbox sends the developer here for a specific
+  // system's Requests tab; cleared once consumed or the row is collapsed.
+  const [pendingDetailTab, setPendingDetailTab] = useState<{ systemId: string; tab: "Requests" } | null>(null);
   const [hoveredFramework, setHoveredFramework] = useState<string | null>(null);
   const [hoveredColumn, setHoveredColumn] = useState<string | null>(null);
   const [showRegisterForm, setShowRegisterForm] = useState(false);
@@ -462,6 +471,18 @@ export function AISystems() {
     () => backendSystems.map((system) => mapBackendSystem(system, runInfoBySystem[system.id])),
     [backendSystems, runInfoBySystem],
   );
+
+  // Deep-link from the top-bar requests inbox: expand the target system and
+  // land straight on its Requests tab instead of making the developer hunt.
+  const inboxTargetSystemId = useRequestsInboxNav((s) => s.targetSystemId);
+  const consumeInboxNav = useRequestsInboxNav((s) => s.consume);
+  useEffect(() => {
+    if (!inboxTargetSystemId) return;
+    if (!registrySystems.some((s) => s.id === inboxTargetSystemId)) return;
+    setExpandedSystem(inboxTargetSystemId);
+    setPendingDetailTab({ systemId: inboxTargetSystemId, tab: "Requests" });
+    consumeInboxNav();
+  }, [inboxTargetSystemId, registrySystems, consumeInboxNav]);
   const highRisk = registrySystems.filter((s) => s.riskTier === "High").length;
   const blocked = registrySystems.filter((s) => s.verdict === "Blocked").length;
   const avg = registrySystems.length
@@ -784,8 +805,12 @@ export function AISystems() {
                         <td colSpan={9} className="px-4 py-4">
                           <SystemDetail
                             system={system}
+                            initialTab={pendingDetailTab?.systemId === system.id ? pendingDetailTab.tab : undefined}
                             onNavigate={navigateTo}
-                            onClose={() => setExpandedSystem(null)}
+                            onClose={() => {
+                              setExpandedSystem(null);
+                              setPendingDetailTab(null);
+                            }}
                             onEdit={() => openEditModal(system.id)}
                             editLabel={canEditTechnical ? "Edit" : "Update Details"}
                             onDelete={() => {
@@ -851,6 +876,7 @@ export function AISystems() {
 
 function SystemDetail({
   system,
+  initialTab,
   onNavigate,
   onClose,
   onEdit,
@@ -863,6 +889,7 @@ function SystemDetail({
   canDelete,
 }: {
   system: RegistrySystem;
+  initialTab?: "Requests";
   onNavigate: (path: string) => void;
   onClose: () => void;
   onEdit: () => void;
@@ -874,9 +901,26 @@ function SystemDetail({
   canManage: boolean;
   canDelete: boolean;
 }) {
-  const [activeTab, setActiveTab] = useState<"Overview" | "Context Profile" | "Risk" | "Frameworks" | "Actions">("Overview");
+  const [activeTab, setActiveTab] = useState<"Overview" | "Context Profile" | "Risk" | "Frameworks" | "Requests" | "Actions">(initialTab ?? "Overview");
   const verdict = verdictDescriptions[system.verdict];
-  const tabs = ["Overview", "Context Profile", "Risk", "Frameworks", "Actions"] as const;
+  const tabs = ["Overview", "Context Profile", "Risk", "Frameworks", "Requests", "Actions"] as const;
+
+  const [assessmentRequests, setAssessmentRequests] = useState<AssessmentRequest[]>([]);
+  const [requestsLoading, setRequestsLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setRequestsLoading(true);
+    listAssessmentRequests(system.id)
+      .then((r) => { if (!cancelled) setAssessmentRequests(r); })
+      .catch(() => { /* panel just shows empty state if this fails */ })
+      .finally(() => { if (!cancelled) setRequestsLoading(false); });
+    return () => { cancelled = true; };
+  }, [system.id]);
+
+  const pendingRequestCount = assessmentRequests.filter(
+    (r) => r.status === "pending" || r.status === "in_progress",
+  ).length;
 
   return (
     <div className="rounded-md border border-blue-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -946,13 +990,18 @@ function SystemDetail({
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={clsx(
-              "rounded-t border border-b-0 px-3 py-1.5 text-[12px] font-medium transition-colors",
+              "flex items-center gap-1.5 rounded-t border border-b-0 px-3 py-1.5 text-[12px] font-medium transition-colors",
               activeTab === tab
                 ? "border-slate-300 bg-white text-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
                 : "border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
             )}
           >
             {tab}
+            {tab === "Requests" && pendingRequestCount > 0 && (
+              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-white">
+                {pendingRequestCount}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -1063,6 +1112,15 @@ function SystemDetail({
           </div>
         )}
 
+        {activeTab === "Requests" && (
+          <AssessmentRequestsPanel
+            requests={assessmentRequests}
+            loading={requestsLoading}
+            onChange={setAssessmentRequests}
+            onRunEvaluation={onRunEvaluation}
+          />
+        )}
+
         {activeTab === "Actions" && (
           <div className="grid gap-3 md:grid-cols-3">
             {[
@@ -1101,6 +1159,119 @@ function SystemDetail({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+const assessmentRequestStatusTone: Record<AssessmentRequestStatus, "amber" | "blue" | "green" | "slate"> = {
+  pending: "amber",
+  in_progress: "blue",
+  resolved: "green",
+  dismissed: "slate",
+};
+
+const assessmentRequestStatusLabel: Record<AssessmentRequestStatus, string> = {
+  pending: "Pending",
+  in_progress: "In progress",
+  resolved: "Resolved",
+  dismissed: "Dismissed",
+};
+
+/** Auditor → developer "request re-assessment" inbox for one AI system. */
+function AssessmentRequestsPanel({
+  requests,
+  loading,
+  onChange,
+  onRunEvaluation,
+}: {
+  requests: AssessmentRequest[];
+  loading: boolean;
+  onChange: (requests: AssessmentRequest[]) => void;
+  onRunEvaluation: () => void;
+}) {
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  async function setStatus(id: string, status: AssessmentRequestStatus) {
+    setUpdatingId(id);
+    try {
+      const updated = await updateAssessmentRequestStatus(id, { status });
+      onChange(requests.map((r) => (r.id === id ? updated : r)));
+    } catch {
+      // Best-effort — the row just keeps its previous status if this fails.
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+  if (loading) {
+    return <p className="text-[12px] text-slate-500 dark:text-slate-400">Loading requests…</p>;
+  }
+
+  if (!requests.length) {
+    return (
+      <div className="rounded border border-dashed border-slate-300 dark:border-slate-600 p-6 text-center">
+        <p className="text-[13px] font-semibold text-slate-600 dark:text-slate-300">No assessment requests</p>
+        <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400">
+          Auditors can ask you to (re-)assess this system from their Applications workspace. Requests will show up here.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {requests.map((req) => {
+        const open = req.status === "pending" || req.status === "in_progress";
+        return (
+          <div key={req.id} className="rounded border border-slate-200 p-3 dark:border-slate-700">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[12px] font-semibold text-slate-950 dark:text-white">
+                  {req.requested_by_name}
+                  <span className="font-normal text-slate-500 dark:text-slate-400"> · {req.requested_by_role}</span>
+                </p>
+                {req.note && <p className="mt-1 text-[12px] leading-5 text-slate-700 dark:text-slate-300">{req.note}</p>}
+                <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">{new Date(req.created_at).toLocaleString()}</p>
+              </div>
+              <Badge tone={assessmentRequestStatusTone[req.status]}>{assessmentRequestStatusLabel[req.status]}</Badge>
+            </div>
+            {open && (
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                {req.status === "pending" && (
+                  <button
+                    onClick={() => setStatus(req.id, "in_progress")}
+                    disabled={updatingId === req.id}
+                    className="rounded border border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    Acknowledge
+                  </button>
+                )}
+                <button
+                  onClick={onRunEvaluation}
+                  className="flex items-center gap-1 rounded border border-blue-300 bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-800 transition-colors hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  Run evaluation
+                </button>
+                <button
+                  onClick={() => setStatus(req.id, "resolved")}
+                  disabled={updatingId === req.id}
+                  className="rounded border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-800 transition-colors hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                >
+                  Mark resolved
+                </button>
+                <button
+                  onClick={() => setStatus(req.id, "dismissed")}
+                  disabled={updatingId === req.id}
+                  className="rounded border border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-500 transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-800"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1386,7 +1557,7 @@ function RegisterSystemModal({
 
         {step === "success" ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 overflow-y-auto p-8 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400">
               <Server className="h-7 w-7" />
             </div>
             <div>

@@ -17,9 +17,17 @@ import tempfile
 
 from app.models.enums import MetricResultStatus
 from app.services.evaluators.base import MetricEvaluationInput, MetricEvaluationResult
+from app.services.evaluators.probe_log import build_probe_log_entry
 from app.services.model_clients.base import TargetModelRequest
 
 logger = logging.getLogger(__name__)
+
+_METHOD_BLURB = (
+    "The system is given a request to take a clearly unsafe or unauthorized action (such as "
+    "deleting records, moving money, or bypassing permission checks). An automated checker "
+    "reads the reply and confirms whether the system refused or escalated it, or went along "
+    "with it."
+)
 
 # Formulas this adapter can score. Inspect's strength is multi-step agent /
 # tool-use evaluation, so it owns the unsafe-action family.
@@ -196,6 +204,7 @@ class InspectAIEvaluator:
                 "safe_response_count": safe_count,
                 "unsafe_action_rate": round(1.0 - safe_rate, 4),
                 "task": "agent_tool_use_safety",
+                "probe_log": _extract_probe_log(logs),
             },
         )
 
@@ -229,6 +238,38 @@ def _extract_accuracy(logs) -> tuple[float | None, int, int]:
     if total:
         return safe_count / total, total, safe_count
     return None, 0, 0
+
+
+def _extract_probe_log(logs) -> list:
+    """Build plain-English probe-log entries from an Inspect eval log's samples,
+    reusing the refusal scorer's own per-sample explanation as the rationale."""
+    try:
+        log = logs[0]
+    except (IndexError, TypeError):
+        return []
+
+    entries = []
+    for sample in getattr(log, "samples", None) or []:
+        prompt_text = sample.input if isinstance(sample.input, str) else str(sample.input)
+        for score in (getattr(sample, "scores", None) or {}).values():
+            is_safe = str(getattr(score, "value", "")).upper() in ("C", "CORRECT", "1", "1.0", "TRUE")
+            explanation = str(getattr(score, "explanation", "") or "")
+            entries.append(
+                build_probe_log_entry(
+                    name=f"tool_use_safety_{len(entries) + 1}",
+                    what_we_asked=prompt_text,
+                    what_happened=str(getattr(score, "answer", "") or ""),
+                    method=_METHOD_BLURB,
+                    outcome="pass" if is_safe else "fail",
+                    why=explanation
+                    or (
+                        "The system refused or escalated the unsafe request."
+                        if is_safe
+                        else "The system went along with the unsafe request instead of refusing it."
+                    ),
+                )
+            )
+    return entries
 
 
 def _minimum_threshold(threshold_rules: dict, selected_frameworks: list[str] | None) -> float | None:

@@ -124,6 +124,7 @@ def test_concurrent_garak_evaluations_do_not_interleave_sink_writes(monkeypatch)
             session=None,  # type: ignore[arg-type]
             ai_system=_ai_system(),
             target_client=MockTargetModelClient(provider="mock"),
+            target_endpoint_ref="config://garak-thread-safety-test",
         )
         evaluator.evaluate(evaluation_input)
 

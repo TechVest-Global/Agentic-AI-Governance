@@ -12,7 +12,7 @@ returns non-JSON.
 from app.models.enums import RiskTier, Severity
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import finding
+from app.services.agents.helpers import coverage_gap_finding, finding
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 from app.services.agents.risk_contract import RiskScoreBundle, compute_risk_bundle
 
@@ -141,6 +141,14 @@ class RiskScorerAgent(ModelBackedAgent):
             return findings
 
         probes: list[TargetProbeResult] = self._run_probes(_PROBE_PROMPTS, context=context)
+        if not probes and context.probe_skips.get(self.name):
+            return findings + [
+                coverage_gap_finding(
+                    agent_name=self.name,
+                    dimension=self.probe_dimension or self.name,
+                    reason=context.probe_skips[self.name][0]["reason"],
+                )
+            ]
 
         metric_summary = "\n".join(
             f"  - {m.metric_id} ({m.dimension}): status={m.status}, "
