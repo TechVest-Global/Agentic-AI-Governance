@@ -3,16 +3,20 @@ import os
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout, as_completed
 from uuid import UUID
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.db import session as db_session
-from app.models.ai_system import AISystem
+from app.models.ai_system import AISystem, AISystemCapability
 from app.models.base import utc_now
 from app.models.enums import MetricResultStatus, RunPhase, RunStatus
 from app.models.evidence import EvidenceRecord, MetricResult
 from app.schemas.governance import MetricExecutionCreate, MetricExecutionRead
 from app.models.llm_call_log import LLMCallLog
-from app.services.evaluators.base import MetricEvaluationInput, MetricEvaluationResult
+from app.services.evaluators.base import (
+    MetricEvaluationInput,
+    MetricEvaluationResult,
+    resolve_evaluator_endpoint,
+)
 from app.services.evaluators.registry import get_evaluator
 from app.services.model_clients.gateway import (
     bind_log_capture,
@@ -90,9 +94,19 @@ def run_metrics(
     # closing it detaches the instance with all column attributes materialized,
     # so worker reads are plain attribute access with no session involved.
     worker_ai_system = None
+    resolved_endpoint_ref = ""
+    resolved_capabilities: list[AISystemCapability] = []
     if ai_system is not None:
         with Session(db_session.engine) as snapshot_session:
             worker_ai_system = snapshot_session.get(AISystem, ai_system.id)
+            resolved_capabilities = list(
+                snapshot_session.exec(
+                    select(AISystemCapability).where(
+                        AISystemCapability.ai_system_id == ai_system.id
+                    )
+                ).all()
+            )
+            resolved_endpoint_ref = resolve_evaluator_endpoint(worker_ai_system, resolved_capabilities)
 
     evidence_records: list[EvidenceRecord] = []
     metric_results: list[MetricResult] = []
@@ -122,6 +136,8 @@ def run_metrics(
                         session=worker_session,
                         ai_system=worker_ai_system,
                         target_client=target_client,
+                        target_endpoint_ref=resolved_endpoint_ref,
+                        capabilities=resolved_capabilities,
                     )
                 )
             except Exception as exc:

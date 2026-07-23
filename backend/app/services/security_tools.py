@@ -480,13 +480,20 @@ def run_adapter(session, adapter_key: str, ai_system_id: str | None = None) -> d
             message="No AI system is registered to probe. Register a system first.",
         )
 
+    from sqlmodel import select
+
+    from app.models.ai_system import AISystemCapability
     from app.schemas.governance import MetricPlanItem
-    from app.services.evaluators.base import MetricEvaluationInput
+    from app.services.evaluators.base import MetricEvaluationInput, resolve_evaluator_endpoint
     from app.services.evaluators.registry import get_evaluator
     from app.services.model_clients.registry import get_target_model_client_for_system
 
     evaluator = get_evaluator(key)
     target_client = get_target_model_client_for_system(system)
+    capabilities = session.exec(
+        select(AISystemCapability).where(AISystemCapability.ai_system_id == system.id)
+    ).all()
+    resolved_endpoint_ref = resolve_evaluator_endpoint(system, capabilities)
     metric = MetricPlanItem(
         metric_config_id=uuid.uuid4(),
         metric_id=metric_id,
@@ -507,6 +514,8 @@ def run_adapter(session, adapter_key: str, ai_system_id: str | None = None) -> d
                 session=session,
                 ai_system=system,
                 target_client=target_client,
+                target_endpoint_ref=resolved_endpoint_ref,
+                capabilities=capabilities,
             )
         )
     except Exception as exc:  # noqa: BLE001 - button must never 500 on a probe error

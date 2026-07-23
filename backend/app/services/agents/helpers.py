@@ -48,3 +48,34 @@ def finding(
             "tool_calls": tool_calls or [],
         },
     )
+
+
+def coverage_gap_finding(*, agent_name: str, dimension: str, reason: str) -> FindingCreate:
+    """An honest 'this agent had nothing appropriate to probe' record.
+
+    Fires when every probe this agent would have sent got caught by the
+    fail-closed modality gate (see ModelBackedAgent._execute_probe_plan) — e.g.
+    a text-only probe against an image-generation capability. Distinct from a
+    failed check: nothing was wrong with the target, this agent simply has no
+    probe shaped for it yet. Severity is informational, never a compliance
+    verdict on its own.
+    """
+    return FindingCreate(
+        finding_type="coverage_gap",
+        title=f"{dimension.title()} could not be probed for this capability",
+        summary=(
+            f"Every {dimension} probe for this run was skipped: {reason}. "
+            "This is a gap in probe coverage, not a compliance finding — no "
+            "conclusion should be drawn about this capability from this dimension."
+        ),
+        severity=Severity.info,
+        confidence=1.0,
+        dimension=dimension,
+        evidence_ids=[],
+        agent_name=agent_name,
+        recommended_action=(
+            "Register a probe appropriate to this capability's modality/schema, "
+            "or extend probe coverage for its system category."
+        ),
+        payload={"generated_by": "probe_coverage_gate", "reason": reason},
+    )

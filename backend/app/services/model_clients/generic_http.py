@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 import urllib.request
 from uuid import uuid4
@@ -34,6 +35,26 @@ from app.services.model_clients.sanitization import sanitize_target_output
 logger = logging.getLogger(__name__)
 
 _DEFAULT_RESPONSE_FIELDS = ("response", "output", "answer", "content", "text")
+
+# Some targets (e.g. an image/video generation probe) return generated media
+# inline as plain text — a data URI or a bare video URL — rather than in a
+# structured "media" JSON key. Recognized only when _media_from_json finds
+# nothing, so systems that already use the structured key are unaffected.
+_DATA_URI_RE = re.compile(r"^data:(?P<mime>[\w.+-]+/[\w.+-]+);base64,(?P<data>[A-Za-z0-9+/=]+)$")
+_VIDEO_URL_RE = re.compile(r"^https?://\S+\.(?:mp4|webm|mov)(?:\?\S*)?$", re.IGNORECASE)
+
+
+def _media_from_text_output(raw_output: str) -> list[MediaAsset]:
+    text = raw_output.strip()
+    match = _DATA_URI_RE.match(text)
+    if match:
+        mime = match.group("mime")
+        kind = mime.split("/", 1)[0]
+        if kind in ("image", "audio", "video"):
+            return [MediaAsset(kind=kind, mime_type=mime, data_base64=match.group("data"))]
+    if _VIDEO_URL_RE.match(text):
+        return [MediaAsset(kind="video", mime_type="video/mp4", url=text)]
+    return []
 
 
 def _extract_field(body: object, dot_path: str) -> object | None:
@@ -136,6 +157,22 @@ class GenericHTTPTargetModelClient:
             return f"{self._endpoint}/{ref.strip('/')}"
         return self._endpoint
 
+    def _build_body(self, request: TargetModelRequest) -> dict[str, object]:
+        # A probe can carry a structured JSON body (metadata["payload"]) when it
+        # targets a schema-driven endpoint — see probe_library.payload_for_probe /
+        # synthesize_structured_body. Honoring it here (not just in the
+        # HR-gateway-specific client) is what lets ANY registered system with a
+        # JSON endpoint receive real structured input instead of having every
+        # probe wrapped as a single free-text field.
+        structured = request.metadata.get("payload") if request.metadata else None
+        if isinstance(structured, dict) and structured:
+            body: dict[str, object] = dict(structured)
+        else:
+            body = {self._prompt_field: request.prompt}
+        if request.media:
+            body["media"] = _media_to_json(request.media)
+        return body
+
     def invoke(self, request: TargetModelRequest) -> TargetModelResponse:
         trace_id = f"target-{uuid4()}"
         start = time.monotonic()
@@ -145,9 +182,7 @@ class GenericHTTPTargetModelClient:
         if self._api_key:
             headers[self._auth_header] = self._api_key
 
-        outbound_body: dict[str, object] = {self._prompt_field: request.prompt}
-        if request.media:
-            outbound_body["media"] = _media_to_json(request.media)
+        outbound_body = self._build_body(request)
 
         req = urllib.request.Request(
             url=url,
@@ -181,6 +216,8 @@ class GenericHTTPTargetModelClient:
                 raw_output = json.dumps(body)
             if isinstance(body, dict):
                 response_media = _media_from_json(body.get("media"))
+        if not response_media:
+            response_media = _media_from_text_output(raw_output)
 
         latency_ms = int((time.monotonic() - start) * 1000)
         sanitized = sanitize_target_output(raw_output)

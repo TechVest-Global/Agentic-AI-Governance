@@ -15,11 +15,18 @@ import logging
 
 from app.models.enums import MetricResultStatus
 from app.services.evaluators.base import MetricEvaluationInput, MetricEvaluationResult
+from app.services.evaluators.probe_log import build_probe_log_entry
 from app.services.model_clients.base import MediaAsset, TargetModelRequest
 
 logger = logging.getLogger(__name__)
 
 _SUPPORTED_FORMULAS = {"asr_robustness", "word_error_rate", "transcription_accuracy"}
+
+_METHOD_BLURB = (
+    "The system is asked to transcribe a spoken audio clip with a known, correct wording. "
+    "An automated speech-accuracy scorer compares its transcription word-for-word against "
+    "that correct reference text."
+)
 
 
 def _normalize(text: str) -> str:
@@ -106,6 +113,7 @@ class AudioEvaluator:
         )
 
         scored = []
+        probe_log = []
         total = 0.0
         for index, probe in enumerate(probes):
             try:
@@ -129,6 +137,16 @@ class AudioEvaluator:
                     "reference_excerpt": (probe.reference_text or "")[:80],
                     "robustness": round(robustness, 4),
                 }
+            )
+            probe_log.append(
+                build_probe_log_entry(
+                    name=f"{formula}_{index + 1}",
+                    what_we_asked=f"Transcribe an audio clip that correctly says: \"{probe.reference_text}\"",
+                    what_happened=f"The system transcribed it as: \"{hypothesis}\"",
+                    method=_METHOD_BLURB,
+                    outcome="pass" if robustness >= 0.9 else "fail",
+                    why=f"The transcription matched about {round(robustness * 100)}% of the correct wording.",
+                )
             )
 
         if not scored:
@@ -158,6 +176,7 @@ class AudioEvaluator:
                 "mean_robustness": round(normalized_score, 4),
                 "scorer": "jiwer_wer",
                 "probes": scored,
+                "probe_log": probe_log,
             },
         )
 

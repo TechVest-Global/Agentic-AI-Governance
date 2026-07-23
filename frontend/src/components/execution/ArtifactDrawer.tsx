@@ -298,10 +298,10 @@ const typeIcons: Record<ExecutionArtifact["type"], typeof FileJson> = {
 };
 
 const typeColors: Record<ExecutionArtifact["type"], string> = {
-  json: "text-blue-600 bg-blue-50 border-blue-200",
-  yaml: "text-purple-600 bg-purple-50 border-purple-200",
-  markdown: "text-emerald-600 bg-emerald-50 border-emerald-200",
-  bundle: "text-amber-600 bg-amber-50 border-amber-200",
+  json: "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800",
+  yaml: "text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/40 border-purple-200 dark:border-purple-800",
+  markdown: "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800",
+  bundle: "text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800",
 };
 
 type Props = {
@@ -334,7 +334,7 @@ export function ArtifactDrawer({ liveData, layerFilter }: Props) {
           title="Execution Artifacts"
           eyebrow={layerFilter ? `${layerFilter} artifacts` : liveData ? `Run ${liveData.run.id.slice(0, 8)} — click to inspect · download available` : "Click to inspect — download available"}
         />
-        <div className="divide-y divide-slate-50">
+        <div className="divide-y divide-slate-50 dark:divide-slate-800">
           {artifacts.length === 0 && (
             <p className="px-4 py-6 text-center text-[12px] text-slate-400 dark:text-slate-500">
               No artifacts emitted for this layer yet.
@@ -346,16 +346,16 @@ export function ArtifactDrawer({ liveData, layerFilter }: Props) {
               <button
                 key={artifact.id}
                 onClick={() => setOpenArtifact(artifact)}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50 transition-colors"
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
               >
                 <div className={clsx("flex h-7 w-7 items-center justify-center rounded border", typeColors[artifact.type])}>
                   <Icon className="h-3.5 w-3.5" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[12px] font-mono font-medium text-slate-900 truncate">{artifact.name}</p>
-                  <p className="text-[10px] text-slate-500">{artifact.layer}</p>
+                  <p className="text-[12px] font-mono font-medium text-slate-900 dark:text-white truncate">{artifact.name}</p>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400">{artifact.layer}</p>
                 </div>
-                <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+                <ChevronRight className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />
               </button>
             );
           })}

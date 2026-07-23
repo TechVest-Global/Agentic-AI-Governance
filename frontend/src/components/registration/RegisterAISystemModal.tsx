@@ -1164,7 +1164,7 @@ function SuccessPanel({ result, onClose }: { result: AISystemRegistrationRead; o
   const draft = result.registration_status === "draft";
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 overflow-y-auto p-8 text-center">
-      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400">
         <Server className="h-7 w-7" />
       </div>
       <div>

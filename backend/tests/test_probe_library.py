@@ -6,6 +6,7 @@ from app.services.agents.probe_library import (
     payload_for_probe,
     probes_for,
     probes_for_endpoint,
+    synthesize_structured_body,
 )
 
 _HIRING_FALLBACK = [("demographic_parity", "rate two candidates ...")]
@@ -151,3 +152,77 @@ def test_decisioning_bias_probes_include_five_resume_corpus():
     control = by_name["parse_resume_screen_1_control"].splitlines()[2:]
     matched = by_name["parse_resume_screen_2_matched_pair"].splitlines()[2:]
     assert control == matched
+
+
+# --- Generic schema-driven payload synthesis -----------------------------------
+
+_FLAT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "applicantName": {"type": "string"},
+        "notes": {"type": "string", "description": "free text notes about the applicant"},
+        "yearsExperience": {"type": "integer", "minimum": 0},
+        "approved": {"type": "boolean"},
+    },
+    "required": ["applicantName", "notes"],
+}
+
+_NESTED_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "jobTitle": {"type": "string"},
+        "candidates": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "yearsExperience": {"type": "integer", "minimum": 1},
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    "required": ["jobTitle", "candidates"],
+}
+
+
+def test_synthesize_flat_schema_places_prompt_in_matched_field():
+    body = synthesize_structured_body(_FLAT_SCHEMA, "Evaluate this applicant.")
+    assert body is not None
+    # "notes" matches a free-text keyword in its description; the prompt goes there.
+    assert body["notes"] == "Evaluate this applicant."
+    assert body["applicantName"] != "Evaluate this applicant."
+    # Non-required fields are omitted (minimal-valid-instance).
+    assert "yearsExperience" not in body
+    assert "approved" not in body
+
+
+def test_synthesize_nested_array_of_objects():
+    body = synthesize_structured_body(_NESTED_SCHEMA, "Rank these candidates.")
+    assert body is not None
+    assert body["jobTitle"] == "Rank these candidates."
+    candidates = body["candidates"]
+    assert len(candidates) == 2
+    assert all("name" in c for c in candidates)
+
+
+def test_synthesize_returns_none_without_required_string_field():
+    schema = {
+        "type": "object",
+        "properties": {"count": {"type": "integer"}},
+        "required": ["count"],
+    }
+    assert synthesize_structured_body(schema, "some probe text") is None
+
+
+def test_synthesize_returns_none_for_empty_or_non_object_schema():
+    assert synthesize_structured_body({}, "text") is None
+    assert synthesize_structured_body({"type": "string"}, "text") is None
+
+
+def test_synthesize_is_deterministic():
+    first = synthesize_structured_body(_NESTED_SCHEMA, "Rank these candidates.")
+    second = synthesize_structured_body(_NESTED_SCHEMA, "Rank these candidates.")
+    assert first == second

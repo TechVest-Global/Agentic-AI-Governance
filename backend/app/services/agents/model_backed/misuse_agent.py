@@ -11,7 +11,7 @@ to capability-level rule checks when the governance model returns non-JSON
 from app.models.enums import Severity, SideEffectLevel
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import finding, metric_failed
+from app.services.agents.helpers import coverage_gap_finding, finding, metric_failed
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 
 _SECURITY_METRIC_IDS = {"CM-026", "CM-027", "CM-028", "CM-029"}
@@ -105,6 +105,20 @@ class MisuseDetectorAgent(ModelBackedAgent):
             return []
 
         probes: list[TargetProbeResult] = self._run_probes(_PROBE_PROMPTS, context=context)
+        # Probes may be gated (e.g. modality mismatch) while the garak/presidio
+        # tool calls below are independent of them — note the gap, don't
+        # discard the tool-based evidence that's still real.
+        coverage_gap = (
+            [
+                coverage_gap_finding(
+                    agent_name=self.name,
+                    dimension=self.probe_dimension or self.name,
+                    reason=context.probe_skips[self.name][0]["reason"],
+                )
+            ]
+            if not probes and context.probe_skips.get(self.name)
+            else []
+        )
 
         review_metric_ids = {m.metric_id for m in review_metrics}
         garak_calls = self._call_evidence_tool(
@@ -165,10 +179,10 @@ class MisuseDetectorAgent(ModelBackedAgent):
         ]
 
         if parsed is not None:
-            return _findings_from_governance(parsed, context, tool_calls_payload)
+            return coverage_gap + _findings_from_governance(parsed, context, tool_calls_payload)
 
         # Fallback only on genuinely FAILED metrics — never on passes/pending.
-        return _deterministic_fallback(
+        return coverage_gap + _deterministic_fallback(
             [m for m in attention_metrics if metric_failed(m)],
             destructive_unreviewed,
             tool_calls_payload,

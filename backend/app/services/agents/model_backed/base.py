@@ -15,16 +15,27 @@ evidence before it enters a governance prompt.
 import json
 import logging
 import os
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from functools import lru_cache
 
+from app.configs.prompt_registry import PromptRegistry, render
+from app.models.ai_system import AISystemCapability
+from app.models.enums import Modality
 from app.services.agents.base import AgentContext
 from app.services.agents.probe_library import (
+    ProbePayload,
     ProbeSet,
+    SystemProfile,
     classify_system,
+    has_tailored_probes,
     payload_for_probe,
     probes_for,
     probes_for_endpoint,
+    synthesize_structured_body,
+    validate_dynamic_structured_probes,
+    validate_dynamic_text_probes,
 )
 from app.services.model_clients.base import (
     GovernanceModelClient,
@@ -48,6 +59,21 @@ logger = logging.getLogger(__name__)
 # agent phase the longest part of an audit. Bounded so the target isn't
 # hammered.
 _MAX_PROBE_WORKERS = int(os.getenv("AGENT_PROBE_MAX_WORKERS", "6"))
+
+# Shared, framework-agnostic probe-design template — used by every specialist
+# agent when neither the endpoint- nor category-level static catalog has
+# anything tailored for a capability. One shared template (not one per agent)
+# because probe design doesn't need FrameworkConfig's per-agent instruction
+# splicing — the framework-specific reasoning still happens later, unchanged,
+# in each agent's own governance call over the collected evidence.
+_PROBE_DESIGN_TEMPLATE_ID = "orchestrator.probe_design"
+_PROBE_DESIGN_HASH = "b7ac30a0690ff5e50514fc2bb43cbfaea37acefb66452da5d07d250208588631"
+_MIN_DYNAMIC_PROBE_COUNT = 1
+
+
+@lru_cache(maxsize=1)
+def _get_probe_design_registry() -> PromptRegistry:
+    return PromptRegistry.from_directory()
 
 
 @dataclass(frozen=True)
@@ -74,6 +100,29 @@ class TargetProbeResult:
     fenced: str
     latency_ms: int
     trace_id: str
+
+
+@dataclass(frozen=True)
+class SkippedProbe:
+    """A probe that was never sent because it's incompatible with the target
+    capability — e.g. a text-only probe against an image-generation endpoint.
+
+    Every probe in this module's static catalog (and every agent's own
+    hardcoded fallback) is implicitly text-only; nothing here fabricates a
+    result for a capability it has no real probe for. Recorded so the gap
+    reads as an honest skip, never a silent success or a hard failure.
+    """
+
+    endpoint_ref: str
+    probe_name: str
+    dimension: str | None
+    reason: str
+
+
+@dataclass(frozen=True)
+class ProbeExecutionOutcome:
+    sent: list[TargetProbeResult]
+    skipped: list[SkippedProbe]
 
 
 class ModelBackedAgent:
@@ -171,6 +220,75 @@ class ModelBackedAgent:
         context.probe_counts[self.name] = len(plan)
         return plan
 
+    def _design_probes_dynamically(
+        self,
+        *,
+        context: AgentContext,
+        capability: AISystemCapability | None,
+        endpoint_ref: str,
+        dimension: str,
+        profile: SystemProfile,
+    ) -> ProbeSet | list[tuple[str, dict]] | None:
+        """Ask the governance model to design a probe for a capability this
+        agent has no hand-curated or catalog-tailored probe for, constrained
+        to the capability's real modality and declared input fields.
+
+        Returns a text ``ProbeSet`` when the capability is text-modality, a
+        list of ``(probe_name, fields)`` when it isn't, or ``None`` on any
+        failure (LLM unreachable, bad JSON, nothing validates) — callers fall
+        back to their existing static-fallback-or-skip behavior on ``None``,
+        the same fail-closed contract ``_call_evidence_tool`` already has.
+        """
+        modality = capability.modality if capability is not None else Modality.text
+        schema = capability.input_schema if capability is not None else {}
+        try:
+            template = _get_probe_design_registry().get(
+                _PROBE_DESIGN_TEMPLATE_ID, _PROBE_DESIGN_HASH
+            )
+            prompt = render(
+                template,
+                {
+                    "agent_name": self.name,
+                    "dimension": dimension,
+                    "system_name": context.ai_system.name or "unknown system",
+                    "system_type_label": profile.label,
+                    "capability_name": (
+                        capability.name if capability is not None else endpoint_ref
+                    ),
+                    "capability_description": (
+                        (capability.description or "") if capability is not None else ""
+                    ),
+                    "capability_modality": str(modality),
+                    "capability_input_schema_json": json.dumps(schema),
+                    "min_probe_count": str(_MIN_DYNAMIC_PROBE_COUNT),
+                },
+            )
+            parsed = self._ask_governance_with_json_retry(
+                task="dynamic_probe_design",
+                prompt=prompt,
+                context={
+                    "agent_name": self.name,
+                    "dimension": dimension,
+                    "endpoint_ref": endpoint_ref,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 - a probe-design failure must never crash the run
+            logger.warning(
+                "%s: dynamic probe design failed for %s: %s",
+                self.__class__.__name__, endpoint_ref, exc,
+            )
+            return None
+        if parsed is None:
+            return None
+
+        if modality is Modality.text:
+            return validate_dynamic_text_probes(parsed, min_count=_MIN_DYNAMIC_PROBE_COUNT)
+        if not schema:
+            return None
+        return validate_dynamic_structured_probes(
+            schema, parsed, min_count=_MIN_DYNAMIC_PROBE_COUNT
+        )
+
     def _run_probes(
         self,
         fallback: ProbeSet,
@@ -185,6 +303,17 @@ class ModelBackedAgent:
         probe set (not budget-scaled, to avoid an N-endpoints x budget blow-up)
         is sent to EACH selected capability endpoint, so an auditor can target
         just parse-resume, rank-candidates, etc. Records the true probe count.
+
+        Per endpoint: a tailored static probe (endpoint- or category-level) is
+        used when one exists — free, deterministic, human-reviewed. Failing
+        that, and only when something is actually known about the system
+        (a non-blank/non-"unspecified" system_type — a genuinely blank type
+        has no signal to design from), dynamic probe design is attempted
+        instead of accepting the agent's generic fallback verbatim. Failing
+        that too, the agent's own hardcoded fallback is used for text-modality
+        capabilities; a non-text-modality capability with nothing tailored and
+        no successful dynamic design is left to the fail-closed gate in
+        ``_execute_probe_plan``.
         """
         endpoints = context.probe_endpoints()
         scoped = bool(context.selected_capabilities)
@@ -193,55 +322,158 @@ class ModelBackedAgent:
             if self.probe_dimension
             else None
         )
+        capability_by_endpoint = {c.endpoint_ref: c for c in context.capabilities}
 
         # Build the full probe plan first, then execute it concurrently — each
         # probe is an independent HTTP call to the audited system, so ordering
         # only matters for the returned list (executor.map preserves it).
         probe_plan: list[tuple[str, str, str]] = []  # (endpoint_ref, capability_name, prompt)
+        dynamic_payloads: dict[str, ProbePayload] = {}
+
+        def _extend(endpoint_ref: str, plan_or_fields: ProbeSet | list[tuple[str, dict]], *, tag: bool) -> None:
+            for probe_name, value in plan_or_fields:
+                name = f"{probe_name}@{endpoint_ref}" if tag else probe_name
+                if isinstance(value, dict):
+                    dynamic_payloads[name] = ProbePayload(endpoint_ref, value)
+                    probe_plan.append(
+                        (endpoint_ref, name, f"[dynamically designed probe] fields={value}")
+                    )
+                else:
+                    probe_plan.append((endpoint_ref, name, value))
+
         if not scoped:
             # Whole application: budget-scaled system-type probes to the base endpoint.
-            plan = self._select_probes(fallback, context=context)
+            dimension = self.probe_dimension
             for endpoint_ref in endpoints:
-                for probe_name, prompt in plan:
-                    probe_plan.append((endpoint_ref, probe_name, prompt))
+                if dimension and profile is not None and not has_tailored_probes(
+                    dimension, endpoint_ref, profile
+                ):
+                    dynamic = None
+                    if profile.label and profile.label != "unspecified":
+                        dynamic = self._design_probes_dynamically(
+                            context=context,
+                            capability=capability_by_endpoint.get(endpoint_ref),
+                            endpoint_ref=endpoint_ref,
+                            dimension=dimension,
+                            profile=profile,
+                        )
+                    plan = self._scale_to_budget(dynamic, context=context) if dynamic else fallback
+                else:
+                    plan = self._select_probes(fallback, context=context)
+                _extend(endpoint_ref, plan, tag=False)
         else:
             # Scoped: probe each selected function with probes relevant to THAT
             # function (falling back to system-type probes when none tailored).
             for endpoint_ref in endpoints:
-                if self.probe_dimension and profile is not None:
-                    plan = probes_for_endpoint(
-                        self.probe_dimension, endpoint_ref, profile, fallback
+                dimension = self.probe_dimension
+                if dimension and profile is not None:
+                    if has_tailored_probes(dimension, endpoint_ref, profile):
+                        plan = probes_for_endpoint(dimension, endpoint_ref, profile, fallback)
+                        _extend(endpoint_ref, plan, tag=True)
+                        continue
+                    capability = capability_by_endpoint.get(endpoint_ref)
+                    dynamic = (
+                        self._design_probes_dynamically(
+                            context=context,
+                            capability=capability,
+                            endpoint_ref=endpoint_ref,
+                            dimension=dimension,
+                            profile=profile,
+                        )
+                        if profile.label and profile.label != "unspecified"
+                        else None
                     )
+                    _extend(endpoint_ref, dynamic if dynamic else fallback, tag=True)
                 else:
-                    plan = fallback
-                for probe_name, prompt in plan:
-                    probe_plan.append((endpoint_ref, f"{probe_name}@{endpoint_ref}", prompt))
+                    _extend(endpoint_ref, fallback, tag=True)
 
-        results = self._execute_probe_plan(probe_plan, agent_name=self.name)
-        context.probe_counts[self.name] = len(results)
-        return results
+        outcome = self._execute_probe_plan(
+            probe_plan,
+            agent_name=self.name,
+            capabilities=context.capabilities,
+            dimension=self.probe_dimension,
+            dynamic_payloads=dynamic_payloads,
+        )
+        context.probe_counts[self.name] = len(outcome.sent)
+        if outcome.skipped:
+            context.probe_skips[self.name] = [
+                {
+                    "endpoint_ref": s.endpoint_ref,
+                    "probe_name": s.probe_name,
+                    "dimension": s.dimension,
+                    "reason": s.reason,
+                }
+                for s in outcome.skipped
+            ]
+        return outcome.sent
 
     def _execute_probe_plan(
         self,
         probe_plan: list[tuple[str, str, str]],
         *,
         agent_name: str,
-    ) -> list["TargetProbeResult"]:
-        """Send the planned probes to the target concurrently, preserving order."""
-        if not probe_plan:
-            return []
-        capture_buffer = get_log_buffer()
+        capabilities: Sequence[AISystemCapability] = (),
+        dimension: str | None = None,
+        dynamic_payloads: dict[str, ProbePayload] | None = None,
+    ) -> ProbeExecutionOutcome:
+        """Send the planned probes to the target concurrently, preserving order.
 
-        def _send(item: tuple[str, str, str]) -> TargetProbeResult:
+        Every probe reaching this function is implicitly text-only — the whole
+        static catalog and every agent's hardcoded fallback are free-text
+        prompts. A capability whose real modality isn't text (e.g. an
+        image-generation endpoint) gets nothing sent to it here; it's recorded
+        as a skip instead. This is the fail-closed gate: it protects any
+        capability of any modality this codebase has never specifically
+        catered for, not just the ones we know about today.
+        """
+        if not probe_plan:
+            return ProbeExecutionOutcome(sent=[], skipped=[])
+        capture_buffer = get_log_buffer()
+        # endpoint_ref -> the capability's own input_schema, when the target
+        # system registered one (e.g. via catalog import). Lets a probe with no
+        # hand-curated payload still get a real structured body for a
+        # schema-driven endpoint instead of falling back to plain text.
+        schema_by_endpoint = {
+            c.endpoint_ref: c.input_schema for c in capabilities if c.input_schema
+        }
+        modality_by_endpoint = {c.endpoint_ref: c.modality for c in capabilities}
+
+        def _send(item: tuple[str, str, str]) -> TargetProbeResult | SkippedProbe:
             endpoint_ref, capability_name, prompt = item
+            # A dynamically-designed probe already validated against this
+            # capability's real modality/schema (see validate_dynamic_*
+            # in probe_library.py) is exempt from the text-only gate below —
+            # it's not a generic text probe misrouted to a non-text endpoint,
+            # it's a structured payload built specifically for it.
+            dynamic_payload = (
+                dynamic_payloads.get(capability_name or "") if dynamic_payloads else None
+            )
+            capability_modality = modality_by_endpoint.get(endpoint_ref, Modality.text)
+            if dynamic_payload is None and capability_modality is not Modality.text:
+                return SkippedProbe(
+                    endpoint_ref=endpoint_ref,
+                    probe_name=capability_name,
+                    dimension=dimension,
+                    reason=(
+                        f"probe is text-only; this capability's modality is "
+                        f"'{capability_modality}'"
+                    ),
+                )
             # contextvars don't cross thread boundaries — rebind the audit
             # buffer and agent attribution so worker-thread probes are captured.
             bind_log_capture(capture_buffer, agent_name=agent_name)
-            # A structured probe (e.g. HR candidate ranking) carries a JSON body
-            # and its own endpoint so the audited function receives a real input
-            # instead of having its prompt parsed as free text. capability_name
-            # holds the probe name here ("probe_name" or "probe_name@endpoint").
-            payload = payload_for_probe(capability_name or "")
+            # A structured probe (e.g. HR candidate ranking, or a validated
+            # dynamically-designed one) carries a JSON body and its own
+            # endpoint so the audited function receives a real input instead
+            # of having its prompt parsed as free text. capability_name holds
+            # the probe name here ("probe_name" or "probe_name@endpoint").
+            payload = payload_for_probe(capability_name or "") or dynamic_payload
+            if payload is None:
+                schema = schema_by_endpoint.get(endpoint_ref)
+                if schema:
+                    synthesized = synthesize_structured_body(schema, prompt)
+                    if synthesized is not None:
+                        payload = ProbePayload(endpoint_ref, synthesized)
             if payload is not None:
                 return self._probe_target(
                     endpoint_ref=payload.endpoint,
@@ -254,10 +486,15 @@ class ModelBackedAgent:
             )
 
         if len(probe_plan) == 1:
-            return [_send(probe_plan[0])]
-        worker_count = max(1, min(_MAX_PROBE_WORKERS, len(probe_plan)))
-        with ThreadPoolExecutor(max_workers=worker_count) as pool:
-            return list(pool.map(_send, probe_plan))
+            results = [_send(probe_plan[0])]
+        else:
+            worker_count = max(1, min(_MAX_PROBE_WORKERS, len(probe_plan)))
+            with ThreadPoolExecutor(max_workers=worker_count) as pool:
+                results = list(pool.map(_send, probe_plan))
+
+        sent = [r for r in results if isinstance(r, TargetProbeResult)]
+        skipped = [r for r in results if isinstance(r, SkippedProbe)]
+        return ProbeExecutionOutcome(sent=sent, skipped=skipped)
 
     def _probe_plan(
         self,
@@ -313,12 +550,25 @@ class ModelBackedAgent:
         should treat an empty list as "no real tool evidence available" and
         fall back to LLM-only reasoning.
         """
-        from app.services.evaluators.base import MetricEvaluationInput
+        from app.services.evaluators.base import MetricEvaluationInput, resolve_evaluator_endpoint
         from app.services.evaluators.registry import EVALUATORS
 
         evaluator = EVALUATORS.get(tool_name)
         if evaluator is None or context.session is None or context.target_client is None:
             return []
+
+        # Scoped audit: probe the same capability the agent's own probes are
+        # targeting. Whole-application audit: same resolution as everywhere
+        # else — prefer a text-modality capability's real endpoint over the
+        # system's bare base URL, which 404s for a multi-capability system
+        # with no functional route at its base (see resolve_evaluator_endpoint).
+        if context.selected_capabilities:
+            endpoints = context.probe_endpoints()
+            endpoint_ref = endpoints[0] if endpoints else resolve_evaluator_endpoint(
+                context.ai_system, context.capabilities
+            )
+        else:
+            endpoint_ref = resolve_evaluator_endpoint(context.ai_system, context.capabilities)
 
         results: list[ToolCallResult] = []
         for plan_item in context.metric_plan_items:
@@ -334,6 +584,7 @@ class ModelBackedAgent:
                         session=context.session,
                         ai_system=context.ai_system,
                         target_client=context.target_client,
+                        target_endpoint_ref=endpoint_ref,
                     )
                 )
             except Exception as exc:

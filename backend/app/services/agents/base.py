@@ -7,6 +7,7 @@ from app.models.ai_system import AISystem, AISystemCapability, ApplicationContex
 from app.models.evidence import EvidenceRecord, MetricResult
 from app.models.finding import Finding
 from app.schemas.governance import FindingCreate, MetricPlanItem
+from app.services.evaluators.base import resolve_evaluator_endpoint
 
 if TYPE_CHECKING:
     from app.services.model_clients.base import TargetModelClient
@@ -35,6 +36,11 @@ class AgentContext:
     # agents record their probe count here so the SSE progress endpoint can report
     # a real "Probes Sent" figure instead of a hardcoded 0.
     probe_counts: dict[str, int] = None  # type: ignore[assignment]
+    # agent_name -> probes it declined to send this run (capability modality
+    # didn't match), each a dict with endpoint_ref/probe_name/dimension/reason.
+    # An honest record of coverage gaps, never a fabricated result — see
+    # ModelBackedAgent._execute_probe_plan's fail-closed modality gate.
+    probe_skips: dict[str, list[dict]] = None  # type: ignore[assignment]
     # Audit scope: capability endpoint_refs to probe (e.g. ["parse-resume"]).
     # Empty = whole application (probe the system's base endpoint).
     selected_capabilities: list[str] = None  # type: ignore[assignment]
@@ -49,6 +55,8 @@ class AgentContext:
             object.__setattr__(self, "metric_plan_items", [])
         if self.probe_counts is None:
             object.__setattr__(self, "probe_counts", {})
+        if self.probe_skips is None:
+            object.__setattr__(self, "probe_skips", {})
         if self.selected_capabilities is None:
             object.__setattr__(self, "selected_capabilities", [])
 
@@ -57,8 +65,13 @@ class AgentContext:
 
         When the run scoped the audit to specific capabilities, return those
         endpoint_refs (resolving each selected capability to its real
-        endpoint_ref). Otherwise return the single base endpoint — the
-        whole-application default, unchanged from prior behavior.
+        endpoint_ref). Otherwise resolve the best whole-application default —
+        the system's own bare base URL only works when it's actually a
+        callable endpoint; a system whose real capabilities live under their
+        own distinct paths (e.g. separate image/video/text generation
+        endpoints) has no route at all at its base, so prefer a registered
+        text-modality capability's own endpoint_ref instead (same resolution
+        already used for evaluator tool calls — see resolve_evaluator_endpoint).
         """
         base = (
             getattr(self.ai_system, "target_endpoint_ref", None)
@@ -66,7 +79,7 @@ class AgentContext:
             or "default"
         )
         if not self.selected_capabilities:
-            return [base]
+            return [resolve_evaluator_endpoint(self.ai_system, self.capabilities)]
 
         # Map selected values (endpoint_ref or capability name) to endpoint_refs.
         by_ref = {c.endpoint_ref: c.endpoint_ref for c in self.capabilities}

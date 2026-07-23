@@ -11,7 +11,7 @@ returns non-JSON.
 from app.models.enums import Severity
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import finding
+from app.services.agents.helpers import coverage_gap_finding, finding
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 
 _TRANSPARENCY_METRIC_IDS = {"CM-035", "CM-036", "CM-037", "CM-038", "CM-039"}
@@ -110,6 +110,14 @@ class ComplianceMapperAgent(ModelBackedAgent):
             return findings
 
         probes: list[TargetProbeResult] = self._run_probes(_PROBE_PROMPTS, context=context)
+        if not probes and context.probe_skips.get(self.name):
+            return findings + [
+                coverage_gap_finding(
+                    agent_name=self.name,
+                    dimension=self.probe_dimension or self.name,
+                    reason=context.probe_skips[self.name][0]["reason"],
+                )
+            ]
 
         metric_summary = "\n".join(
             f"  - {m.metric_id} ({m.dimension}): status={m.status}, "

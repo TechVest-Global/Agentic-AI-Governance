@@ -9,6 +9,7 @@ from app.db.session import get_session
 from app.schemas.governance import (
     AISystemCapabilityCreate,
     AISystemCapabilityRead,
+    AISystemCapabilityUpdate,
     AISystemCreate,
     AISystemRead,
     AISystemRegistrationCreate,
@@ -157,6 +158,19 @@ def get_capability(
     session: SessionDependency,
 ) -> AISystemCapabilityRead:
     return service.get_capability(session, system_id, capability_id)
+
+
+@router.patch(
+    "/{system_id}/capabilities/{capability_id}",
+    response_model=AISystemCapabilityRead,
+)
+def update_capability(
+    system_id: UUID,
+    capability_id: UUID,
+    payload: AISystemCapabilityUpdate,
+    session: SessionDependency,
+) -> AISystemCapabilityRead:
+    return service.update_capability(session, system_id, capability_id, payload)
 
 
 @router.get(
