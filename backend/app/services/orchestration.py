@@ -471,7 +471,10 @@ def reconcile_interrupted_runs(session: Session) -> int:
             run.status = RunStatus.failed
             run.error_summary = {
                 "error_type": "OrchestrationInterrupted",
-                "message": "Run was interrupted before completion (worker restart) and reconciled on startup.",
+                "message": (
+                    "Run was interrupted before completion (worker restart) "
+                    "and reconciled on startup."
+                ),
             }
         run.completed_at = run.completed_at or utc_now()
         run.updated_at = utc_now()

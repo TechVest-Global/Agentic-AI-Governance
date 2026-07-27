@@ -59,6 +59,22 @@ export type IntelligenceAgent = {
 
 export const AGENT_TABS: AgentTab[] = ["Overview", "Probes", "Evidence", "Frameworks", "Remediation", "Runtime"];
 
+// Image/video-generation targets return the generated media as a base64 data
+// URL in the same text field a chat target would use for its reply — there's
+// no separate media channel on LlmCall. Detect that shape here so it renders
+// as actual media instead of dumping the raw base64 into a <pre> block.
+const DATA_URL_MEDIA_RE = /^data:(image|video|audio)\/[a-zA-Z0-9.+-]+;base64,/;
+
+function mediaFromResponseText(
+  text: string | null | undefined,
+): { kind: "image" | "video" | "audio"; url: string } | null {
+  if (!text) return null;
+  const trimmed = text.trim();
+  const match = trimmed.match(DATA_URL_MEDIA_RE);
+  if (!match) return null;
+  return { kind: match[1] as "image" | "video" | "audio", url: trimmed };
+}
+
 /**
  * Turn a raw probe identifier into a readable title, keeping the pass number as
  * a suffix. e.g. "demographic_parity_matched_pair_pass2" → "Demographic Parity
@@ -625,7 +641,8 @@ function ProbeRow({
 }) {
   const meta = probeMetaFor(call.task);
   const hasText = Boolean(call.prompt_text || call.response_text);
-  const rankingScores = open ? parseRankingScores(call.response_text) : null;
+  const responseMedia = mediaFromResponseText(call.response_text);
+  const rankingScores = open && !responseMedia ? parseRankingScores(call.response_text) : null;
 
   return (
     <div
@@ -706,9 +723,21 @@ function ProbeRow({
                 <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-600 dark:text-emerald-400">Response from target</p>
                 <span className="ml-auto text-[10px] text-amber-600 dark:text-amber-400 font-medium">⚠ sanitized · fenced before governance use</span>
               </div>
-              <pre className="rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 text-[11px] leading-5 text-slate-800 dark:text-slate-200 whitespace-pre-wrap font-mono overflow-x-auto max-h-48 overflow-y-auto">
-                {call.response_text}
-              </pre>
+              {responseMedia ? (
+                <div className="flex items-center justify-center rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3">
+                  {responseMedia.kind === "video" ? (
+                    <video src={responseMedia.url} controls className="max-h-64 max-w-full rounded" />
+                  ) : responseMedia.kind === "audio" ? (
+                    <audio src={responseMedia.url} controls className="w-full" />
+                  ) : (
+                    <img src={responseMedia.url} alt="Generated media response" className="max-h-64 max-w-full rounded" />
+                  )}
+                </div>
+              ) : (
+                <pre className="rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 text-[11px] leading-5 text-slate-800 dark:text-slate-200 whitespace-pre-wrap font-mono overflow-x-auto max-h-48 overflow-y-auto">
+                  {call.response_text}
+                </pre>
+              )}
             </div>
           )}
           {!call.prompt_text && !call.response_text && (

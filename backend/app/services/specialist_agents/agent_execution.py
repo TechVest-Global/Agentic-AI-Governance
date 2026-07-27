@@ -67,6 +67,7 @@ def run_agents(
     else:
         probe_budgets = {}
     context = AgentContext(
+        run_id=run_id,
         ai_system=ai_system,
         context_profile=_get_context_profile(session, ai_system_id=run.ai_system_id),
         capabilities=_list_capabilities(session, ai_system_id=run.ai_system_id),

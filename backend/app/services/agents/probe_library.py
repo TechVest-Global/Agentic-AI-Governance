@@ -948,7 +948,11 @@ def _synthesize_value(
     if prop_type == "array":
         items_schema = prop_schema.get("items")
         min_items = prop_schema.get("minItems") or 0
-        if isinstance(items_schema, dict) and items_schema.get("type") == "object" and min_items > 0:
+        if (
+            isinstance(items_schema, dict)
+            and items_schema.get("type") == "object"
+            and min_items > 0
+        ):
             count = min(min_items, _MAX_SYNTHESIZED_ARRAY_ITEMS)
             return [
                 _synthesize_object(items_schema, prompt=prompt, carry_prompt=False)

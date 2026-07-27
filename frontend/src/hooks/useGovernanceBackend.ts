@@ -6,6 +6,7 @@ import {
   getContextAssembly,
   getEvaluationPlan,
   getEvaluationRun,
+  getExecutionArtifacts,
   getFindings,
   getFrameworkMap,
   getGovernanceReport,
@@ -21,6 +22,7 @@ import {
   type CouncilDeliberation,
   type EvaluationPlanRead,
   type EvaluationRun,
+  type ExecutionArtifact,
   type FrameworkComplianceMap,
   type GovernanceReport,
   type LlmCall,
@@ -40,6 +42,7 @@ type BackendState = {
   evaluationPlan: EvaluationPlanRead | null;
   contextAssembly: ContextAssemblyRead | null;
   llmCalls: LlmCall[];
+  executionArtifacts: ExecutionArtifact[];
 };
 
 const initialState: BackendState = {
@@ -56,6 +59,7 @@ const initialState: BackendState = {
   evaluationPlan: null,
   contextAssembly: null,
   llmCalls: [],
+  executionArtifacts: [],
 };
 
 // A run that has reached one of these states will not change again, so we stop
@@ -111,6 +115,7 @@ export function useGovernanceBackend() {
           evaluationPlan,
           contextAssembly,
           llmCallLog,
+          executionArtifacts,
         ] = await Promise.all([
           getGovernanceReport(latestRun.id),
           getFrameworkMap(latestRun.id),
@@ -121,6 +126,7 @@ export function useGovernanceBackend() {
           getEvaluationPlan(latestRun.id),
           getContextAssembly(latestRun.id),
           getLlmCalls(latestRun.id).catch(() => null),
+          getExecutionArtifacts(latestRun.id).catch(() => []),
         ]);
 
         if (!cancelled) {
@@ -138,6 +144,7 @@ export function useGovernanceBackend() {
             evaluationPlan,
             contextAssembly,
             llmCalls: llmCallLog?.calls ?? [],
+            executionArtifacts,
           });
         }
       } catch (error) {

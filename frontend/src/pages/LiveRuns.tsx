@@ -627,6 +627,7 @@ export function LiveRuns() {
         report: backend.report,
         agentExecutions: backend.agentExecutions,
         findings: backend.findings,
+        executionArtifacts: backend.executionArtifacts,
       }
     : null;
 

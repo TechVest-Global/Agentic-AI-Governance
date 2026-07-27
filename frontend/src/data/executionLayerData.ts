@@ -23,12 +23,29 @@ export type RuntimeEvent = {
   type: "info" | "finding" | "action" | "warning" | "escalation";
 };
 
+export type MediaArtifactContent = {
+  kind: string; // "image" | "audio" | "video"
+  url: string;
+  promptText: string;
+  responseText: string;
+};
+
 export type ExecutionArtifact = {
   id: string;
   name: string;
-  type: "json" | "yaml" | "markdown" | "bundle";
+  type: "json" | "yaml" | "markdown" | "bundle" | "media" | "media_folder";
   layer: string;
   content: string;
+  // Present only when type === "media": a generated image/audio/video the
+  // audited system produced, paired with the text response that came with it.
+  media?: MediaArtifactContent;
+  // Present only when type === "media_folder": one folder per media kind
+  // present on this run (Images/Audio/Video), holding every item of that
+  // kind so unrelated kinds never clutter a run that only generated images.
+  mediaFolder?: {
+    kind: string;
+    items: Array<{ id: string; name: string; media: MediaArtifactContent }>;
+  };
 };
 
 export type ArchitectureNode = {

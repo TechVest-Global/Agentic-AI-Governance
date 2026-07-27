@@ -806,6 +806,26 @@ class LLMCallLogSummary(APIModel):
     calls: list[LLMCallLogRead] = Field(default_factory=list)
 
 
+class ExecutionArtifactRead(APIModel):
+    """Metadata for one generated-media artifact — the actual image/audio/video
+    bytes are served separately via the .../media endpoint, so this list stays
+    light even when a run produced several large probe videos."""
+
+    id: UUID
+    run_id: UUID
+    agent_name: str
+    dimension: str | None = None
+    capability_name: str | None = None
+    endpoint_ref: str
+    prompt_text: str
+    response_text: str
+    media_kind: str
+    mime_type: str
+    has_media: bool
+    source_url: str | None = None
+    created_at: datetime
+
+
 # ── AI application registration: backend-sourced options + frameworks ──────────
 
 

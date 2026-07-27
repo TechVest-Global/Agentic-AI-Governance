@@ -16,6 +16,7 @@ import logging
 from app.models.enums import MetricResultStatus
 from app.services.evaluators.base import MetricEvaluationInput, MetricEvaluationResult
 from app.services.evaluators.probe_log import build_probe_log_entry
+from app.services.execution_artifacts import record_execution_artifacts
 from app.services.model_clients.base import MediaAsset, TargetModelRequest
 
 logger = logging.getLogger(__name__)
@@ -125,6 +126,21 @@ class AudioEvaluator:
                         media=[probe],
                     )
                 )
+                if response.media and evaluation_input.run_id is not None:
+                    try:
+                        record_execution_artifacts(
+                            evaluation_input.session,
+                            run_id=evaluation_input.run_id,
+                            agent_name="asr",
+                            dimension=evaluation_input.metric.dimension,
+                            capability_name=f"asr_{formula}",
+                            endpoint_ref=endpoint_ref,
+                            prompt_text="Transcribe the attached audio verbatim.",
+                            response_text=response.raw_output,
+                            media=response.media,
+                        )
+                    except Exception:  # noqa: BLE001 - evidence capture must never fail scoring
+                        logger.warning("AudioEvaluator: failed to persist execution artifact", exc_info=True)
                 hypothesis = response.raw_output or ""
             except Exception as exc:  # noqa: BLE001
                 logger.warning("AudioEvaluator: transcription probe %d failed: %s", index, exc)

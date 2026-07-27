@@ -5,11 +5,18 @@ from fastapi.testclient import TestClient
 BASE = "/api/v1/governance-config"
 
 
-def test_frameworks_endpoint_returns_the_four_implemented(client: TestClient) -> None:
+def test_frameworks_endpoint_returns_the_six_implemented(client: TestClient) -> None:
     response = client.get(BASE + "/frameworks")
     assert response.status_code == 200
     ids = {fw["framework_id"] for fw in response.json()}
-    assert ids == {"nist_ai_rmf", "iso_42001", "eu_ai_act", "owasp_llm_top_10"}
+    assert ids == {
+        "nist_ai_rmf",
+        "iso_42001",
+        "eu_ai_act",
+        "owasp_llm_top_10",
+        "owasp_agentic_ai",
+        "mitre_atlas",
+    }
 
 
 def test_options_include_new_catalogs_and_keep_existing(client: TestClient) -> None:

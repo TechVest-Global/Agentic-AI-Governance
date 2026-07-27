@@ -1,6 +1,7 @@
 import logging
 import os
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeout
 from uuid import UUID
 
 from sqlmodel import Session, select
@@ -10,8 +11,8 @@ from app.models.ai_system import AISystem, AISystemCapability
 from app.models.base import utc_now
 from app.models.enums import MetricResultStatus, RunPhase, RunStatus
 from app.models.evidence import EvidenceRecord, MetricResult
-from app.schemas.governance import MetricExecutionCreate, MetricExecutionRead
 from app.models.llm_call_log import LLMCallLog
+from app.schemas.governance import MetricExecutionCreate, MetricExecutionRead
 from app.services.evaluators.base import (
     MetricEvaluationInput,
     MetricEvaluationResult,
@@ -106,7 +107,11 @@ def run_metrics(
                     )
                 ).all()
             )
-            resolved_endpoint_ref = resolve_evaluator_endpoint(worker_ai_system, resolved_capabilities)
+            resolved_endpoint_ref = resolve_evaluator_endpoint(
+                worker_ai_system,
+                resolved_capabilities,
+                run.selected_capabilities or (),
+            )
 
     evidence_records: list[EvidenceRecord] = []
     metric_results: list[MetricResult] = []
@@ -122,10 +127,14 @@ def run_metrics(
     # does; all writes below happen back on the main session, in plan order, so
     # persistence stays single-threaded and deterministic.
     def _evaluate(metric) -> MetricEvaluationResult:
-        # contextvars don't cross thread boundaries — rebind the parent's audit
-        # buffer so this worker's LLM calls are captured too.
-        bind_log_capture(capture_buffer)
         with Session(db_session.engine) as worker_session:
+            # contextvars don't cross thread boundaries — rebind the parent's
+            # audit buffer so this worker's LLM calls are captured too. The
+            # pool is reused across metrics on the same threads, so agent_name
+            # is rebound fresh on every call (attributing the call to this
+            # metric's own tool) rather than relying on whatever a previous
+            # metric on this thread left behind.
+            bind_log_capture(capture_buffer, agent_name=metric.tool_name or "unknown")
             try:
                 return evaluator.evaluate(
                     MetricEvaluationInput(
@@ -138,6 +147,7 @@ def run_metrics(
                         target_client=target_client,
                         target_endpoint_ref=resolved_endpoint_ref,
                         capabilities=resolved_capabilities,
+                        run_id=run_id,
                     )
                 )
             except Exception as exc:

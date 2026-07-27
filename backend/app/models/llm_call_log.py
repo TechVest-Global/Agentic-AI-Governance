@@ -43,5 +43,9 @@ class LLMCallLog(TimestampMixin, UUIDPrimaryKey, table=True):
         default_factory=list, sa_column=Column(JSON, nullable=False)
     )
     # Auditor-visible probe transcript — stored only for target calls
-    prompt_text: str | None = Field(default=None, sa_column=Column("prompt_text", sa.Text, nullable=True))
-    response_text: str | None = Field(default=None, sa_column=Column("response_text", sa.Text, nullable=True))
+    prompt_text: str | None = Field(
+        default=None, sa_column=Column("prompt_text", sa.Text, nullable=True)
+    )
+    response_text: str | None = Field(
+        default=None, sa_column=Column("response_text", sa.Text, nullable=True)
+    )

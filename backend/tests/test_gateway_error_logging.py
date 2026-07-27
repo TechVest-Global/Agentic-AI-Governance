@@ -11,7 +11,6 @@ logging a failure entry (status="error") before re-raising in both wrappers.
 """
 
 import pytest
-
 from app.services.model_clients.base import GovernanceModelRequest, TargetModelRequest
 from app.services.model_clients.gateway import (
     GatewayGovernanceModelClient,
