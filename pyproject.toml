@@ -25,6 +25,10 @@ dependencies = [
     "langfuse>=3.0.0",
     "jiwer>=3.0.0",
     "pillow>=10.0.0",
+    # Video frame extraction for the vision evaluator's temporal_consistency
+    # formula (CM-033). Bundles its own ffmpeg build — no separate system
+    # binary install needed, unlike a raw ffmpeg-CLI/opencv approach.
+    "av>=13.0.0",
     # ragas's langchain-community/-openai stack and garak's own langchain/openai
     # requirement do not resolve together on their default (latest) versions —
     # ragas imports break on langchain-community>=0.4 (removed vertexai submodule)
@@ -73,6 +77,13 @@ select = ["E", "F", "I", "UP", "B"]
 "backend/scripts/seed_*.py" = ["E501"]
 # conftest neutralizes credential env vars before importing app modules.
 "backend/tests/conftest.py" = ["E402"]
+# Test fixtures/payloads read better inline than hand-wrapped; not shipped code.
+"backend/tests/*.py" = ["E501"]
+# Evaluator modules embed long, verbatim judge-prompt/template strings — same
+# rationale as seed_*.py above; wrapping mid-prompt would hurt readability.
+"backend/app/services/evaluators/*.py" = ["E501"]
+# Standalone report-formatting script, not imported by the app.
+"backend/scripts_build_metric_report.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]

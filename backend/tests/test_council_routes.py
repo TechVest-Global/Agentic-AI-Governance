@@ -1,9 +1,8 @@
 from uuid import uuid4
 
-from fastapi.testclient import TestClient
-
 from app.models.enums import ActionTier
 from app.services.deliberation_council.verdict_agent import VerdictOutput
+from fastapi.testclient import TestClient
 
 
 def create_system(client: TestClient, name: str) -> dict[str, object]:

@@ -2,10 +2,9 @@
 
 import urllib.error
 
+import app.services.boundary as boundary_service
 import pytest
 from fastapi.testclient import TestClient
-
-import app.services.boundary as boundary_service
 
 
 def test_client_boundary_status(client: TestClient):

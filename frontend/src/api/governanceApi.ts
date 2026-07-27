@@ -1163,6 +1163,34 @@ export async function getLlmCalls(runId: string): Promise<LlmCallLog> {
   return request<LlmCallLog>(`/evaluation-runs/${runId}/llm-calls`);
 }
 
+/* ──────────────────────────────────────── Execution artifacts ── */
+
+export type ExecutionArtifact = {
+  id: string;
+  run_id: string;
+  agent_name: string;
+  dimension?: string | null;
+  capability_name?: string | null;
+  endpoint_ref: string;
+  prompt_text: string;
+  response_text: string;
+  media_kind: string; // "image" | "audio" | "video"
+  mime_type: string;
+  has_media: boolean;
+  source_url?: string | null;
+  created_at: string;
+};
+
+export async function getExecutionArtifacts(runId: string): Promise<ExecutionArtifact[]> {
+  return request<ExecutionArtifact[]>(`/evaluation-runs/${runId}/execution-artifacts`);
+}
+
+/** Direct <img>/<video>/<audio> src for one artifact's media bytes — a GET,
+ * so it never needs the bearer token these tags can't attach anyway. */
+export function executionArtifactMediaUrl(runId: string, artifactId: string): string {
+  return `${API_BASE_URL}/evaluation-runs/${runId}/execution-artifacts/${artifactId}/media`;
+}
+
 /* ───────────────────────────────────────────── Run lifecycle ── */
 
 export async function startRun(runId: string): Promise<EvaluationRun> {

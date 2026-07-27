@@ -1,11 +1,12 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
+from uuid import UUID
 
 from sqlmodel import Session
 
 from app.models.ai_system import AISystem, AISystemCapability
-from app.models.enums import Modality, MetricResultStatus
+from app.models.enums import MetricResultStatus, Modality
 from app.schemas.governance import MetricPlanItem
 
 if TYPE_CHECKING:
@@ -13,7 +14,9 @@ if TYPE_CHECKING:
 
 
 def resolve_evaluator_endpoint(
-    ai_system: AISystem, capabilities: Sequence[AISystemCapability]
+    ai_system: AISystem,
+    capabilities: Sequence[AISystemCapability],
+    selected_capabilities: Sequence[str] = (),
 ) -> str:
     """Best endpoint for a real-tool evaluator (garak/presidio/ragas/deepeval)
     to probe with a free-text prompt.
@@ -22,10 +25,25 @@ def resolve_evaluator_endpoint(
     but has no functional route at all for a system whose capabilities live
     under their own distinct paths (e.g. separate image/video/text generation
     endpoints registered under one AI system) — the bare base URL 404s.
-    Prefer a text-modality capability's own endpoint_ref when one is
-    registered; these evaluators only ever send free text, never a
-    capability's structured input schema.
+
+    A scoped audit (``selected_capabilities`` set — an auditor picked a
+    specific capability, e.g. an image-generation endpoint) probes THAT
+    endpoint: these evaluators only ever send free text, never a capability's
+    structured input schema, but a plain "prompt" field is still a valid
+    generation request for most endpoints, so scoping still exercises the
+    endpoint the auditor actually selected instead of silently substituting
+    the system's text capability. Only when nothing was selected (a
+    whole-application audit) does it fall back to preferring a text-modality
+    capability's own endpoint_ref.
     """
+    if selected_capabilities:
+        by_ref = {c.endpoint_ref: c.endpoint_ref for c in capabilities}
+        by_name = {c.name: c.endpoint_ref for c in capabilities}
+        for selected in selected_capabilities:
+            ref = by_ref.get(selected) or by_name.get(selected)
+            if ref:
+                return ref
+
     base = ai_system.target_endpoint_ref or ai_system.name or "default"
     for capability in capabilities:
         if capability.modality == Modality.text:
@@ -57,6 +75,11 @@ class MetricEvaluationInput:
     # alone. Optional: evaluators that don't design prompts ignore it, and
     # every existing call site predates this field, so it defaults to empty.
     capabilities: Sequence[AISystemCapability] = ()
+    # The run this evaluation belongs to — lets an evaluator that receives
+    # generated media (e.g. VisionEvaluator) persist it as an
+    # ExecutionArtifact. None for the standalone Security Tools button, which
+    # probes ad hoc, outside of any evaluation run.
+    run_id: UUID | None = None
 
 
 @dataclass(frozen=True)

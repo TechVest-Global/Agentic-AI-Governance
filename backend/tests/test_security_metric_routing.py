@@ -19,7 +19,6 @@ fallback/skip from the router itself.
 from uuid import uuid4
 
 import yaml
-
 from app.models.ai_system import AISystem
 from app.schemas.governance import MetricPlanItem
 from app.services.evaluators.base import MetricEvaluationInput
@@ -32,7 +31,7 @@ _METRICS_DIR = __file__.rsplit("backend", 1)[0] + "backend/app/configs/metrics"
 def _load_metric_yaml(path: str) -> dict:
     import pathlib
 
-    with open(pathlib.Path(_METRICS_DIR) / path, "r", encoding="utf-8") as fh:
+    with open(pathlib.Path(_METRICS_DIR) / path, encoding="utf-8") as fh:
         return yaml.safe_load(fh)
 
 

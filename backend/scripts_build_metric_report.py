@@ -8,11 +8,10 @@ import json
 import sys
 from collections import Counter
 
+from app.configs.config_loader import load_metric_configs_from_dir
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-
-from app.configs.config_loader import load_metric_configs_from_dir
 
 RESULT_PATH, OUT_PATH = sys.argv[1], sys.argv[2]
 RUN_ID = sys.argv[3] if len(sys.argv) > 3 else "(unknown)"
@@ -311,7 +310,7 @@ ws2.sheet_view.showGridLines = False
 heads = ["Metric", "Dimension", "What it tests", "Primary tool", "Secondary tool",
          "How it's scored", "Real probe?", "Raw", "Normalized", "Threshold", "Result"]
 widths = [24, 16, 40, 12, 13, 30, 26, 8, 11, 10, 9]
-for i, (h, w) in enumerate(zip(heads, widths), start=1):
+for i, (h, w) in enumerate(zip(heads, widths, strict=True), start=1):
     cell = ws2.cell(row=1, column=i, value=h)
     cell.font = HFONT
     cell.fill = HEAD

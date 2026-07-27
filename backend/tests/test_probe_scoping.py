@@ -20,26 +20,32 @@ def _ctx(*, selected, capabilities, base="http://gw/api/v1/ai", modality=Modalit
     )
 
 
-def test_whole_app_prefers_text_capability_over_bare_base_endpoint():
-    # The bare base URL has no route at all for a system whose real
-    # capabilities live under their own paths — prefer a registered
-    # text-modality capability's own endpoint_ref instead.
-    ctx = _ctx(selected=[], capabilities=[("parseResume", "parse-resume")])
-    assert ctx.probe_endpoints() == ["parse-resume"]
+def test_whole_app_probes_every_registered_capability():
+    # A whole-application audit must reach EVERY registered capability, not
+    # just a text one — a specialist agent can design a real structured probe
+    # for a non-text capability (see ModelBackedAgent._design_probes_dynamically
+    # + the fail-closed modality gate in _execute_probe_plan), so image/video
+    # capabilities must be in the list for that machinery to ever run.
+    ctx = _ctx(
+        selected=[],
+        capabilities=[("parseResume", "parse-resume"), ("scanID", "scan-id")],
+    )
+    assert ctx.probe_endpoints() == ["parse-resume", "scan-id"]
+
+
+def test_whole_app_includes_non_text_capabilities():
+    # Previously this fell back to the bare base endpoint, on the theory that
+    # nothing here is safe to send a free-text probe to — but that also meant
+    # image/video capabilities were never even attempted, not skipped with a
+    # reason. They're included now; dispatch-time safety is the gate's job.
+    ctx = _ctx(
+        selected=[], capabilities=[("probeImage", "probe/image")], modality=Modality.image
+    )
+    assert ctx.probe_endpoints() == ["probe/image"]
 
 
 def test_whole_app_falls_back_to_base_endpoint_with_no_capabilities():
     ctx = _ctx(selected=[], capabilities=[])
-    assert ctx.probe_endpoints() == ["http://gw/api/v1/ai"]
-
-
-def test_whole_app_falls_back_to_base_endpoint_when_no_text_capability():
-    # Every registered capability is non-text (e.g. image/video generation) —
-    # nothing here is safe to send a free-text probe to, so fall back to the
-    # base endpoint (the fail-closed modality gate handles the rest).
-    ctx = _ctx(
-        selected=[], capabilities=[("probeImage", "probe/image")], modality=Modality.image
-    )
     assert ctx.probe_endpoints() == ["http://gw/api/v1/ai"]
 
 

@@ -1,6 +1,5 @@
-from fastapi.testclient import TestClient
-
 from app.services.capability_import import _capability_fields_from_entry
+from fastapi.testclient import TestClient
 
 
 def test_capability_fields_capture_request_body_as_input_schema():

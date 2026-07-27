@@ -5,10 +5,11 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlmodel import Session, select
 
 from app.api.routes.auth import get_current_user
+from app.core.exceptions import ResourceNotFoundError
 from app.db import session as db_session
 from app.db.session import get_session
 from app.models.agent import AgentExecution
@@ -27,6 +28,7 @@ from app.schemas.governance import (
     EvaluationRunFail,
     EvaluationRunRead,
     EvaluationRunStart,
+    ExecutionArtifactRead,
     FrameworkComplianceMapRead,
     GovernancePipelineRunCreate,
     GovernanceReportRead,
@@ -39,6 +41,7 @@ from app.schemas.governance import (
 from app.services import (
     adaptive_orchestrator,
     context_assembly,
+    execution_artifacts,
     orchestration,
 )
 from app.services import evaluation_runs as service
@@ -251,6 +254,61 @@ def get_llm_call_logs(
     session: SessionDependency,
 ) -> LLMCallLogSummary:
     return llm_call_log_service.get_llm_call_log_summary(session, run_id=run_id)
+
+
+@router.get("/{run_id}/execution-artifacts", response_model=list[ExecutionArtifactRead])
+def list_execution_artifacts(
+    run_id: UUID,
+    session: SessionDependency,
+) -> list[ExecutionArtifactRead]:
+    """Generated images/audio/video produced during this run's probes, paired
+    with the target's text response — metadata only, no media bytes here (see
+    the .../media route below), so this stays light even with several probe
+    videos on the run."""
+    from app.services.run_validation import get_run_or_raise
+
+    get_run_or_raise(session, run_id)
+    rows = execution_artifacts.list_execution_artifacts(session, run_id=run_id)
+    return [
+        ExecutionArtifactRead(
+            id=row.id,
+            run_id=row.run_id,
+            agent_name=row.agent_name,
+            dimension=row.dimension,
+            capability_name=row.capability_name,
+            endpoint_ref=row.endpoint_ref,
+            prompt_text=row.prompt_text,
+            response_text=row.response_text,
+            media_kind=row.media_kind,
+            mime_type=row.mime_type,
+            has_media=bool(row.data_base64),
+            source_url=row.source_url,
+            created_at=row.created_at,
+        )
+        for row in rows
+    ]
+
+
+@router.get("/{run_id}/execution-artifacts/{artifact_id}/media")
+def get_execution_artifact_media(
+    run_id: UUID,
+    artifact_id: UUID,
+    session: SessionDependency,
+) -> Response:
+    """Raw media bytes for one artifact, with the real Content-Type set —
+    usable directly as an <img>/<video>/<audio> src (GET, no bearer token
+    needed, same reasoning as the SSE progress stream: those tags can't
+    attach an Authorization header)."""
+    import base64
+
+    artifact = execution_artifacts.get_execution_artifact(
+        session, run_id=run_id, artifact_id=artifact_id
+    )
+    if artifact is None:
+        raise ResourceNotFoundError("Execution artifact", str(artifact_id))
+    if not artifact.data_base64:
+        raise ResourceNotFoundError("Execution artifact media", str(artifact_id))
+    return Response(content=base64.b64decode(artifact.data_base64), media_type=artifact.mime_type)
 
 
 @router.get("/{run_id}/progress/stream")

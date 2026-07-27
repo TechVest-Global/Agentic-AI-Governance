@@ -35,6 +35,7 @@ import logging
 from app.models.enums import MetricResultStatus
 from app.services.evaluators.base import MetricEvaluationInput, MetricEvaluationResult
 from app.services.evaluators.probe_log import build_probe_log_entry
+from app.services.execution_artifacts import record_execution_artifacts
 from app.services.model_clients.base import GovernanceModelRequest, TargetModelRequest
 
 logger = logging.getLogger(__name__)
@@ -412,6 +413,25 @@ def _score_prompt(
             endpoint_ref=endpoint_ref, prompt=prompt, capability_name="deepeval_probe"
         )
     )
+    logger.warning(
+        "DIAG _score_prompt media_count=%d run_id=%r session_is_none=%r",
+        len(response.media), evaluation_input.run_id, evaluation_input.session is None,
+    )
+    if response.media and evaluation_input.run_id is not None:
+        try:
+            record_execution_artifacts(
+                evaluation_input.session,
+                run_id=evaluation_input.run_id,
+                agent_name="deepeval",
+                dimension=evaluation_input.metric.dimension,
+                capability_name="deepeval_probe",
+                endpoint_ref=endpoint_ref,
+                prompt_text=prompt,
+                response_text=response.raw_output,
+                media=response.media,
+            )
+        except Exception:  # noqa: BLE001 - evidence capture must never fail scoring
+            logger.warning("DeepEvalEvaluator: failed to persist execution artifact", exc_info=True)
     answer = (response.sanitized_output or "")[:4000]
     test_case = LLMTestCase(input=prompt, actual_output=answer)
     deepeval_metric.measure(test_case)

@@ -24,10 +24,10 @@ import sys
 
 
 def _run(job: dict) -> dict:
+    import ragas.metrics as ragas_metrics
     from langchain_openai import AzureChatOpenAI
     from ragas import SingleTurnSample
     from ragas.llms import LangchainLLMWrapper
-    import ragas.metrics as ragas_metrics
 
     judge = job.get("judge") or {}
     chat = AzureChatOpenAI(

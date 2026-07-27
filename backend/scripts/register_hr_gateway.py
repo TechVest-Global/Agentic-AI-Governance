@@ -23,14 +23,13 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from sqlmodel import Session, select
-
 from app.core.config import get_settings
 from app.db.session import engine
 from app.models.ai_system import AISystem, AISystemCapability
 from app.models.enums import CapabilityType, Modality, RiskTier
 from app.schemas.governance import AISystemCapabilityCreate, AISystemCreate
 from app.services import ai_systems as service
+from sqlmodel import Session, select
 
 SYSTEM_NAME = "HR Recruitment System (AI Gateway)"
 
@@ -107,7 +106,8 @@ def main() -> None:
 
     with Session(engine) as session:
         system, created = _get_or_create_system(session, catalog, settings.target_endpoint)
-        print(f"AI system:   {system.name} ({'created' if created else 'already registered'}) id={system.id}")
+        status = "created" if created else "already registered"
+        print(f"AI system:   {system.name} ({status}) id={system.id}")
 
         existing_names = {
             capability.name
@@ -147,7 +147,10 @@ def main() -> None:
             added += 1
             print(f"  capability: {function_name:32s} (registered — {path})")
 
-        print(f"\nDone. {added} new capabilities registered, {len(existing_names)} already present.")
+        print(
+            f"\nDone. {added} new capabilities registered, "
+            f"{len(existing_names)} already present."
+        )
 
 
 if __name__ == "__main__":

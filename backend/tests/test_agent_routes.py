@@ -292,8 +292,8 @@ def test_run_agents_skips_phase_mutation_for_remediation_call(client: TestClient
     from app.db import session as db_session
     from app.models.enums import RunPhase, RunStatus
     from app.schemas.governance import AgentRunCreate
-    from app.services.specialist_agents.agent_execution import run_agents
     from app.services.run_validation import get_run_or_raise
+    from app.services.specialist_agents.agent_execution import run_agents
     from sqlmodel import Session
 
     system = create_system(client, name="ReProbe Phase Guard System")

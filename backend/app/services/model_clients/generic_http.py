@@ -133,16 +133,21 @@ class GenericHTTPTargetModelClient:
         self.credential_ref = "TARGET_API_KEY"
 
     @classmethod
-    def for_system(cls, ai_system, *, fallback_api_key: str | None, timeout: float) -> "GenericHTTPTargetModelClient":
+    def for_system(
+        cls, ai_system, *, fallback_api_key: str | None, timeout: float
+    ) -> GenericHTTPTargetModelClient:
         metadata = getattr(ai_system, "metadata_json", None) or {}
         credential_env = str(metadata.get("credential_env", "") or "")
         api_key = os.getenv(credential_env) if credential_env else None
+        response_field = (
+            str(metadata["response_field"]) if metadata.get("response_field") else None
+        )
         return cls(
             endpoint=ai_system.target_endpoint_ref,
             api_key=api_key or fallback_api_key,
             auth_header=str(metadata.get("auth_header") or "x-api-key"),
             prompt_field=str(metadata.get("prompt_field") or "message"),
-            response_field=(str(metadata["response_field"]) if metadata.get("response_field") else None),
+            response_field=response_field,
             timeout=timeout,
         )
 

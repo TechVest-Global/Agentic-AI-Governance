@@ -17,7 +17,7 @@ import logging
 import os
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 
 from app.configs.prompt_registry import PromptRegistry, render
@@ -37,10 +37,12 @@ from app.services.agents.probe_library import (
     validate_dynamic_structured_probes,
     validate_dynamic_text_probes,
 )
+from app.services.execution_artifacts import record_execution_artifacts
 from app.services.model_clients.base import (
     GovernanceModelClient,
     GovernanceModelRequest,
     GovernanceModelResponse,
+    MediaAsset,
     TargetModelClient,
     TargetModelRequest,
 )
@@ -100,6 +102,11 @@ class TargetProbeResult:
     fenced: str
     latency_ms: int
     trace_id: str
+    endpoint_ref: str = ""
+    capability_name: str | None = None
+    # Generated image/audio/video the target returned with this probe's
+    # response, if any — see ExecutionArtifact / record_execution_artifacts.
+    media: list[MediaAsset] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -330,7 +337,9 @@ class ModelBackedAgent:
         probe_plan: list[tuple[str, str, str]] = []  # (endpoint_ref, capability_name, prompt)
         dynamic_payloads: dict[str, ProbePayload] = {}
 
-        def _extend(endpoint_ref: str, plan_or_fields: ProbeSet | list[tuple[str, dict]], *, tag: bool) -> None:
+        def _extend(
+            endpoint_ref: str, plan_or_fields: ProbeSet | list[tuple[str, dict]], *, tag: bool
+        ) -> None:
             for probe_name, value in plan_or_fields:
                 name = f"{probe_name}@{endpoint_ref}" if tag else probe_name
                 if isinstance(value, dict):
@@ -342,8 +351,14 @@ class ModelBackedAgent:
                     probe_plan.append((endpoint_ref, name, value))
 
         if not scoped:
-            # Whole application: budget-scaled system-type probes to the base endpoint.
+            # Whole application: budget-scaled system-type probes, now sent to
+            # EVERY registered capability endpoint (see probe_endpoints()).
+            # Tag probe names by endpoint once there's more than one, so two
+            # capabilities' probes (e.g. probeText and probeImage each getting
+            # their own dynamically-designed "probe_1") never collide under
+            # the same name in dynamic_payloads/probe_plan.
             dimension = self.probe_dimension
+            tag_names = len(endpoints) > 1
             for endpoint_ref in endpoints:
                 if dimension and profile is not None and not has_tailored_probes(
                     dimension, endpoint_ref, profile
@@ -360,7 +375,7 @@ class ModelBackedAgent:
                     plan = self._scale_to_budget(dynamic, context=context) if dynamic else fallback
                 else:
                     plan = self._select_probes(fallback, context=context)
-                _extend(endpoint_ref, plan, tag=False)
+                _extend(endpoint_ref, plan, tag=tag_names)
         else:
             # Scoped: probe each selected function with probes relevant to THAT
             # function (falling back to system-type probes when none tailored).
@@ -405,6 +420,27 @@ class ModelBackedAgent:
                 }
                 for s in outcome.skipped
             ]
+        if context.session is not None and context.run_id is not None:
+            for result in outcome.sent:
+                if not result.media:
+                    continue
+                try:
+                    record_execution_artifacts(
+                        context.session,
+                        run_id=context.run_id,
+                        agent_name=self.name,
+                        dimension=self.probe_dimension,
+                        capability_name=result.capability_name,
+                        endpoint_ref=result.endpoint_ref,
+                        prompt_text=result.probe_prompt,
+                        response_text=result.sanitized.text,
+                        media=result.media,
+                    )
+                except Exception as exc:  # noqa: BLE001 - evidence capture must never fail a run
+                    logger.warning(
+                        "%s: failed to persist execution artifact for %s: %s",
+                        self.__class__.__name__, result.endpoint_ref, exc,
+                    )
         return outcome.sent
 
     def _execute_probe_plan(
@@ -585,6 +621,7 @@ class ModelBackedAgent:
                         ai_system=context.ai_system,
                         target_client=context.target_client,
                         target_endpoint_ref=endpoint_ref,
+                        run_id=context.run_id,
                     )
                 )
             except Exception as exc:
@@ -638,6 +675,9 @@ class ModelBackedAgent:
             fenced=fence_untrusted_target_output(sanitized),
             latency_ms=response.latency_ms,
             trace_id=response.trace_id,
+            endpoint_ref=endpoint_ref,
+            capability_name=capability_name,
+            media=list(response.media),
         )
 
     def _ask_governance(

@@ -1,10 +1,9 @@
 from uuid import uuid4
 
-import pytest
-from fastapi.testclient import TestClient
-
 import app.services.specialist_agents.metric_execution as metric_execution_module
+import pytest
 from app.services.evaluators.mock import MockMetricEvaluator
+from fastapi.testclient import TestClient
 
 
 def create_system(client: TestClient) -> dict[str, object]:

@@ -17,6 +17,7 @@ from functools import lru_cache
 from app.models.enums import MetricResultStatus
 from app.services.evaluators.base import MetricEvaluationInput, MetricEvaluationResult
 from app.services.evaluators.probe_log import build_probe_log_entry
+from app.services.execution_artifacts import record_execution_artifacts
 from app.services.model_clients.base import TargetModelRequest
 
 logger = logging.getLogger(__name__)
@@ -122,7 +123,7 @@ def _garak_config():
     return config
 
 
-def _build_generator(target_client, endpoint_ref: str, config_root):
+def _build_generator(target_client, endpoint_ref: str, config_root, evaluation_input):
     from garak.attempt import Message
     from garak.generators.base import Generator
 
@@ -141,6 +142,21 @@ def _build_generator(target_client, endpoint_ref: str, config_root):
                     endpoint_ref=endpoint_ref, prompt=prompt_text, capability_name="garak_probe"
                 )
             )
+            if response.media and evaluation_input.run_id is not None:
+                try:
+                    record_execution_artifacts(
+                        evaluation_input.session,
+                        run_id=evaluation_input.run_id,
+                        agent_name="garak",
+                        dimension=evaluation_input.metric.dimension,
+                        capability_name="garak_probe",
+                        endpoint_ref=endpoint_ref,
+                        prompt_text=prompt_text,
+                        response_text=response.raw_output,
+                        media=response.media,
+                    )
+                except Exception:  # noqa: BLE001 - evidence capture must never fail scoring
+                    logger.warning("GarakEvaluator: failed to persist execution artifact", exc_info=True)
             return [Message(response.sanitized_output)] * generations_this_call
 
     return _TargetGenerator()
@@ -195,7 +211,9 @@ class GarakEvaluator:
                     probe.prompts = probe.prompts[:_MAX_PROBE_PROMPTS]
                     sampled = _MAX_PROBE_PROMPTS
 
-                generator = _build_generator(evaluation_input.target_client, endpoint_ref, config_root)
+                generator = _build_generator(
+                    evaluation_input.target_client, endpoint_ref, config_root, evaluation_input
+                )
                 generator.generations = _GARAK_GENERATIONS
                 attempts = list(probe.probe(generator))
 

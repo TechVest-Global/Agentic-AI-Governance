@@ -13,6 +13,7 @@ from functools import lru_cache
 from app.models.enums import MetricResultStatus
 from app.services.evaluators.base import MetricEvaluationInput, MetricEvaluationResult
 from app.services.evaluators.probe_log import build_probe_log_entry
+from app.services.execution_artifacts import record_execution_artifacts
 from app.services.model_clients.base import TargetModelRequest
 
 logger = logging.getLogger(__name__)
@@ -122,6 +123,21 @@ class PresidioEvaluator:
                     endpoint_ref=endpoint_ref, prompt=prompt, capability_name=formula
                 )
             )
+            if response.media and evaluation_input.run_id is not None:
+                try:
+                    record_execution_artifacts(
+                        evaluation_input.session,
+                        run_id=evaluation_input.run_id,
+                        agent_name="presidio",
+                        dimension=metric.dimension,
+                        capability_name=formula,
+                        endpoint_ref=endpoint_ref,
+                        prompt_text=prompt,
+                        response_text=response.raw_output,
+                        media=response.media,
+                    )
+                except Exception:  # noqa: BLE001 - evidence capture must never fail scoring
+                    logger.warning("PresidioEvaluator: failed to persist execution artifact", exc_info=True)
             entities = analyzer.analyze(text=response.raw_output, language="en")
             leaked = _classify_leak(
                 formula, prompt=prompt, output=response.raw_output, entities=entities
