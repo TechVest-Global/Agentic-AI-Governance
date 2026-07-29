@@ -56,7 +56,12 @@ infrastructure:
 - Layer 2: Adaptive Orchestrator
   LLM-powered audit planning and evaluation budget allocation.
 - Layer 3: Specialist Agents
-  Parallel agents for bias, drift, misuse, compliance, explainability, and risk.
+  Parallel agents for quality, bias, misuse, drift, compliance, and
+  explainability, then a Risk Scorer that aggregates their findings into a
+  composite score once all of them have finished. The parallel agents read only
+  upstream state (metric results, evidence, prior runs) and never each other's
+  output, which is what makes the fan-out safe under FR-024; the Risk Scorer is
+  the one agent that consumes peer findings, so it runs after the barrier.
 - Layer 4: Deliberation Council
   Synthesis, Devil's Advocate review, verdict scoring, and confidence routing.
 - Layer 5: Action, Reporting, and Audit Ledger

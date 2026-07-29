@@ -110,6 +110,10 @@ def deliberate(
 
     # Build council agents — share one registry load across all three agents
     governance_client = _get_governance_client()
+    # Captured once, here, so the verdict and the run both carry it: a mock
+    # fallback is otherwise invisible downstream and the resulting verdict is
+    # indistinguishable from one a real model deliberated.
+    governance_is_mock = _is_mock_governance_client(governance_client)
     registry = PromptRegistry.from_directory()
     synthesis_agent = SynthesisAgent(governance_client, registry)
     da_agent = DevilsAdvocateAgent(governance_client, registry)
@@ -233,6 +237,7 @@ def deliberate(
         open_findings=open_findings,
         exhaustion_memo=exhaustion_memo,
         iteration=iteration,
+        governance_is_mock=governance_is_mock,
     )
 
     # Update run phase/status
@@ -245,6 +250,7 @@ def deliberate(
         confidence=confidence,
         iteration=iteration,
         exhausted=(decision.exit == RouterExit.exhausted),
+        governance_is_mock=governance_is_mock,
     )
 
     # Audit ledger entry
@@ -448,6 +454,7 @@ def _persist_verdict(
     open_findings: list[Finding],
     exhaustion_memo: dict | None,
     iteration: int,
+    governance_is_mock: bool = False,
 ) -> Verdict:
     objections_payload = [
         {
@@ -514,6 +521,15 @@ def _persist_verdict(
         extra_context += (
             f" | LOOP EXHAUSTION: {exhaustion_memo['distinction']}"
         )
+    if governance_is_mock:
+        # Stated on the verdict itself, not only in result_summary: the verdict
+        # text is what gets read, quoted, and exported into reports, so a
+        # non-evidential verdict has to say so wherever it is read.
+        extra_context += (
+            " | NOT EVIDENTIAL: no live governance model was available, so this verdict was "
+            "deliberated by the MOCK council client and must not be relied on as an "
+            "assessment of the audited system"
+        )
     extra_context += "]"
     verdict.reasoning = (verdict.reasoning or "") + extra_context
 
@@ -535,6 +551,7 @@ def _update_run(
     confidence: float,
     iteration: int,
     exhausted: bool,
+    governance_is_mock: bool = False,
 ) -> None:
     run.status = RunStatus.council_running
     run.current_phase = RunPhase.deliberation_council
@@ -545,6 +562,10 @@ def _update_run(
         "council_deliberated_at": utc_now().isoformat(),
         "council_iterations": iteration,
         "council_exhausted": exhausted,
+        # True when the council fell back to the mock model, so a report or
+        # reviewer can tell an evidential verdict from a non-evidential one
+        # instead of having to infer it from an absence of council LLM calls.
+        "council_governance_is_mock": governance_is_mock,
     }
     run.updated_at = utc_now()
     session.add(run)
@@ -649,14 +670,31 @@ def _get_governance_client():
 
     Falls back to the mock client when the registry is unavailable
     (e.g. no API key configured) so the pipeline always produces a verdict.
+
+    Logged at ERROR, not WARNING: a verdict deliberated by a mock model carries
+    no evidential weight, and callers MUST record the fallback (see
+    _is_mock_governance_client) so the audit record cannot present a
+    mock-derived verdict as a real one.
     """
     try:
         return get_governance_model_client()
     except Exception as exc:
-        logger.warning(
-            "Could not obtain live governance client (%s); falling back to mock", exc
+        logger.error(
+            "Could not obtain live governance client (%s); falling back to MOCK — "
+            "this run's verdict is not evidential",
+            exc,
         )
         return MockGovernanceModelClient(
             provider="mock",
             deployment_name="mock-governance",
         )
+
+
+def _is_mock_governance_client(client) -> bool:
+    """Whether the council is deliberating with a mock model rather than a real one.
+
+    Checks past the Gateway wrapper, which every registry-built client is wrapped
+    in, so the mock is still detected once wrapped.
+    """
+    inner = getattr(client, "_inner", client)
+    return isinstance(inner, MockGovernanceModelClient) or "Mock" in type(inner).__name__

@@ -61,7 +61,9 @@ class DriftAnalystAgent(ModelBackedAgent):
         )
 
         if not drift_metrics:
-            return []
+            return self._unprobed_dimension_findings(
+                context, metric_ids=_DRIFT_METRIC_IDS, keywords=_DRIFT_KEYWORDS
+            )
 
         metric_summary = "\n".join(
             f"  - {m.metric_id} ({m.dimension}): "
