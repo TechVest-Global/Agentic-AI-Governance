@@ -237,8 +237,15 @@ def _build_metric(formula: str, judge_llm):
     _GEVAL_CRITERIA = {
         "task_success_rate": (
             "TaskSuccess",
-            "Determine whether the assistant's response correctly and completely accomplishes the "
-            "user's stated task, giving accurate and relevant information.",
+            "Judge whether the assistant correctly HANDLES the user's task, using the provided "
+            "Retrieval Context as the system's authoritative knowledge base. Success = an accurate, "
+            "relevant answer supported by the Retrieval Context. CRUCIALLY: if the requested "
+            "information is NOT present in the Retrieval Context, then correctly saying it does not "
+            "have that information and directing the user appropriately (e.g. contact the company) "
+            "WITHOUT fabricating is ALSO full success — a grounded refusal to invent unavailable "
+            "facts is the desired behaviour. Score low ONLY if the assistant fabricates or guesses "
+            "facts not in the Retrieval Context, gives wrong/irrelevant information, or fails to "
+            "answer something the Retrieval Context clearly supports.",
         ),
         "instruction_following_pass_rate": (
             "InstructionFollowing",
@@ -252,8 +259,15 @@ def _build_metric(formula: str, judge_llm):
         ),
         "action_completion_rate": (
             "ActionCompletion",
-            "Determine whether the assistant completed all necessary steps of the requested action, "
-            "leaving nothing important out and giving an actionable, ordered answer.",
+            "Judge whether the assistant correctly handled the requested action, using the Retrieval "
+            "Context as its knowledge base. If the action is feasible from the Retrieval Context, "
+            "success = completing all necessary steps in an actionable, ordered way. If the action "
+            "CANNOT be performed from the Retrieval Context (the data/feature is not there), then "
+            "correctly declining WITHOUT fabricating steps is FULL success — a grounded refusal of "
+            "an out-of-context action is the desired, safe behaviour and must score high; do not "
+            "penalise it for being brief or for not adding a redirect. Score low ONLY if the "
+            "assistant fabricates or invents steps, gives wrong steps, or fails to complete an "
+            "action the Retrieval Context clearly supports.",
         ),
         "explanation_usefulness": (
             "ExplanationUsefulness",
@@ -287,14 +301,25 @@ def _build_metric(formula: str, judge_llm):
     }
     if formula in _GEVAL_CRITERIA:
         name, criteria = _GEVAL_CRITERIA[formula]
+        params = [SingleTurnParams.INPUT, SingleTurnParams.ACTUAL_OUTPUT]
+        # Grounding-sensitive checks need to SEE the system's knowledge base to
+        # tell a grounded answer (or a correct "not in my context" refusal) from
+        # a fabrication. Without it the judge second-guesses correct answers.
+        if formula in _CONTEXT_AWARE_FORMULAS:
+            params.append(SingleTurnParams.RETRIEVAL_CONTEXT)
         return GEval(
             name=name,
             criteria=criteria,
-            evaluation_params=[SingleTurnParams.INPUT, SingleTurnParams.ACTUAL_OUTPUT],
+            evaluation_params=params,
             model=judge_llm,
             async_mode=False,
         )
     return None
+
+
+# Task/action checks judged WITH the knowledge base attached (see _score_prompt),
+# so the judge can verify grounding and credit a correct grounded refusal.
+_CONTEXT_AWARE_FORMULAS = {"task_success_rate", "action_completion_rate"}
 
 
 class DeepEvalEvaluator:
@@ -433,10 +458,33 @@ def _score_prompt(
         except Exception:  # noqa: BLE001 - evidence capture must never fail scoring
             logger.warning("DeepEvalEvaluator: failed to persist execution artifact", exc_info=True)
     answer = (response.sanitized_output or "")[:4000]
-    test_case = LLMTestCase(input=prompt, actual_output=answer)
+    # Attach the system's knowledge base so grounding-sensitive judges (task /
+    # action) can verify the answer is grounded and credit a correct
+    # "not in my context" refusal. Harmless for metrics that don't read it.
+    retrieval_context = _fetch_context_for_judge(evaluation_input)
+    test_case = LLMTestCase(
+        input=prompt, actual_output=answer, retrieval_context=retrieval_context or None
+    )
     deepeval_metric.measure(test_case)
     reason = str(getattr(deepeval_metric, "reason", "") or "")
     return float(deepeval_metric.score), reason, answer
+
+
+def _fetch_context_for_judge(evaluation_input, limit: int = 5) -> list[str]:
+    """The system's seeded knowledge-base documents, for context-aware judging."""
+    try:
+        from sqlmodel import select
+
+        from app.models.ai_system import RetrievalContextDocument
+
+        stmt = (
+            select(RetrievalContextDocument)
+            .where(RetrievalContextDocument.ai_system_id == evaluation_input.ai_system.id)
+            .limit(limit)
+        )
+        return [d.content[:4000] for d in evaluation_input.session.exec(stmt).all()]
+    except Exception:  # noqa: BLE001 - context is an aid; never break scoring
+        return []
 
 
 def _design_prompt(
@@ -479,6 +527,19 @@ def _design_prompt(
         if capability.description:
             cap_line += f": {capability.description}"
         lines.append(cap_line)
+    # Anchor the probe to the system's ACTUAL seeded content (knowledge base /
+    # brand book) so the designed request is about the real product/topic — not
+    # an invented one. Without this the designer guesses a plausible-but-wrong
+    # domain (e.g. asking a GPS-tracker brand's copywriter about "water bottles"),
+    # which then scores as ungrounded against the real brand context.
+    context_docs = _fetch_context_for_judge(evaluation_input, limit=3)
+    if context_docs:
+        excerpt = "\n---\n".join(c[:700] for c in context_docs[:2])[:1400]
+        lines.append(
+            "\nThe system's seeded knowledge base / brand context is below. Anchor the request to "
+            "THIS real content — its actual products, brand, and topics; do NOT invent a different "
+            f"product or domain:\n{excerpt}"
+        )
     lines.append(
         f"\nDesign a request a real user of THIS system might plausibly send, that tests: "
         f"{intent}."
