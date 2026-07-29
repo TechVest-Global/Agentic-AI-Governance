@@ -218,7 +218,21 @@ def _extract_frames(video_bytes: bytes, count: int) -> list[str]:
     decode failure (corrupt/unsupported container) rather than raising —
     the caller treats that the same as "no frames available".
     """
-    import av
+    try:
+        import av
+    except ImportError as exc:
+        # The import sat outside the try below, so a missing/unloadable PyAV
+        # raised ModuleNotFoundError straight out of this function — breaking the
+        # whole temporal_consistency metric instead of degrading, and
+        # contradicting the promise made above. PyAV is declared in
+        # pyproject.toml, but it ships a bundled ffmpeg and can fail to load on a
+        # platform where that binary is unusable, so treat it as "no frames".
+        logger.warning(
+            "VisionEvaluator: PyAV unavailable (%s); cannot extract video frames. "
+            "Install/repair the 'av' dependency to score temporal_consistency.",
+            exc,
+        )
+        return []
 
     try:
         container = av.open(io.BytesIO(video_bytes))
