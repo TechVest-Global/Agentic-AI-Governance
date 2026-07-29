@@ -112,6 +112,17 @@ class AgentContext:
 class GovernanceAgent(Protocol):
     name: str
     execution_mode: str  # "deterministic" or "model_backed"
+    # True only for an agent whose own findings are computed FROM its peers'
+    # findings — currently just RiskScorer, which per risk_contract.py reads
+    # "all findings accumulated so far in the run". Such an agent cannot join
+    # the parallel fan-out; agent_execution.py runs it after the barrier, once
+    # every peer has produced its findings.
+    #
+    # Every other agent reads only genuinely upstream state (metric_results,
+    # evidence, prior-run scores) and never a peer's output, which is what
+    # SPEC.md FR-024 requires ("agents shall not directly message each other")
+    # and what makes concurrent execution of Layer 3 sound.
+    aggregates_peer_findings: bool
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
         """Return findings that should be persisted for this run."""
