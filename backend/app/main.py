@@ -1,6 +1,10 @@
+import os
+from pathlib import Path
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.router import api_router
@@ -68,6 +72,24 @@ def create_app() -> FastAPI:
         return await call_next(request)
 
     app.include_router(api_router, prefix=settings.api_v1_prefix)
+
+    # Combined-deployment mode (one container serves both frontend and API —
+    # see backend/Dockerfile's frontend-build stage). Only registers when
+    # FRONTEND_DIST_DIR is set, so local dev (frontend served separately by
+    # `npm run dev`) is unaffected.
+    frontend_dist_dir = os.environ.get("FRONTEND_DIST_DIR")
+    if frontend_dist_dir:
+        frontend_dist = Path(frontend_dist_dir).resolve()
+        api_prefix = settings.api_v1_prefix.lstrip("/")
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        async def serve_frontend(full_path: str):
+            if full_path.startswith(api_prefix) or full_path in {"docs", "redoc"}:
+                raise StarletteHTTPException(status_code=404)
+            candidate = (frontend_dist / full_path).resolve()
+            if candidate.is_file() and frontend_dist in candidate.parents:
+                return FileResponse(candidate)
+            return FileResponse(frontend_dist / "index.html")
 
     @app.on_event("startup")
     def _reconcile_interrupted_runs() -> None:

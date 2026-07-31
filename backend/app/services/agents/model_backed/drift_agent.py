@@ -9,7 +9,7 @@ Falls back to deterministic metric-failure detection in mock mode.
 from app.models.enums import DriftSource, Severity
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import finding, metric_failed, metric_pending
+from app.services.agents.helpers import coverage_gap_finding, finding, metric_failed, metric_pending
 from app.services.agents.model_backed.base import ModelBackedAgent
 
 _DRIFT_METRIC_IDS = {"CM-030", "CM-031", "CM-032", "CM-033", "CM-034"}
@@ -52,13 +52,22 @@ Return ONLY a valid JSON array.
 
 class DriftAnalystAgent(ModelBackedAgent):
     name = "drift_agent"
+    probe_dimension = "drift"
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
-        # High-risk verification mode: analyze trends even when metrics passed —
-        # a passing score can still be a regression against the prior run.
-        drift_metrics, attention_metrics = self._metrics_for_review(
+        owned_metrics = self._owned_metrics(
             context, metric_ids=_DRIFT_METRIC_IDS, keywords=_DRIFT_KEYWORDS
         )
+        if not owned_metrics:
+            return [
+                coverage_gap_finding(
+                    agent_name=self.name, dimension=self.probe_dimension, reason="no_metrics_planned"
+                )
+            ]
+
+        # High-risk verification mode: analyze trends even when metrics passed —
+        # a passing score can still be a regression against the prior run.
+        drift_metrics, attention_metrics = self._metrics_for_review(context, owned=owned_metrics)
 
         if not drift_metrics:
             return self._unprobed_dimension_findings(
@@ -103,7 +112,7 @@ class DriftAnalystAgent(ModelBackedAgent):
             },
         )
         if parsed is not None:
-            return _findings_from_governance(parsed, context)
+            return _findings_from_governance(parsed, context, reviewed_metrics=drift_metrics)
 
         # Fallback only on genuinely failed/pending metrics — never on passes.
         return _deterministic_fallback(attention_metrics, context.prior_metric_scores)
@@ -112,9 +121,12 @@ class DriftAnalystAgent(ModelBackedAgent):
 def _findings_from_governance(
     raw: list[dict[str, object]],
     context: AgentContext,
+    *,
+    reviewed_metrics: list,
 ) -> list[FindingCreate]:
     results: list[FindingCreate] = []
     metric_map = {m.metric_id: m for m in context.metric_results}
+    reviewed_evidence_ids = sorted({eid for m in reviewed_metrics for eid in (m.evidence_ids or [])})
     for item in raw:
         try:
             severity = Severity(str(item.get("severity", "high")).lower())
@@ -143,6 +155,7 @@ def _findings_from_governance(
             agent_name="drift_agent",
             recommended_action=str(item.get("recommended_action", "")),
             metric=metric,
+            evidence_ids=metric.evidence_ids if metric else reviewed_evidence_ids,
         )
         f.payload["drift_source"] = drift_source.value
         f.payload["regression_flag"] = regression_flag

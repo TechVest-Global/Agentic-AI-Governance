@@ -13,6 +13,29 @@ from app.services.agents.model_backed.risk_scorer import RiskScorerAgent
 if TYPE_CHECKING:
     from app.services.model_clients.base import GovernanceModelClient, TargetModelClient
 
+# The registered specialist agent classes — read once here so callers that
+# only need names/dimensions (validating an LLM-supplied agent reference, or
+# routing by dimension) don't have to construct real agent instances (which
+# need live target/governance clients) just to enumerate them.
+_AGENT_CLASSES: tuple[type[GovernanceAgent], ...] = (
+    QualityEvaluatorAgent,
+    BiasAuditorAgent,
+    MisuseDetectorAgent,
+    DriftAnalystAgent,
+    ComplianceMapperAgent,
+    RiskScorerAgent,
+    ExplainabilityAgent,
+)
+
+REGISTERED_AGENT_NAMES: frozenset[str] = frozenset(cls.name for cls in _AGENT_CLASSES)
+
+# probe_dimension -> agent_name, for dimension-based routing (e.g. re_plan).
+# Agents without a probe_dimension (drift_agent's is set explicitly; none are
+# currently unset) are simply absent from this map.
+DIMENSION_TO_AGENT_NAME: dict[str, str] = {
+    cls.probe_dimension: cls.name for cls in _AGENT_CLASSES if cls.probe_dimension
+}
+
 
 def _build_agents(
     target_client: "TargetModelClient", governance_client: "GovernanceModelClient"

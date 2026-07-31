@@ -109,12 +109,20 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
         "failed_sequence": None,
         "reason": None,
     }
-    assert client.get(f"/api/v1/evaluation-runs/{run['id']}/ledger/verify").json() == {
-        "valid": True,
-        "entry_count": 6,
-        "failed_entry_id": None,
-        "reason": None,
+    ledger_verification = client.get(f"/api/v1/evaluation-runs/{run['id']}/ledger/verify").json()
+    assert ledger_verification["valid"] is True
+    assert ledger_verification["entry_count"] == 6
+    assert ledger_verification["failed_entry_id"] is None
+    assert ledger_verification["reason"] is None
+    # Content-integrity checkpoint: the Finding/MetricResult rows the
+    # metric_execution.completed and agent_execution.completed ledger entries
+    # summarize still match the digest recorded at write time.
+    assert ledger_verification["content_valid"] is True
+    assert {c["event_type"] for c in ledger_verification["content_checks"]} == {
+        "metric_execution.completed",
+        "agent_execution.completed",
     }
+    assert all(c["valid"] for c in ledger_verification["content_checks"])
 
     run_response = client.get(f"/api/v1/evaluation-runs/{run['id']}")
     assert run_response.status_code == 200

@@ -80,3 +80,7 @@ coverage.xml
 *.bak
 
 .deepeval/
+
+# Database backups (backend/scripts/backup_database.py) — real dumps of
+# production/dev data, never belong in source control.
+/backups/

@@ -33,6 +33,7 @@ from app.configs.prompt_registry import PromptRegistry, render
 from app.models.enums import ActionTier, Severity
 from app.models.evidence import MetricResult
 from app.models.finding import Finding
+from app.services.agents.registry import REGISTERED_AGENT_NAMES
 from app.services.deliberation_council.devils_advocate_agent import Objection
 from app.services.deliberation_council.synthesis_agent import SynthesisMemo
 from app.services.model_clients.base import (
@@ -82,9 +83,13 @@ def _format_objections(objections: list[Objection]) -> str:
 def _format_findings(findings: list[Finding]) -> str:
     if not findings:
         return "  (none)"
+    # finding_id/evidence_ids included so a verdict's objections_addressed
+    # can cite a specific finding by ID instead of only prose — see
+    # synthesis_agent._format_findings for the matching rationale.
     return "\n".join(
-        f"  [{f.agent_name or 'unknown'} | {f.severity} | {f.dimension}] "
+        f"  [finding_id={f.id} | {f.agent_name or 'unknown'} | {f.severity} | {f.dimension}] "
         f"{f.title}: {f.summary}"
+        + (f"\n    → Evidence: {', '.join(f.evidence_ids)}" if f.evidence_ids else "")
         for f in findings
     )
 
@@ -169,6 +174,40 @@ def _parse_verdict(content: str, iteration: int) -> VerdictOutput | None:
     except (json.JSONDecodeError, ValueError, TypeError) as exc:
         logger.warning("VerdictAgent: parse error: %s", exc)
         return None
+
+
+def _validated(verdict: VerdictOutput, *, objections: list[Objection]) -> VerdictOutput:
+    """Cross-check LLM-supplied references against what's actually real.
+
+    ``target_agent`` and ``objections_addressed``/``objections_upheld`` are
+    free-text LLM output with no guarantee they name a real agent or a real
+    objection from this iteration — previously only "risk_scorer" was
+    blocked, and hallucinated/invalid entries reached ``run_agents``' agent
+    dispatch or the persisted Verdict record unexamined. Invalid entries are
+    dropped and logged rather than trusted.
+    """
+    if verdict.target_agent is not None and verdict.target_agent not in REGISTERED_AGENT_NAMES:
+        logger.warning(
+            "VerdictAgent: target_agent '%s' is not a registered agent; dropping",
+            verdict.target_agent,
+        )
+        verdict.target_agent = None
+        if verdict.remediation_type == "re_probe":
+            verdict.remediation_type = "re_deliberate"
+
+    valid_objection_ids = {obj.objection_id for obj in objections}
+    for field_name in ("objections_addressed", "objections_upheld"):
+        raw_ids = getattr(verdict, field_name)
+        filtered = [oid for oid in raw_ids if oid in valid_objection_ids]
+        dropped = [oid for oid in raw_ids if oid not in valid_objection_ids]
+        if dropped:
+            logger.warning(
+                "VerdictAgent: %s referenced unknown objection_id(s) %s; dropping",
+                field_name, dropped,
+            )
+        setattr(verdict, field_name, filtered)
+
+    return verdict
 
 
 def _extract_risk_bundle_score(findings: list[Finding]) -> float | None:
@@ -310,7 +349,7 @@ class VerdictAgent:
             )
             parsed = _parse_verdict(response.content, iteration)
             if parsed is not None:
-                return parsed
+                return _validated(parsed, objections=objections)
             logger.warning("VerdictAgent: could not parse LLM response; using fallback")
         except Exception as exc:
             logger.error("VerdictAgent: governance call failed: %s", exc)

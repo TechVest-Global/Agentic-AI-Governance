@@ -18,7 +18,10 @@ Key invariants preserved:
     Synthesis → DA → Verdict chain.
   - No new DB schema: artifacts are stored in the GovernanceState payload and the
     Verdict record (existing schema), keeping the backend unchanged.
-  - re_plan is registered but inert for the MVP (no dormant specialists yet).
+  - re_plan activates a dormant specialist for a dimension an upheld
+    objection names but nothing has probed yet this run (see
+    _resolve_re_plan_target) — a no-op only when no upheld objection names
+    a real, not-yet-covered dimension.
 """
 
 from __future__ import annotations
@@ -30,9 +33,11 @@ from sqlmodel import Session, select
 
 from app.configs.prompt_registry import PromptRegistry
 from app.core.exceptions import ResourceConflictError
+from app.models.agent import AgentExecution
 from app.models.base import utc_now
 from app.models.enums import (
     ActionTier,
+    AgentExecutionStatus,
     FindingStatus,
     LedgerActorType,
     RunPhase,
@@ -49,6 +54,7 @@ from app.schemas.governance import (
     GovernanceStateEntryCreate,
 )
 from app.services import audit_ledger, governance_state
+from app.services.agents.registry import DIMENSION_TO_AGENT_NAME
 from app.services.deliberation_council.devils_advocate_agent import (
     DevilsAdvocateAgent,
     Objection,
@@ -140,16 +146,22 @@ def deliberate(
         # Apply "latest iteration per agent" read rule: use all findings but
         # pass them sorted so the synthesis sees the most recent data first.
         current_findings = _latest_findings_per_agent(findings)
+        # Re-read every iteration: a re_probe remediation between iterations
+        # adds more AgentExecution rows, so the real count can grow mid-loop.
+        real_probe_counts = _get_real_probe_counts(session, run_id)
 
         # Pass 1: Synthesis
         memo = synthesis_agent.synthesize(
             findings=current_findings,
             metric_results=metric_results,
             iteration=iteration,
+            real_probe_counts=real_probe_counts,
         )
 
-        # Pass 2: Devil's Advocate (forced dissent on every iteration)
-        objections = da_agent.object_to(memo)
+        # Pass 2: Devil's Advocate (forced dissent on every iteration) — sees
+        # the same raw findings Synthesis was built from, not just the memo,
+        # so it can catch an omission rather than only critiquing prose.
+        objections = da_agent.object_to(memo, current_findings)
         all_objections.extend(objections)
 
         # Pass 3: Verdict
@@ -213,6 +225,8 @@ def deliberate(
                 run_id=run_id,
                 remediation_type=str(decision.remediation_type),
                 target_agent=decision.target_agent,
+                objections=objections,
+                objections_upheld=verdict_out.objections_upheld,
             )
 
     # -----------------------------------------------------------------------
@@ -292,9 +306,73 @@ def deliberate(
     )
 
 
+def get_existing_deliberation(session: Session, *, run_id: UUID) -> CouncilDeliberationRead:
+    """Reconstruct a CouncilDeliberationRead for a run that already has a Verdict.
+
+    Used when resuming an interrupted run: ``deliberate()`` raises
+    ResourceConflictError if a Verdict exists (a run can only ever have one),
+    so resume must fetch the existing council outcome instead of treating
+    that as a failure to retry.
+    """
+    get_run_or_raise(session, run_id)
+    verdict = session.exec(select(Verdict).where(Verdict.run_id == run_id)).one()
+    findings = _list_open_findings(session, run_id)
+    all_findings = list(
+        session.exec(select(Finding).where(Finding.run_id == run_id)).all()
+    )
+    metric_results = _list_metric_results(session, run_id)
+    return CouncilDeliberationRead(
+        run_id=run_id,
+        verdict=verdict,
+        finding_count=len(all_findings),
+        open_finding_count=len(findings),
+        metric_result_count=len(metric_results),
+        failed_metric_count=sum(
+            1 for m in metric_results
+            if m.status in {"failed", "error"} or m.passed is False
+        ),
+        pending_metric_count=sum(
+            1 for m in metric_results
+            if m.status in {"pending", "skipped"}
+        ),
+        highest_severity=_highest_severity(findings),
+        created_verdict=False,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Remediation helpers
 # ---------------------------------------------------------------------------
+
+
+def _resolve_re_plan_target(
+    session: Session, *, run_id: UUID, upheld_objections: list[Objection]
+) -> tuple[str | None, str | None]:
+    """Pick a dormant specialist to activate for re_plan.
+
+    Unlike re_probe (re-sample a dimension an agent already covered this
+    run), re_plan is meant for a dimension NO agent has covered yet — so this
+    only returns an agent that hasn't already produced a completed execution
+    this run. Matches an upheld objection's argument/suggested_fix text
+    against the registered probe dimensions (same keyword-matching style each
+    specialist already uses for its own metric_ids). Returns
+    ``(agent_name, matched_dimension)``, or ``(None, None)`` if no upheld
+    objection names a dimension that's both real and not already covered.
+    """
+    already_run = {
+        execution.agent_name
+        for execution in session.exec(
+            select(AgentExecution)
+            .where(AgentExecution.run_id == run_id)
+            .where(AgentExecution.status == AgentExecutionStatus.completed)
+        ).all()
+    }
+    for objection in upheld_objections:
+        haystack = f"{objection.argument} {objection.suggested_fix}".lower()
+        for dimension, agent_name in DIMENSION_TO_AGENT_NAME.items():
+            if dimension in haystack and agent_name not in already_run:
+                return agent_name, dimension
+    return None, None
 
 
 def _apply_remediation(
@@ -303,16 +381,35 @@ def _apply_remediation(
     run_id: UUID,
     remediation_type: str,
     target_agent: str | None,
+    objections: list[Objection],
+    objections_upheld: list[str],
 ) -> tuple[list[Finding], list[MetricResult]]:
     """Apply the remediation action and return refreshed evidence.
 
     re_deliberate: no new evidence needed — same findings, new synthesis next iteration.
-    re_probe:      re-run the named specialist so it appends a new finding.
-    re_plan:       inert for MVP — treated as re_deliberate.
+    re_probe:      re-run the named specialist (more samples on a dimension
+                   already covered) so it appends a new finding.
+    re_plan:       activate a DIFFERENT, previously-dormant specialist for a
+                   dimension an upheld objection names but nothing has probed
+                   yet this run — see _resolve_re_plan_target.
     """
-    if remediation_type == "re_probe" and target_agent:
+    matched_dimension: str | None = None
+    if remediation_type == "re_plan":
+        upheld = [o for o in objections if o.objection_id in objections_upheld]
+        target_agent, matched_dimension = _resolve_re_plan_target(
+            session, run_id=run_id, upheld_objections=upheld
+        )
+        if target_agent is None:
+            logger.info(
+                "re_plan: no upheld objection named an uncovered dimension "
+                "for run %s; no-op this iteration",
+                run_id,
+            )
+
+    if remediation_type in ("re_probe", "re_plan") and target_agent:
         logger.info(
-            "re_probe: re-running specialist agent '%s' with a capped probe budget (%d)",
+            "%s: re-running specialist agent '%s' with a capped probe budget (%d)",
+            remediation_type,
             target_agent,
             RE_PROBE_BUDGET_CAP,
         )
@@ -339,12 +436,54 @@ def _apply_remediation(
                 probe_budget_override=RE_PROBE_BUDGET_CAP,
                 is_remediation_call=True,
             )
+            if remediation_type == "re_plan":
+                # Record which dimension triggered activating this previously
+                # -dormant specialist — without this, "why did this run
+                # suddenly activate compliance_mapper mid-council" is only
+                # reconstructable from the state entry's raw objection text.
+                audit_ledger.append_ledger_entry(
+                    session,
+                    run_id=run_id,
+                    payload=AuditLedgerEntryCreate(
+                        event_type="remediation.re_plan_activated",
+                        actor_type=LedgerActorType.system,
+                        actor_id="deliberation_council",
+                        payload={
+                            "target_agent": target_agent,
+                            "matched_dimension": matched_dimension,
+                        },
+                    ),
+                )
         except Exception as exc:
             logger.error(
-                "re_probe of '%s' failed: %s — continuing with existing evidence",
+                "%s of '%s' failed: %s — continuing with existing evidence",
+                remediation_type,
                 target_agent,
                 exc,
             )
+            # A silently-wasted remediation iteration (e.g. a hallucinated
+            # target_agent that select_agents rejects) previously left only
+            # a log line — nothing in the audit trail explained why a
+            # council iteration burned its budget with no new evidence.
+            try:
+                audit_ledger.append_ledger_entry(
+                    session,
+                    run_id=run_id,
+                    payload=AuditLedgerEntryCreate(
+                        event_type=f"remediation.{remediation_type}_failed",
+                        actor_type=LedgerActorType.system,
+                        actor_id="deliberation_council",
+                        payload={
+                            "target_agent": target_agent,
+                            "error_type": exc.__class__.__name__,
+                            "message": str(exc),
+                        },
+                    ),
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "Could not ledger-record %s failure for run %s", remediation_type, run_id
+                )
         finally:
             bind_log_capture(parent_log_buffer)
 
@@ -634,6 +773,27 @@ def _list_all_findings(session: Session, run_id: UUID) -> list[Finding]:
 
 def _list_metric_results(session: Session, run_id: UUID) -> list[MetricResult]:
     return list(session.exec(select(MetricResult).where(MetricResult.run_id == run_id)).all())
+
+
+def _get_real_probe_counts(session: Session, run_id: UUID) -> dict[str, int]:
+    """Sum each agent's real probe_count across every execution recorded for it.
+
+    Grounds the Synthesis Agent's sample_sizes in actual telemetry
+    (AgentExecution.metadata_json['probe_count'], set by agent_execution.py)
+    instead of leaving the LLM to infer sample size from finding text alone —
+    which it cannot do reliably, since an agent typically writes one finding
+    regardless of how many probes it actually sent. Summed across executions
+    so a mid-council re_probe remediation's extra probes count toward the
+    total evidence gathered, not just the original pass.
+    """
+    executions = session.exec(
+        select(AgentExecution).where(AgentExecution.run_id == run_id)
+    ).all()
+    counts: dict[str, int] = {}
+    for execution in executions:
+        probe_count = (execution.metadata_json or {}).get("probe_count", 0)
+        counts[execution.agent_name] = counts.get(execution.agent_name, 0) + int(probe_count or 0)
+    return counts
 
 
 def _latest_findings_per_agent(findings: list[Finding]) -> list[Finding]:

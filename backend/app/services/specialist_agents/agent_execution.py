@@ -214,6 +214,32 @@ def run_agents(
     # resolver only reads attributes, and the workers share this one client.
     target_client = get_target_model_client_for_system(snapshot.ai_system)
 
+    # Resuming a run interrupted mid-phase (see
+    # orchestration.reconcile_interrupted_runs) must not re-run agents that
+    # already completed — each agent may make real probe calls against the
+    # target system, and the per-agent commits in _finalize below mean a prior
+    # partial attempt's completed agents are already durable. Remediation calls
+    # are exempt: re_probe/re_plan deliberately re-run a named agent regardless
+    # of an earlier completion, that's a different, intentional mechanism.
+    # Read from `session` here, before any worker starts.
+    already_done_names: set[str] = set()
+    reused_executions: list[AgentExecution] = []
+    reused_findings: list[Finding] = []
+    if not is_remediation_call:
+        for execution in session.exec(
+            select(AgentExecution)
+            .where(AgentExecution.run_id == run_id)
+            .where(AgentExecution.status == AgentExecutionStatus.completed)
+        ).all():
+            if not (execution.metadata_json or {}).get("is_remediation"):
+                already_done_names.add(execution.agent_name)
+                reused_executions.append(execution)
+        if already_done_names:
+            reused_findings = [
+                f for f in _list_findings(session, run_id=run_id)
+                if f.agent_name in already_done_names
+            ]
+
     def _context_for(
         *,
         own_session: Session,
@@ -245,6 +271,11 @@ def run_agents(
         target_client=target_client,
         governance_client=get_governance_model_client(),
     )
+    # Agents a prior interrupted attempt already completed are dropped from BOTH
+    # stages: they must not be re-run, and they already hold durable `completed`
+    # rows, so no second `running` row should be created for them either. Their
+    # executions/findings are folded back in via reused_* at the return below.
+    agents = [a for a in agents if a.name not in already_done_names]
     # Layer 3 runs in two stages. Peer-independent agents fan out concurrently;
     # a finding-aggregating agent (RiskScorer) runs after the barrier so it sees
     # a COMPLETE specialist finding set — see GovernanceAgent
@@ -276,6 +307,10 @@ def run_agents(
                 "execution_stage": (
                     "aggregate" if getattr(agent, "aggregates_peer_findings", False) else "parallel"
                 ),
+                # Marks rows this call created as remediation work, so a later
+                # resume's already-completed scan skips them — a re_probe/re_plan
+                # execution must never suppress the normal agent of the same name.
+                "is_remediation": is_remediation_call,
             },
         )
         session.add(execution)
@@ -364,6 +399,13 @@ def run_agents(
             finding = Finding(run_id=run_id, **finding_payload.model_dump())
             session.add(finding)
             created_findings.append(finding)
+        # Commit each agent as it is finalized rather than batching the whole
+        # phase into the commit at the end. Every agent finalized here has
+        # already made real probe calls against the target system, and the
+        # aggregate stage below issues further governance-LLM calls — a crash
+        # there must not discard the durable record of the fan-out agents that
+        # already finished.
+        session.commit()
 
     # Finalize in registry order regardless of completion order, so findings are
     # appended and the UI's agent list reads deterministically across runs.
@@ -384,7 +426,9 @@ def run_agents(
     # ---- Barrier -----------------------------------------------------------
     # Flush so the fan-out's findings are visible to the aggregate stage's
     # queries within this transaction (the old sequential loop relied on
-    # autoflush for the same effect). Nothing is committed yet.
+    # autoflush for the same effect). Redundant when the fan-out ran — _finalize
+    # already committed each agent — but kept for the fan-out-empty case, where
+    # an aggregate agent is the only thing in the phase.
     if aggregate_agents:
         session.flush()
 
@@ -403,6 +447,8 @@ def run_agents(
 
     summaries = [_execution_summary(execution) for execution in executions]
 
+    newly_created_findings_count = len(created_findings)
+
     if not is_remediation_call:
         run.status = RunStatus.degraded if failed_execution_count else RunStatus.agents_running
         run.current_phase = RunPhase.specialist_agents
@@ -410,7 +456,8 @@ def run_agents(
         **(run.result_summary or {}),
         "agents_run": [summary.model_dump(mode="json") for summary in summaries],
         "agent_executions_failed": failed_execution_count,
-        "agent_findings_created": len(created_findings),
+        "agent_findings_created": newly_created_findings_count,
+        "agents_reused_from_prior_attempt": len(reused_executions),
         "agents_completed_at": utc_now().isoformat(),
     }
     if not is_remediation_call:
@@ -428,17 +475,16 @@ def run_agents(
     for entry in drain_log_capture():
         session.add(LLMCallLog(run_id=run_id, **entry))
     session.commit()
-    for finding in created_findings:
-        session.refresh(finding)
-    for execution in executions:
-        session.refresh(execution)
 
+    # Full current state (reused + newly run), same reasoning as run_metrics:
+    # a resumed run's report/content-integrity digest must cover every
+    # execution/finding that exists, not just this call's delta.
     return AgentRunRead(
         run_id=run_id,
-        agents_run=summaries,
-        executions=executions,
-        findings_created=len(created_findings),
-        findings=created_findings,
+        agents_run=[_execution_summary(e) for e in reused_executions] + summaries,
+        executions=reused_executions + executions,
+        findings_created=newly_created_findings_count,
+        findings=reused_findings + created_findings,
     )
 
 
