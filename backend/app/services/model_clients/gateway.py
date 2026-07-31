@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextvars
 import logging
+import threading
 import time
 import urllib.error
 
@@ -331,6 +332,42 @@ class GatewayTargetModelClient:
         # media capability flag must be forwarded from the inner client
         # rather than evaluators reaching past this wrapper to check it.
         self.supports_media = getattr(inner, "supports_media", False)
+        # Shared rate-limit cooldown for this target.
+        #
+        # A concurrency cap (AGENT_TARGET_MAX_INFLIGHT) bounds how many requests
+        # are in flight at once, but a 429 is usually a PER-MINUTE quota, which
+        # concurrency alone cannot bound. Worse, without shared state every
+        # worker rediscovers the limit on its own: a live TechVest run produced
+        # four separate 429s, each backing off independently, then all retrying
+        # into the same wall again.
+        #
+        # One client instance is constructed per run and handed to every agent
+        # and evaluator (see agent_execution.run_agents), so instance state is
+        # exactly the right scope: shared by all workers probing this target,
+        # isolated from other audited systems.
+        self._cooldown_lock = threading.Lock()
+        self._cooldown_until = 0.0
+
+    def _await_cooldown(self, endpoint_ref: str) -> None:
+        """Block while this target is cooling off from a rate limit."""
+        with self._cooldown_lock:
+            remaining = self._cooldown_until - time.monotonic()
+        if remaining > 0:
+            logger.info(
+                "llm_target_cooldown endpoint=%s waiting %.1fs (shared rate-limit backoff)",
+                endpoint_ref,
+                remaining,
+            )
+            time.sleep(remaining)
+
+    def _enter_cooldown(self, seconds: float) -> None:
+        """Publish a rate limit to every other worker probing this target.
+
+        Extends rather than replaces, so a shorter later Retry-After cannot cut
+        an existing cooldown short.
+        """
+        with self._cooldown_lock:
+            self._cooldown_until = max(self._cooldown_until, time.monotonic() + seconds)
 
     def invoke(self, request: TargetModelRequest) -> TargetModelResponse:
         logger.debug(
@@ -343,6 +380,9 @@ class GatewayTargetModelClient:
         last_exc: Exception | None = None
         for attempt in range(self._max_retries):
             try:
+                # Honour any cooldown another worker discovered, before spending
+                # this attempt on a request the target is going to reject.
+                self._await_cooldown(request.endpoint_ref)
                 response = self._inner.invoke(request)
                 logger.info(
                     "llm_target_response endpoint=%s latency_ms=%d output_chars=%d",
@@ -386,8 +426,17 @@ class GatewayTargetModelClient:
                         self._max_retries,
                         type(exc).__name__,
                     )
-                    if attempt < self._max_retries - 1:
-                        _backoff(attempt, retry_after=_retry_after_seconds(exc))
+                    if _is_rate_limit(exc):
+                        # Publish it, then let the cooldown gate at the top of the
+                        # next attempt do the waiting — for this worker AND every
+                        # other one, instead of each colliding with the limit in
+                        # turn. Deliberately not also calling _backoff here: that
+                        # would make this worker wait twice.
+                        self._enter_cooldown(
+                            _retry_after_seconds(exc) or float(2 ** attempt)
+                        )
+                    elif attempt < self._max_retries - 1:
+                        _backoff(attempt)
                     continue
                 # Non-retryable failure (e.g. BadRequestError, AuthenticationError) —
                 # log the attempt before re-raising so it still leaves an audit trail,
