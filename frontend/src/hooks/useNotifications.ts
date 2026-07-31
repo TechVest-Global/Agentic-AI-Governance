@@ -20,6 +20,25 @@ const HIGH_SEVERITY = new Set(["critical", "high"]);
 const POLL_MS = 15_000;
 const RECENT_RUN_LIMIT = 5;
 
+/** Pulls the real failure reason out of a run's error_summary (set by the
+ * backend's _finalize_run / degraded-run path) instead of a generic string —
+ * without this, every failed-run notification read the same regardless of
+ * what actually broke (metric execution, a specialist agent, an interrupted
+ * worker, ...). */
+function describeRunFailure(run: EvaluationRun): string {
+  const summary = run.error_summary;
+  if (summary && typeof summary.message === "string" && summary.message.trim()) {
+    return summary.message;
+  }
+  if (summary && Object.keys(summary).length > 0) {
+    return Object.entries(summary)
+      .slice(0, 3)
+      .map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`)
+      .join(" · ");
+  }
+  return "Governance run did not complete successfully.";
+}
+
 // Read-notification IDs persist across reloads so the badge count stays accurate.
 type ReadStore = { readIds: string[]; markRead: (ids: string[]) => void; markAllRead: (ids: string[]) => void };
 const useReadStore = create<ReadStore>()(
@@ -97,7 +116,7 @@ export function useNotifications() {
           id: `run-failed-${run.id}`,
           kind: "run_failed",
           title: `Run ${run.status} — ${systemName}`,
-          detail: `Governance run did not complete successfully.`,
+          detail: describeRunFailure(run),
           runId: run.id,
           createdAt: run.updated_at ?? run.created_at,
         });

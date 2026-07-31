@@ -31,7 +31,24 @@ def finding(
     metric: MetricResult | None = None,
     confidence: float = 0.8,
     tool_calls: list[dict] | None = None,
+    evidence_ids: list[str] | None = None,
 ) -> FindingCreate:
+    """Build a Finding, always with real evidence_ids when any exist.
+
+    Precedence: an explicit ``evidence_ids`` override wins (e.g. a governance-
+    authored finding not tied to one single metric, but backed by several
+    reviewed metrics' combined evidence); otherwise falls back to the single
+    matched ``metric``'s own evidence_ids. Without this, any finding built
+    without a matched metric — the common case on the governance-JSON path
+    whenever the LLM's cited metric_id doesn't match anything — would report
+    empty evidence_ids even when real evidence informed it, breaking the
+    council's ability to trace a verdict back to a specific evidence record.
+    """
+    resolved_evidence_ids = (
+        list(evidence_ids)
+        if evidence_ids is not None
+        else (metric.evidence_ids if metric is not None else [])
+    )
     return FindingCreate(
         finding_type=finding_type,
         title=title,
@@ -39,7 +56,7 @@ def finding(
         severity=severity,
         confidence=confidence,
         dimension=dimension,
-        evidence_ids=metric.evidence_ids if metric is not None else [],
+        evidence_ids=resolved_evidence_ids,
         agent_name=agent_name,
         recommended_action=recommended_action,
         payload={

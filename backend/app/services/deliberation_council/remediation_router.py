@@ -11,7 +11,8 @@ Exit priority order (must be checked in this order):
 The router also classifies the re-entry point from the VerdictOutput:
   re_deliberate → re-enter at SynthesisAgent (same findings, new narrative)
   re_probe      → re-enter at the named specialist agent (more samples needed)
-  re_plan       → re-enter at Orchestrator (inert for MVP, registered as a branch)
+  re_plan       → activate a dormant specialist for a dimension named by an
+                  upheld objection but not yet covered this run
 
 Loop control rules (from spec Section 5):
   - Maximum three loop-backs of ANY type, total (one counter governs all).
@@ -188,9 +189,11 @@ def _remediation_reason(
             f"Iteration {iteration}: specific finding is under-sampled. "
             f"Re-entering at specialist agent '{agent}' for additional probes."
         )
-    # re_plan (inert for MVP)
+    # re_plan: activates a dormant specialist for a dimension named by an
+    # upheld objection, if one both matches a real dimension and hasn't
+    # already run this iteration — see deliberation._resolve_re_plan_target.
     return (
-        f"Iteration {iteration}: a risk dimension was never probed. "
-        "Re-entering at Orchestrator for budget re-allocation. "
-        "(Note: re_plan is inert in the current MVP — treating as re_deliberate.)"
+        f"Iteration {iteration}: an upheld objection suggests a risk dimension "
+        "was never probed. Re-entering to activate a dormant specialist for "
+        "that dimension, if one can be resolved from the objection text."
     )

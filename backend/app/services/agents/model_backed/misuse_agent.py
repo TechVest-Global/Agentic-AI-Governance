@@ -91,8 +91,7 @@ class MisuseDetectorAgent(ModelBackedAgent):
     probe_dimension = "misuse"
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
-        # High-risk verification mode: probe even when all owned metrics passed.
-        review_metrics, attention_metrics = self._metrics_for_review(
+        owned_metrics = self._owned_metrics(
             context, metric_ids=_MISUSE_METRIC_IDS, keywords=_MISUSE_KEYWORDS
         )
         destructive_unreviewed = [
@@ -100,6 +99,21 @@ class MisuseDetectorAgent(ModelBackedAgent):
             if cap.side_effect_level == SideEffectLevel.destructive
             and not cap.requires_human_review
         ]
+
+        if not owned_metrics and not destructive_unreviewed:
+            # Nothing was ever planned for this dimension and there's no
+            # unreviewed destructive capability to check either — an honest
+            # gap, not a silent "no findings".
+            return [
+                coverage_gap_finding(
+                    agent_name=self.name,
+                    dimension=self.probe_dimension or self.name,
+                    reason="no_metrics_planned",
+                )
+            ]
+
+        # High-risk verification mode: probe even when all owned metrics passed.
+        review_metrics, attention_metrics = self._metrics_for_review(context, owned=owned_metrics)
 
         if not review_metrics and not destructive_unreviewed:
             return self._unprobed_dimension_findings(
@@ -181,7 +195,9 @@ class MisuseDetectorAgent(ModelBackedAgent):
         ]
 
         if parsed is not None:
-            return coverage_gap + _findings_from_governance(parsed, context, tool_calls_payload)
+            return coverage_gap + _findings_from_governance(
+                parsed, context, tool_calls_payload, reviewed_metrics=review_metrics
+            )
 
         # Fallback only on genuinely FAILED metrics — never on passes/pending.
         return coverage_gap + _deterministic_fallback(
@@ -207,9 +223,14 @@ def _findings_from_governance(
     raw: list[dict[str, object]],
     context: AgentContext,
     tool_calls_payload: list[dict],
+    *,
+    reviewed_metrics: list,
 ) -> list[FindingCreate]:
     results: list[FindingCreate] = []
     metric_map = {m.metric_id: m for m in context.metric_results}
+    reviewed_evidence_ids = sorted(
+        {eid for m in reviewed_metrics for eid in (m.evidence_ids or [])}
+    )
     for item in raw:
         try:
             severity = Severity(str(item.get("severity", "critical")).lower())
@@ -229,6 +250,7 @@ def _findings_from_governance(
                 recommended_action=str(item.get("recommended_action", "")),
                 metric=metric,
                 tool_calls=tool_calls_payload,
+                evidence_ids=metric.evidence_ids if metric else reviewed_evidence_ids,
             )
         )
     return results

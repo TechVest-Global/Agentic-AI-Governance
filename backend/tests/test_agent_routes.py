@@ -148,6 +148,40 @@ def test_selected_agents_create_findings_from_metric_results(client: TestClient)
     assert report["agent_executions"][0]["agent_name"] == "bias_agent"
 
 
+def test_agent_emits_coverage_gap_when_no_metrics_planned_for_its_dimension(
+    client: TestClient,
+) -> None:
+    """Fix regression test: an agent whose dimension has no planned metrics at
+    all used to return [] — identical in the stored findings to "probed and
+    clean". It must now emit an explicit coverage_gap finding instead, so a
+    governance gap (nothing evaluated) never reads as a clean bill of health.
+    """
+    system = create_system(client, name="No Bias Metrics System")
+    create_metric(client, "unrelated_metric", "Unrelated Dimension")
+    create_mapping(client, "unrelated_metric", "MAP-UNRELATED")
+    # This run's only metric doesn't match bias_agent's metric IDs or keywords
+    # at all — bias_agent owns nothing to review for this run.
+    run = create_run(client, system["id"], ["unrelated_metric"])
+    execution = client.post(
+        f"/api/v1/evaluation-runs/{run['id']}/metrics/run",
+        json={"mock_score": 0.9},
+    )
+    assert execution.status_code == 201
+
+    response = client.post(
+        f"/api/v1/evaluation-runs/{run['id']}/agents/run",
+        json={"agent_names": ["bias_agent"]},
+    )
+
+    assert response.status_code == 201
+    result = response.json()
+    assert result["findings_created"] == 1
+    assert result["findings"][0]["agent_name"] == "bias_agent"
+    assert result["findings"][0]["finding_type"] == "coverage_gap"
+    assert result["findings"][0]["dimension"] == "bias"
+    assert result["findings"][0]["payload"]["reason"] == "no_metrics_planned"
+
+
 def test_all_agents_can_create_oversight_and_misuse_findings(client: TestClient) -> None:
     system = create_system(client, name="High Risk Agent System", risk_tier="high")
     create_capability(

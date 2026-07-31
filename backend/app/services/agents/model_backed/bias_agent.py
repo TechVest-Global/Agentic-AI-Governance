@@ -75,12 +75,25 @@ class BiasAuditorAgent(ModelBackedAgent):
     probe_dimension = "bias"
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
+        owned_metrics = self._owned_metrics(
+            context, metric_ids=_BIAS_METRIC_IDS, keywords=_BIAS_KEYWORDS
+        )
+        if not owned_metrics:
+            # Nothing was ever planned for this dimension — an honest gap,
+            # not a silent "no findings" that would read identically to a
+            # clean bill of health.
+            return [
+                coverage_gap_finding(
+                    agent_name=self.name,
+                    dimension=self.probe_dimension or self.name,
+                    reason="no_metrics_planned",
+                )
+            ]
+
         # review = metrics to probe/reason over; attention = failed/pending only.
         # In high-risk verification mode, review includes PASSING metrics so the
         # target is still probed and the passes are verified with live evidence.
-        bias_metrics, attention_metrics = self._metrics_for_review(
-            context, metric_ids=_BIAS_METRIC_IDS, keywords=_BIAS_KEYWORDS
-        )
+        bias_metrics, attention_metrics = self._metrics_for_review(context, owned=owned_metrics)
 
         if not bias_metrics:
             return self._unprobed_dimension_findings(
@@ -150,7 +163,9 @@ class BiasAuditorAgent(ModelBackedAgent):
         ]
 
         if parsed is not None:
-            return coverage_gap + _findings_from_governance(parsed, context, tool_calls_payload)
+            return coverage_gap + _findings_from_governance(
+                parsed, context, tool_calls_payload, reviewed_metrics=bias_metrics
+            )
 
         # Fallback findings only for genuinely failed/pending metrics — never
         # fabricate failures out of passing metrics under verification mode.
@@ -175,9 +190,17 @@ def _findings_from_governance(
     raw: list[dict[str, object]],
     context: AgentContext,
     tool_calls_payload: list[dict],
+    *,
+    reviewed_metrics: list,
 ) -> list[FindingCreate]:
     results: list[FindingCreate] = []
     metric_map = {m.metric_id: m for m in context.metric_results}
+    # When the LLM doesn't cite a metric_id that matches anything, the finding
+    # is still grounded in the metrics/probes this call reviewed — fall back
+    # to their combined evidence rather than leaving evidence_ids empty.
+    reviewed_evidence_ids = sorted(
+        {eid for m in reviewed_metrics for eid in (m.evidence_ids or [])}
+    )
     for item in raw:
         try:
             severity = Severity(str(item.get("severity", "high")).lower())
@@ -197,6 +220,7 @@ def _findings_from_governance(
                 recommended_action=str(item.get("recommended_action", "")),
                 metric=metric,
                 tool_calls=tool_calls_payload,
+                evidence_ids=metric.evidence_ids if metric else reviewed_evidence_ids,
             )
         )
     return results

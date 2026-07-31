@@ -250,6 +250,13 @@ class GatewayGovernanceModelClient:
                     "response_chars": len(response.content),
                     "trace_id": response.trace_id,
                     "policy_flags": [],
+                    # Governance reasoning is otherwise only reconstructable
+                    # from token counts/latency — target-model probe
+                    # transcripts already get this treatment, so a Finding's
+                    # actual reasoning shouldn't get less audit rigor than the
+                    # probe evidence it reasoned over.
+                    "prompt_text": request.prompt,
+                    "response_text": response.content,
                 })
                 return response
             except Exception as exc:

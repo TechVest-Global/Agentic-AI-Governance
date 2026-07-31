@@ -27,7 +27,8 @@ htmlcov/
 backend/tests/
 backend/scripts/
 
-frontend/
+frontend/node_modules/
+frontend/dist/
 docs/
 *.md
 .deepeval/

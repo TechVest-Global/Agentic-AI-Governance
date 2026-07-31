@@ -94,11 +94,23 @@ class ExplainabilityAgent(ModelBackedAgent):
     probe_dimension = "explainability"
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
-        # High-risk verification mode: probe even when all owned metrics passed.
-        explainability_metrics, attention_metrics = self._metrics_for_review(
+        owned_metrics = self._owned_metrics(
             context,
             metric_ids=_EXPLAINABILITY_METRIC_IDS,
             keywords=_EXPLAINABILITY_KEYWORDS,
+        )
+        if not owned_metrics:
+            return [
+                coverage_gap_finding(
+                    agent_name=self.name,
+                    dimension=self.probe_dimension or self.name,
+                    reason="no_metrics_planned",
+                )
+            ]
+
+        # High-risk verification mode: probe even when all owned metrics passed.
+        explainability_metrics, attention_metrics = self._metrics_for_review(
+            context, owned=owned_metrics
         )
 
         if not explainability_metrics:
@@ -169,7 +181,9 @@ class ExplainabilityAgent(ModelBackedAgent):
         ]
 
         if parsed is not None:
-            return coverage_gap + _findings_from_governance(parsed, context, tool_calls_payload)
+            return coverage_gap + _findings_from_governance(
+                parsed, context, tool_calls_payload, reviewed_metrics=explainability_metrics
+            )
 
         # Fallback only on genuinely failed/pending metrics — never on passes.
         return coverage_gap + _deterministic_fallback(
@@ -196,9 +210,14 @@ def _findings_from_governance(
     raw: list[dict[str, object]],
     context: AgentContext,
     tool_calls_payload: list[dict],
+    *,
+    reviewed_metrics: list,
 ) -> list[FindingCreate]:
     results: list[FindingCreate] = []
     metric_map = {m.metric_id: m for m in context.metric_results}
+    reviewed_evidence_ids = sorted(
+        {eid for m in reviewed_metrics for eid in (m.evidence_ids or [])}
+    )
     for item in raw:
         try:
             severity = Severity(str(item.get("severity", "high")).lower())
@@ -218,6 +237,7 @@ def _findings_from_governance(
                 recommended_action=str(item.get("recommended_action", "")),
                 metric=metric,
                 tool_calls=tool_calls_payload,
+                evidence_ids=metric.evidence_ids if metric else reviewed_evidence_ids,
             )
         )
     return results

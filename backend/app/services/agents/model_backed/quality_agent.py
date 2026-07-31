@@ -78,10 +78,20 @@ class QualityEvaluatorAgent(ModelBackedAgent):
     probe_dimension = "quality"
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
-        # High-risk verification mode: probe even when all owned metrics passed.
-        quality_metrics, attention_metrics = self._metrics_for_review(
+        owned_metrics = self._owned_metrics(
             context, metric_ids=_QUALITY_METRIC_IDS, keywords=_QUALITY_KEYWORDS
         )
+        if not owned_metrics:
+            return [
+                coverage_gap_finding(
+                    agent_name=self.name,
+                    dimension=self.probe_dimension or self.name,
+                    reason="no_metrics_planned",
+                )
+            ]
+
+        # High-risk verification mode: probe even when all owned metrics passed.
+        quality_metrics, attention_metrics = self._metrics_for_review(context, owned=owned_metrics)
 
         if not quality_metrics:
             return self._unprobed_dimension_findings(
@@ -121,7 +131,7 @@ class QualityEvaluatorAgent(ModelBackedAgent):
             },
         )
         if parsed is not None:
-            return _findings_from_governance(parsed, context)
+            return _findings_from_governance(parsed, context, reviewed_metrics=quality_metrics)
 
         # Fallback only on genuinely failed/pending metrics — never on passes.
         return _deterministic_fallback(attention_metrics, context)
@@ -130,9 +140,14 @@ class QualityEvaluatorAgent(ModelBackedAgent):
 def _findings_from_governance(
     raw: list[dict[str, object]],
     context: AgentContext,
+    *,
+    reviewed_metrics: list,
 ) -> list[FindingCreate]:
     results: list[FindingCreate] = []
     metric_map = {m.metric_id: m for m in context.metric_results}
+    reviewed_evidence_ids = sorted(
+        {eid for m in reviewed_metrics for eid in (m.evidence_ids or [])}
+    )
     for item in raw:
         try:
             severity = Severity(str(item.get("severity", "medium")).lower())
@@ -151,6 +166,7 @@ def _findings_from_governance(
                 agent_name="quality_agent",
                 recommended_action=str(item.get("recommended_action", "")),
                 metric=metric,
+                evidence_ids=metric.evidence_ids if metric else reviewed_evidence_ids,
             )
         )
     return results

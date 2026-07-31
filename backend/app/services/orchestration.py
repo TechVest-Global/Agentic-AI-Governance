@@ -3,6 +3,7 @@ from uuid import UUID
 
 from sqlmodel import Session, select
 
+from app.core.exceptions import ResourceConflictError
 from app.db import session as db_session
 from app.models.ai_system import AISystem
 from app.models.base import utc_now
@@ -25,6 +26,8 @@ from app.schemas.governance import (
 from app.services import (
     adaptive_orchestrator,
     audit_ledger,
+    concurrency,
+    content_integrity,
     context_assembly,
     governance_state,
 )
@@ -55,7 +58,10 @@ def run_governance_pipeline_job(
     """
     try:
         with Session(db_session.engine) as session:
-            result = run_governance_pipeline(session, run_id=run_id, payload=payload)
+            ai_system_id = get_run_or_raise(session, run_id).ai_system_id
+        with concurrency.ai_system_run_lock(db_session.engine, ai_system_id=ai_system_id):
+            with Session(db_session.engine) as session:
+                result = run_governance_pipeline(session, run_id=run_id, payload=payload)
     except Exception as exc:  # noqa: BLE001 — background job: never let it crash silently
         logger.exception("Background orchestration failed for run %s", run_id)
         _finalize_run(run_id, status=RunStatus.failed, error=exc)
@@ -80,7 +86,10 @@ def resume_governance_pipeline_job(run_id: UUID) -> None:
     """
     try:
         with Session(db_session.engine) as session:
-            resume_governance_pipeline(session, run_id=run_id)
+            ai_system_id = get_run_or_raise(session, run_id).ai_system_id
+        with concurrency.ai_system_run_lock(db_session.engine, ai_system_id=ai_system_id):
+            with Session(db_session.engine) as session:
+                resume_governance_pipeline(session, run_id=run_id)
     except Exception as exc:  # noqa: BLE001 — background job: never let it crash silently
         logger.exception("Background resume-after-approval failed for run %s", run_id)
         _finalize_run(run_id, status=RunStatus.failed, error=exc)
@@ -129,6 +138,29 @@ def _finalize_run(
             session.add(run)
             session.commit()
             logger.info("Finalized run %s as %s", run_id, status)
+            # Why a run failed is the single most important fact an auditor
+            # will want to reconstruct later; without a ledger entry it only
+            # ever lived in the mutable run.error_summary column, outside the
+            # hash chain, and could be edited afterward with nothing to
+            # detect it. A ledger-write failure here must never block
+            # finalization, so it's isolated in its own try/except.
+            try:
+                audit_ledger.append_ledger_entry(
+                    session,
+                    run_id=run_id,
+                    payload=AuditLedgerEntryCreate(
+                        event_type="run.finalized",
+                        actor_type=LedgerActorType.system,
+                        actor_id="orchestrator",
+                        payload={
+                            "status": status,
+                            "error_type": error.__class__.__name__ if error else None,
+                            "message": str(error) if error else None,
+                        },
+                    ),
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("Could not ledger-record finalization of run %s", run_id)
     except Exception:  # noqa: BLE001
         logger.exception("Could not finalize run %s as %s", run_id, status)
 
@@ -145,6 +177,17 @@ def run_governance_pipeline(
     it is gated on plan approval (paused at RunStatus.planned after planning).
     """
     run = get_run_or_raise(session, run_id)
+
+    # Persist the pipeline options unconditionally (not only when gated on
+    # plan approval) so a crash-and-resume — whether from reconcile_interrupted_runs
+    # or the approval flow — can always replay exactly what was originally
+    # requested (explicit agent_names, evaluator_name, mock_score, ...)
+    # instead of resume_governance_pipeline falling back to defaults and
+    # silently running a different agent set than what was actually asked for.
+    run.pipeline_payload = payload.model_dump(mode="json")
+    run.updated_at = utc_now()
+    session.add(run)
+    session.commit()
 
     # Layer 1 always runs so the state chain captures context assembly and the run
     # progresses through phases in the spec-mandated order. Prefer explicit logs
@@ -205,14 +248,12 @@ def _pause_for_approval(
     run_id: UUID,
     payload: GovernancePipelineRunCreate,
 ) -> None:
-    """Park a run awaiting plan approval, capturing options to replay on resume."""
-    run = get_run_or_raise(session, run_id)
-    # Persist the pipeline options so the resume step runs exactly what was
-    # planned/approved. model_dump(mode="json") keeps it JSON-column-safe.
-    run.pipeline_payload = payload.model_dump(mode="json")
-    run.updated_at = utc_now()
-    session.add(run)
-    session.commit()
+    """Park a run awaiting plan approval.
+
+    run.pipeline_payload was already captured unconditionally at the top of
+    run_governance_pipeline, so the resume step replays exactly what was
+    originally requested regardless of whether this pause happens.
+    """
     audit_ledger.append_ledger_entry(
         session,
         run_id=run_id,
@@ -286,6 +327,13 @@ def _execute_and_report(
             "evaluator_name": payload.evaluator_name,
             "evidence_created": metric_result.evidence_created,
             "metric_results_created": metric_result.metric_results_created,
+            # Content-integrity checkpoint: lets a later verify pass detect if
+            # these specific MetricResult rows were altered/deleted after the
+            # fact, which the ledger's own hash chain alone cannot catch.
+            "metric_result_ids": sorted(str(m.id) for m in metric_result.metric_results),
+            "content_digest": content_integrity.metric_result_content_digest(
+                metric_result.metric_results
+            ),
         },
     )
 
@@ -314,6 +362,9 @@ def _execute_and_report(
             "agents_requested": agent_names,
             "agents_run": [agent.agent_name for agent in agent_result.agents_run],
             "findings_created": agent_result.findings_created,
+            # Content-integrity checkpoint (see metric_execution.completed above).
+            "finding_ids": sorted(str(f.id) for f in agent_result.findings),
+            "content_digest": content_integrity.finding_content_digest(agent_result.findings),
         },
     )
 
@@ -334,6 +385,14 @@ def _execute_and_report(
                 notes=payload.notes,
             ),
         )
+    except ResourceConflictError:
+        # Resuming an interrupted run whose council phase already produced a
+        # Verdict before the crash — a run can only ever have one Verdict, so
+        # this is not a failure to retry, it's the outcome already reached.
+        # Ordered before the broad handler below: recovering a verdict that
+        # already exists is a success path, and must not be degraded as if the
+        # council had failed.
+        council_result = council.get_existing_deliberation(session, run_id=run_id)
     except Exception as exc:  # noqa: BLE001 — a lost verdict must not lose the evidence
         logger.exception("Council deliberation failed for run %s", run_id)
         council_error = {"error_type": exc.__class__.__name__, "message": str(exc)}
@@ -352,10 +411,14 @@ def _execute_and_report(
             actor_id="council_service",
             payload={"requested_by": payload.requested_by, **council_error},
         )
-    # State only: the council layer writes its own council_deliberation.completed
-    # ledger entry (so the standalone /council/deliberate path is audited too).
-    # Re-logging it here would duplicate that ledger event.
-    if council_result is not None:
+
+    # Both guards are needed: `is not None` because the council may have failed
+    # and left no result at all, and `created_verdict` because a recovered
+    # deliberation did not create one on this pass.
+    if council_result is not None and council_result.created_verdict:
+        # State only: the council layer writes its own council_deliberation.completed
+        # ledger entry (so the standalone /council/deliberate path is audited too).
+        # Re-logging it here would duplicate that ledger event.
         _record_pipeline_step(
             session,
             run_id=run_id,
@@ -512,23 +575,35 @@ _INTERRUPTED_STATUSES = (
 
 
 def reconcile_interrupted_runs(session: Session) -> int:
-    """Finalize runs orphaned by a worker restart mid-pipeline.
+    """Resume or finalize runs orphaned by a worker restart mid-pipeline.
 
     The pipeline runs as a FastAPI BackgroundTask, which does NOT survive a
     process restart. A run executing when the server stopped is therefore left
     at a non-terminal status with no task left to finish it — the Live Run
     stream never closes and the completion poll hangs forever. On startup we
-    finalize these:
+    reconcile these:
+      - a run parked awaiting human plan approval is NOT interrupted — it is
+        working exactly as designed, waiting on a person, not a crash — so it
+        is left untouched;
       - a run that already produced a VERDICT reached the council phase, so the
         assessment is effectively complete -> mark ``completed``;
-      - a run with no verdict died earlier and cannot resume -> mark ``failed``.
+      - any other run is attempted via resume_governance_pipeline (which skips
+        whatever sub-steps already persisted, see run_metrics/run_agents) ->
+        mark ``completed``/``degraded`` on success;
+      - only if that resume attempt itself raises is the run marked ``failed``,
+        with the real error recorded (both on the run and in the ledger).
     Returns the number of runs reconciled.
     """
+    from app.services.evaluation_runs import is_awaiting_plan_approval
+
     stuck = session.exec(
         select(EvaluationRun).where(EvaluationRun.status.in_(_INTERRUPTED_STATUSES))
     ).all()
     reconciled = 0
     for run in stuck:
+        if is_awaiting_plan_approval(run):
+            continue
+
         has_verdict = (
             session.exec(select(Verdict.id).where(Verdict.run_id == run.id)).first()
             is not None
@@ -540,18 +615,53 @@ def reconcile_interrupted_runs(session: Session) -> int:
                 **(run.result_summary or {}),
                 "reconciled": "finalized_after_worker_restart",
             }
-        else:
+            run.completed_at = run.completed_at or utc_now()
+            run.updated_at = utc_now()
+            session.add(run)
+            reconciled += 1
+            continue
+
+        try:
+            with concurrency.ai_system_run_lock(db_session.engine, ai_system_id=run.ai_system_id):
+                if run.status in (RunStatus.created, RunStatus.context_assembly):
+                    # No evaluation plan was ever persisted at this point, so
+                    # there is nothing to resume from — restart the pipeline.
+                    # Context assembly makes no target-system calls, so retrying
+                    # it from scratch has no side effects to worry about.
+                    run_governance_pipeline(
+                        session, run_id=run.id, payload=GovernancePipelineRunCreate()
+                    )
+                else:
+                    resume_governance_pipeline(session, run_id=run.id)
+        except Exception as exc:  # noqa: BLE001 — one bad run must not block the rest
+            logger.exception("Could not resume interrupted run %s on startup", run.id)
+            run = get_run_or_raise(session, run.id)
             run.status = RunStatus.failed
             run.error_summary = {
-                "error_type": "OrchestrationInterrupted",
-                "message": (
-                    "Run was interrupted before completion (worker restart) "
-                    "and reconciled on startup."
-                ),
+                "error_type": exc.__class__.__name__,
+                "message": str(exc),
+                "context": "Resume attempt after worker restart failed.",
             }
-        run.completed_at = run.completed_at or utc_now()
-        run.updated_at = utc_now()
-        session.add(run)
+            run.completed_at = run.completed_at or utc_now()
+            run.updated_at = utc_now()
+            session.add(run)
+            session.commit()
+            try:
+                audit_ledger.append_ledger_entry(
+                    session,
+                    run_id=run.id,
+                    payload=AuditLedgerEntryCreate(
+                        event_type="run.reconcile_failed",
+                        actor_type=LedgerActorType.system,
+                        actor_id="orchestrator",
+                        payload={
+                            "error_type": exc.__class__.__name__,
+                            "message": str(exc),
+                        },
+                    ),
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("Could not ledger-record reconcile failure for run %s", run.id)
         reconciled += 1
 
     if reconciled:

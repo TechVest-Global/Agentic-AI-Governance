@@ -8,7 +8,9 @@ Structured output contract (JSON):
   narrative     str   — 3-5 sentence unified finding summary
   risk_summary  str   — 1-2 sentence headline of the dominant risk signal
   dimensions    list  — risk dimensions covered, e.g. ["fairness", "robustness"]
-  sample_sizes  dict  — {agent_name: probe_count} for adequacy cross-check
+  sample_sizes  dict  — {agent_name: probe_count} for adequacy cross-check.
+                        Always overwritten with real AgentExecution probe-count
+                        telemetry after parsing — never the LLM's own guess.
   conflicts     list  — detected cross-finding conflicts, empty if none
   iteration     int   — which remediation pass produced this memo
 """
@@ -31,7 +33,7 @@ from app.services.model_clients.base import (
 logger = logging.getLogger(__name__)
 
 _TEMPLATE_ID = "synthesis_agent.council_memo"
-_PHASE_HASH = "19028d831194c8c6b49dea8a78ad5f4ebf6028ca914a4441f62d29e8ca27b194"
+_PHASE_HASH = "2cbc634efcee430d1ca6c97502473e1deb28247ea919d48b101bf3dac64e1112"
 
 _SEVERITY_WEIGHT = {
     Severity.info: 1,
@@ -57,15 +59,27 @@ def _format_findings(findings: list[Finding], iteration: int) -> str:
     if not findings:
         return "  (none)"
     # For re-probe iterations, the caller passes only the latest-per-agent findings.
+    # finding_id/evidence_ids are included so downstream reasoning (the Devil's
+    # Advocate, the Verdict's objections_addressed) can cite a specific,
+    # queryable record instead of only this prose summary — without them, a
+    # verdict was traceable to narrative but not to evidence.
     lines = []
     for f in findings:
         lines.append(
-            f"  [{f.agent_name or 'unknown'} | {f.severity} | {f.dimension}] "
-            f"{f.title}: {f.summary}"
+            f"  [finding_id={f.id} | {f.agent_name or 'unknown'} | {f.severity} | "
+            f"{f.dimension}] {f.title}: {f.summary}"
         )
         if f.recommended_action:
             lines.append(f"    → Recommended action: {f.recommended_action}")
+        if f.evidence_ids:
+            lines.append(f"    → Evidence: {', '.join(f.evidence_ids)}")
     return "\n".join(lines)
+
+
+def _format_probe_counts(counts: dict[str, int]) -> str:
+    if not counts:
+        return "  (no probe telemetry available for this run)"
+    return "\n".join(f"  {name}: {count}" for name, count in sorted(counts.items()))
 
 
 def _format_metrics(metrics: list[MetricResult]) -> str:
@@ -147,15 +161,31 @@ class SynthesisAgent:
         findings: list[Finding],
         metric_results: list[MetricResult],
         iteration: int,
+        real_probe_counts: dict[str, int] | None = None,
     ) -> SynthesisMemo:
+        """Produce a SynthesisMemo.
+
+        ``real_probe_counts`` (agent_name -> total probes actually sent this
+        run, from AgentExecution.metadata_json) is measured system telemetry,
+        not something the LLM can derive from finding text alone — one agent
+        typically writes exactly one finding regardless of how many probes it
+        sent, so asking the LLM to infer "sample size" from findings produces
+        a fabricated number (usually 1), not the real count. It's fed into
+        the prompt so the LLM's narrative reasons about the real figures, and
+        the returned memo's sample_sizes is always overwritten with this
+        ground truth afterward — never trusting the LLM to copy it correctly.
+        """
+        real_probe_counts = real_probe_counts or {}
         findings_text = _format_findings(findings, iteration)
         metrics_text = _format_metrics(metric_results)
+        probe_counts_text = _format_probe_counts(real_probe_counts)
 
         template = self._registry.get(_TEMPLATE_ID, _PHASE_HASH)
         prompt = render(template, {
             "iteration": str(iteration),
             "findings_text": findings_text,
             "metrics_text": metrics_text,
+            "real_probe_counts": probe_counts_text,
         })
 
         try:
@@ -171,7 +201,11 @@ class SynthesisAgent:
                     },
                 )
             )
-            return _parse_memo(response.content, iteration)
+            memo = _parse_memo(response.content, iteration)
         except Exception as exc:
             logger.error("SynthesisAgent: governance call failed: %s", exc)
-            return _fallback_memo(iteration, str(exc))
+            memo = _fallback_memo(iteration, str(exc))
+
+        if real_probe_counts:
+            memo.sample_sizes = dict(real_probe_counts)
+        return memo

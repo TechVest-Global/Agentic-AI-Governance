@@ -26,6 +26,7 @@ import logging
 from dataclasses import dataclass
 
 from app.configs.prompt_registry import PromptRegistry, render
+from app.models.finding import Finding
 from app.services.deliberation_council.synthesis_agent import SynthesisMemo
 from app.services.model_clients.base import (
     GovernanceModelClient,
@@ -35,7 +36,20 @@ from app.services.model_clients.base import (
 logger = logging.getLogger(__name__)
 
 _TEMPLATE_ID = "devils_advocate_agent.council_objection"
-_PHASE_HASH = "2eae187ab590df9cc613d015f3597be4443ffc8bb7002c751e4eeb92cffe4cd1"
+# v4: adds a raw-findings section (see _format_findings_detail) so the Devil's
+# Advocate can catch Synthesis omitting/mischaracterizing a finding, not just
+# critique the narrative prose it was handed — v1-v3 had no path to that.
+_PHASE_HASH = "53b1bb88d92d73b0b2852f95f3df86f891cea0c453324d00d113a96d936e997f"
+
+
+def _format_findings_detail(findings: list[Finding]) -> str:
+    if not findings:
+        return "  (none)"
+    return "\n".join(
+        f"  [finding_id={f.id} | {f.agent_name or 'unknown'} | {f.severity} | {f.dimension}] "
+        f"{f.title}: {f.summary}"
+        for f in findings
+    )
 
 _DEFAULT_OBJECTION = {
     "objection_id": "da-default",
@@ -110,7 +124,7 @@ class DevilsAdvocateAgent:
         self._governance = governance_client
         self._registry = registry or PromptRegistry.from_directory()
 
-    def _build_prompt(self, memo: SynthesisMemo) -> str:
+    def _build_prompt(self, memo: SynthesisMemo, findings: list[Finding]) -> str:
         template = self._registry.get(_TEMPLATE_ID, _PHASE_HASH)
         return render(template, {
             "iteration": str(memo.iteration),
@@ -119,13 +133,14 @@ class DevilsAdvocateAgent:
             "dimensions": ", ".join(memo.dimensions) if memo.dimensions else "(none listed)",
             "sample_sizes": json.dumps(memo.sample_sizes) if memo.sample_sizes else "{}",
             "conflicts": "; ".join(memo.conflicts) if memo.conflicts else "(none detected)",
+            "findings_detail": _format_findings_detail(findings),
         })
 
-    def _call_governance(self, memo: SynthesisMemo) -> str:
+    def _call_governance(self, memo: SynthesisMemo, findings: list[Finding]) -> str:
         response = self._governance.complete(
             GovernanceModelRequest(
                 task="council_devils_advocate",
-                prompt=self._build_prompt(memo),
+                prompt=self._build_prompt(memo, findings),
                 context={
                     "iteration": memo.iteration,
                     "dimension_count": len(memo.dimensions),
@@ -135,16 +150,23 @@ class DevilsAdvocateAgent:
         )
         return response.content
 
-    def object_to(self, memo: SynthesisMemo) -> list[Objection]:
+    def object_to(self, memo: SynthesisMemo, findings: list[Finding]) -> list[Objection]:
+        """Raise objections to the Synthesis memo.
+
+        ``findings`` is the raw evidence this iteration's synthesis was built
+        from — passed through (not just the memo) so the Devil's Advocate can
+        cross-check the narrative against ground truth and flag an omission,
+        not only critique whatever prose Synthesis chose to write.
+        """
         try:
-            content = self._call_governance(memo)
+            content = self._call_governance(memo, findings)
             objections = _parse_objections(content)
             if objections is not None:
                 return objections
 
             # Retry once with a note that the first attempt failed
             logger.info("DevilsAdvocateAgent: first attempt returned no objections, retrying")
-            content = self._call_governance(memo)
+            content = self._call_governance(memo, findings)
             objections = _parse_objections(content)
             if objections is not None:
                 return objections

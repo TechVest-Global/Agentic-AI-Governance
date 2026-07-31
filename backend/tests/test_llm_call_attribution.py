@@ -58,3 +58,13 @@ def test_llm_calls_are_attributed_per_agent(client: TestClient):
     for c in target:
         assert c.get("prompt_text"), "probe missing prompt_text"
         assert c.get("response_text") is not None, "probe missing response_text"
+
+    # Governance reasoning calls now get the same transcript treatment as
+    # target probes — previously only token counts/latency were recorded for
+    # call_type="governance", so a Finding's actual reasoning was not
+    # reconstructable after the fact.
+    governance = [c for c in calls if c["call_type"] == "governance"]
+    assert governance, "expected governance reasoning calls to be logged"
+    for c in governance:
+        assert c.get("prompt_text"), "governance call missing prompt_text"
+        assert c.get("response_text") is not None, "governance call missing response_text"
