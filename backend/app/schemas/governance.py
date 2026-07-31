@@ -759,8 +759,12 @@ class GovernancePipelineRunRead(APIModel):
     evaluation_plan: EvaluationPlanRead | None = None
     metric_execution: MetricExecutionRead
     agent_run: AgentRunRead
-    council: CouncilDeliberationRead
-    report: GovernanceReportRead
+    # Both optional so a run whose council or report step failed still returns
+    # the evidence the earlier phases DID produce, instead of the whole pipeline
+    # collapsing to an error and discarding it. The run is marked `degraded` and
+    # the reason recorded in error_summary — see orchestration._execute_and_report.
+    council: CouncilDeliberationRead | None = None
+    report: GovernanceReportRead | None = None
 
 
 # ---------------------------------------------------------------------------

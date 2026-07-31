@@ -317,35 +317,63 @@ def _execute_and_report(
         },
     )
 
-    council_result = council.deliberate(
-        session,
-        run_id=run_id,
-        payload=CouncilDeliberationCreate(
-            requested_by=payload.requested_by,
-            notes=payload.notes,
-        ),
-    )
+    # The council is the pipeline's most failure-prone step: it is the only phase
+    # that depends on a live judge model for every pass, and a judge outage, rate
+    # limit, or cold start therefore used to fail the WHOLE run — discarding the
+    # report even though every metric result and agent finding was already
+    # committed. Metric and agent failures both degrade gracefully; this now
+    # matches them.
+    council_result = None
+    council_error: dict[str, str] | None = None
+    try:
+        council_result = council.deliberate(
+            session,
+            run_id=run_id,
+            payload=CouncilDeliberationCreate(
+                requested_by=payload.requested_by,
+                notes=payload.notes,
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 — a lost verdict must not lose the evidence
+        logger.exception("Council deliberation failed for run %s", run_id)
+        council_error = {"error_type": exc.__class__.__name__, "message": str(exc)}
+        # deliberate() may have raised mid-transaction, leaving this session
+        # dirty; every step below (report, finalize) would then fail too. Roll
+        # back to a usable session. Safe: the earlier phases committed their own
+        # work, so this discards only the council's partial writes.
+        session.rollback()
+        _record_pipeline_step(
+            session,
+            run_id=run_id,
+            phase=RunPhase.deliberation_council,
+            entry_type="council_deliberation_failed",
+            event_type="council_deliberation.failed",
+            actor_type=LedgerActorType.system,
+            actor_id="council_service",
+            payload={"requested_by": payload.requested_by, **council_error},
+        )
     # State only: the council layer writes its own council_deliberation.completed
     # ledger entry (so the standalone /council/deliberate path is audited too).
     # Re-logging it here would duplicate that ledger event.
-    _record_pipeline_step(
-        session,
-        run_id=run_id,
-        phase=RunPhase.deliberation_council,
-        entry_type="council_deliberation_completed",
-        event_type="council_deliberation.completed",
-        actor_type=LedgerActorType.system,
-        actor_id="council_service",
-        record_ledger=False,
-        payload={
-            "requested_by": payload.requested_by,
-            "label": council_result.verdict.label,
-            "action_tier": council_result.verdict.action_tier,
-            "confidence_score": council_result.verdict.confidence_score,
-            "finding_count": council_result.finding_count,
-            "metric_result_count": council_result.metric_result_count,
-        },
-    )
+    if council_result is not None:
+        _record_pipeline_step(
+            session,
+            run_id=run_id,
+            phase=RunPhase.deliberation_council,
+            entry_type="council_deliberation_completed",
+            event_type="council_deliberation.completed",
+            actor_type=LedgerActorType.system,
+            actor_id="council_service",
+            record_ledger=False,
+            payload={
+                "requested_by": payload.requested_by,
+                "label": council_result.verdict.label,
+                "action_tier": council_result.verdict.action_tier,
+                "confidence_score": council_result.verdict.confidence_score,
+                "finding_count": council_result.finding_count,
+                "metric_result_count": council_result.metric_result_count,
+            },
+        )
 
     # Make the Action & Reporting stage observable: without this transition the
     # run jumps deliberation_council -> completed and the frontend's Action &
@@ -358,41 +386,55 @@ def _execute_and_report(
     session.add(run)
     session.commit()
 
-    report = reports.build_governance_report(session, run_id=run_id)
-    _record_pipeline_step(
-        session,
-        run_id=run_id,
-        phase=RunPhase.action_reporting,
-        entry_type="governance_report_generated",
-        event_type="governance_report.generated",
-        actor_type=LedgerActorType.system,
-        actor_id="report_service",
-        payload={
-            "counts": report.counts,
-            "state_chain_valid": report.state_chain.valid,
-        },
-    )
+    # A missing verdict does not prevent a report: build_governance_report reads
+    # the verdict with .first(), so it renders the evidence collected so far and
+    # simply carries no verdict. That is the whole point of degrading here rather
+    # than failing — the audit record survives a lost verdict.
+    report = None
+    report_error: dict[str, str] | None = None
+    try:
+        report = reports.build_governance_report(session, run_id=run_id)
+    except Exception as exc:  # noqa: BLE001 — must still reach a terminal status
+        logger.exception("Report generation failed for run %s", run_id)
+        report_error = {"error_type": exc.__class__.__name__, "message": str(exc)}
+        session.rollback()
+    else:
+        _record_pipeline_step(
+            session,
+            run_id=run_id,
+            phase=RunPhase.action_reporting,
+            entry_type="governance_report_generated",
+            event_type="governance_report.generated",
+            actor_type=LedgerActorType.system,
+            actor_id="report_service",
+            payload={
+                "counts": report.counts,
+                "state_chain_valid": report.state_chain.valid,
+            },
+        )
 
     # Finalize: report building is read-only, so without this the run would be
     # left parked at council_running / deliberation_council — never a terminal
     # status. That made the SSE progress stream never close and the frontend
     # completion poll hang forever. Mark the run completed at action_reporting —
-    # UNLESS one or more specialist agents failed during evaluation. The council
-    # and report steps still run on whatever evidence WAS produced, but the
-    # failure is real and must be surfaced, not silently overwritten to
-    # "completed". The standalone /agents/run endpoint already preserves
-    # 'degraded' in this situation; the full pipeline must match it.
+    # UNLESS some part of the evaluation failed: a specialist agent, the council,
+    # or report generation. Later steps still run on whatever evidence WAS
+    # produced, but the failure is real and must be surfaced, not silently
+    # overwritten to "completed". The standalone /agents/run endpoint already
+    # preserves 'degraded' in this situation; the full pipeline must match it.
     run = get_run_or_raise(session, run_id)
     failed_executions = [
         execution
         for execution in agent_result.executions
         if execution.status == AgentExecutionStatus.failed
     ]
+    # Every partial failure degrades the run rather than failing it, and each
+    # records its own reason. Collected together so a run that lost, say, an
+    # agent AND the verdict reports both instead of only whichever is checked
+    # first — silently dropping one would understate how incomplete the audit is.
+    degraded: dict[str, dict] = {}
     if failed_executions:
-        run.status = RunStatus.degraded
-        run.error_summary = {
-            **(run.error_summary or {}),
-            "degraded_reason": "specialist_agent_failure",
+        degraded["specialist_agent_failure"] = {
             "message": (
                 f"{len(failed_executions)} of {len(agent_result.executions)} "
                 "specialist agent(s) failed during evaluation; the run "
@@ -405,6 +447,36 @@ def _execute_and_report(
                 }
                 for execution in failed_executions
             ],
+        }
+    if council_error is not None:
+        degraded["council_failure"] = {
+            "message": (
+                "The Deliberation Council could not produce a verdict, so this run "
+                "carries NO governance decision. The metric results and specialist "
+                "findings it did collect are preserved and reported; re-run the "
+                "council on this run to obtain a verdict."
+            ),
+            "error": council_error,
+        }
+    if report_error is not None:
+        degraded["report_failure"] = {
+            "message": (
+                "Report generation failed; the underlying evidence is still stored "
+                "and the report can be regenerated from it."
+            ),
+            "error": report_error,
+        }
+
+    if degraded:
+        run.status = RunStatus.degraded
+        run.error_summary = {
+            **(run.error_summary or {}),
+            "degraded_reason": ",".join(sorted(degraded)),
+            # Flat one-liner as well as the structured detail: the run list renders
+            # error_summary generically, so without a top-level message it would
+            # show a stringified object instead of something a reader can scan.
+            "message": " ".join(degraded[key]["message"] for key in sorted(degraded)),
+            **{key: value for key, value in degraded.items()},
         }
     else:
         run.status = RunStatus.completed
