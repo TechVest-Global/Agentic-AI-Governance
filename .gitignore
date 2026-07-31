@@ -79,4 +79,20 @@ coverage.xml
 *.tmp
 *.bak
 
+# Local test corpora / context documents used to exercise a real target system
+# (e.g. a knowledge base seeded into an audited RAG app). These are inputs for
+# local runs, not source — and are usually customer content that should never
+# reach the repo. The *.docx/*.xlsx rules above already cover the office
+# formats; this covers the plain-text ones.
+*knowledge_base*.txt
+
+# Scratch JSON emitted by the local analysis/report scripts in backend/scripts
+# (probe transcripts, metric report rows, agent timing captures). Regenerated on
+# every run, so committing them only creates churn and stale evidence.
+backend/scripts/_*.json
+
+# Draft pull-request descriptions. These belong in the PR itself, not in the
+# repository, where they immediately go stale.
+pr_body.md
+
 .deepeval/
