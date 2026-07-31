@@ -102,7 +102,9 @@ def _fetch_ledger_anchors(db_user: str, db_name: str) -> list[dict[str, object]]
     return anchors
 
 
-def _append_anchor_log(backup_dir: Path, *, timestamp: str, anchors: list[dict[str, object]]) -> Path:
+def _append_anchor_log(
+    backup_dir: Path, *, timestamp: str, anchors: list[dict[str, object]]
+) -> Path:
     anchor_log_path = backup_dir / "ledger_anchors.log"
     with anchor_log_path.open("a", encoding="utf-8") as log_file:
         log_file.write(json.dumps({"timestamp": timestamp, "anchors": anchors}) + "\n")
