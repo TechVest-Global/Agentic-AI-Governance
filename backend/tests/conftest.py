@@ -15,6 +15,19 @@ for _credential_var in (
     "LITELLM_MASTER_KEY",
     "TARGET_ENDPOINT",
     "TARGET_API_KEY",
+    # The PER-KIND target credentials, which clearing TARGET_* does not cover:
+    # get_target_model_client_for_system() infers the adapter kind from the
+    # audited system's registration (a system named "Techvest RAG Chatbot"
+    # resolves the techvest branch) and then reads TECHVEST_*/HR_GATEWAY_* for
+    # the endpoint and key. With a developer .env present that produced a LIVE
+    # client, so the suite sent every specialist agent's probes to the real
+    # deployed chatbot: non-deterministic, slow, and dependent on that service's
+    # rate limit — it returned HTTP 429 once agents began running concurrently,
+    # surfacing as agents failing with zero findings.
+    "TECHVEST_ENDPOINT",
+    "TECHVEST_API_KEY",
+    "HR_GATEWAY_ENDPOINT",
+    "HR_GATEWAY_API_KEY",
 ):
     os.environ[_credential_var] = ""
 

@@ -70,7 +70,9 @@ class DriftAnalystAgent(ModelBackedAgent):
         drift_metrics, attention_metrics = self._metrics_for_review(context, owned=owned_metrics)
 
         if not drift_metrics:
-            return []
+            return self._unprobed_dimension_findings(
+                context, metric_ids=_DRIFT_METRIC_IDS, keywords=_DRIFT_KEYWORDS
+            )
 
         metric_summary = "\n".join(
             f"  - {m.metric_id} ({m.dimension}): "

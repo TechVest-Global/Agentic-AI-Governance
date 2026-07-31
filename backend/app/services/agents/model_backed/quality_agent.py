@@ -94,7 +94,9 @@ class QualityEvaluatorAgent(ModelBackedAgent):
         quality_metrics, attention_metrics = self._metrics_for_review(context, owned=owned_metrics)
 
         if not quality_metrics:
-            return []
+            return self._unprobed_dimension_findings(
+                context, metric_ids=_QUALITY_METRIC_IDS, keywords=_QUALITY_KEYWORDS
+            )
 
         probes: list[TargetProbeResult] = self._run_probes(_PROBE_PROMPTS, context=context)
         if not probes and context.probe_skips.get(self.name):

@@ -84,6 +84,13 @@ Return ONLY a valid JSON array.
 class RiskScorerAgent(ModelBackedAgent):
     name = "risk_scorer"
     probe_dimension = "risk"
+    # This agent aggregates its peers' findings into a composite risk score, so
+    # it must observe a COMPLETE set of specialist findings. agent_execution.py
+    # therefore excludes it from the parallel fan-out and runs it after the
+    # barrier. Previously it ran mid-loop at registry position 6, which meant
+    # ExplainabilityAgent (position 7) had not run yet and its findings were
+    # never included in the composite score.
+    aggregates_peer_findings = True
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
         findings: list[FindingCreate] = []

@@ -15,6 +15,7 @@ evidence before it enters a governance prompt.
 import json
 import logging
 import os
+import threading
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -23,6 +24,7 @@ from functools import lru_cache
 from app.configs.prompt_registry import PromptRegistry, render
 from app.models.ai_system import AISystemCapability
 from app.models.enums import Modality
+from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
 from app.services.agents.probe_library import (
     ProbePayload,
@@ -61,6 +63,22 @@ logger = logging.getLogger(__name__)
 # agent phase the longest part of an audit. Bounded so the target isn't
 # hammered.
 _MAX_PROBE_WORKERS = int(os.getenv("AGENT_PROBE_MAX_WORKERS", "6"))
+
+# Global ceiling on target probes in flight across the WHOLE process, not per
+# agent. _MAX_PROBE_WORKERS alone was a sufficient bound only while agents ran
+# one at a time: once agent_execution.py fans agents out concurrently, the
+# per-agent pools multiply (3 agents x 6 probes = 18 concurrent requests), and
+# the audited system starts returning HTTP 429 — observed as agents failing with
+# zero findings the moment the fan-out widened.
+#
+# The audited endpoint's capacity is a shared resource, so it needs a shared
+# bound. Defaulting to _MAX_PROBE_WORKERS keeps PEAK load on the target exactly
+# what it was before Layer 3 became parallel; the speedup instead comes from
+# agents overlapping their governance-LLM reasoning with each other's probing,
+# rather than leaving the target idle between one agent's probe burst and the
+# next. Override with AGENT_TARGET_MAX_INFLIGHT.
+_MAX_TARGET_INFLIGHT = int(os.getenv("AGENT_TARGET_MAX_INFLIGHT", str(_MAX_PROBE_WORKERS)))
+_TARGET_INFLIGHT = threading.BoundedSemaphore(max(1, _MAX_TARGET_INFLIGHT))
 
 # Shared, framework-agnostic probe-design template — used by every specialist
 # agent when neither the endpoint- nor category-level static catalog has
@@ -135,6 +153,10 @@ class ProbeExecutionOutcome:
 class ModelBackedAgent:
     execution_mode = "model_backed"
     name: str
+    # Default: this agent reads only upstream state, so it is safe to run in
+    # the parallel fan-out. Overridden to True by RiskScorer alone — see
+    # GovernanceAgent.aggregates_peer_findings in ../base.py.
+    aggregates_peer_findings = False
     # The facet this agent probes ("bias", "misuse", "explainability", ...).
     # Used to pick system-appropriate probes from the probe library. Left as
     # None for agents that have not opted into system-aware probe selection —
@@ -199,6 +221,40 @@ class ModelBackedAgent:
         if owned and self._verify_even_when_passing(context):
             return owned, []
         return [], []
+
+    def _unprobed_dimension_findings(
+        self,
+        context: AgentContext,
+        *,
+        metric_ids: set[str],
+        keywords: tuple[str, ...],
+    ) -> list[FindingCreate]:
+        """The audit record for an agent exiting without probing anything.
+
+        Replaces a bare ``return []``, which left no trace that a whole
+        governance dimension went unverified — see dimension_not_probed_finding.
+        """
+        from app.services.agents.helpers import dimension_not_probed_finding
+
+        owned = self._owned_metrics(context, metric_ids=metric_ids, keywords=keywords)
+        dimension = self.probe_dimension or self.name
+        if not owned:
+            reason = (
+                f"no {dimension} metrics were selected for this run, so this agent had "
+                "nothing to probe or reason over"
+            )
+        else:
+            tier = getattr(getattr(context.ai_system, "risk_tier", None), "value", "unknown")
+            reason = (
+                f"all {len(owned)} {dimension} metric(s) this agent owns already passed, and a "
+                f"'{tier}' risk-tier system does not require verifying passes with live probe "
+                "evidence (only 'high' does)"
+            )
+        return [
+            dimension_not_probed_finding(
+                agent_name=self.name, dimension=dimension, reason=reason
+            )
+        ]
 
     def __init__(
         self,
@@ -670,14 +726,19 @@ class ModelBackedAgent:
         # clients that support it read ``metadata["payload"]``); the ``prompt``
         # is still carried for provenance and for clients that ignore payloads.
         metadata = {"payload": payload} if payload else {}
-        response = self._target.invoke(
-            TargetModelRequest(
-                endpoint_ref=endpoint_ref,
-                prompt=prompt,
-                capability_name=capability_name,
-                metadata=metadata,
+        # Hold a slot for the duration of the call only, so concurrent agents
+        # queue here instead of overloading the audited system (see
+        # _TARGET_INFLIGHT). Wrapping the invoke alone — not the sanitize/fence
+        # work below — keeps the scarce resource held for as short as possible.
+        with _TARGET_INFLIGHT:
+            response = self._target.invoke(
+                TargetModelRequest(
+                    endpoint_ref=endpoint_ref,
+                    prompt=prompt,
+                    capability_name=capability_name,
+                    metadata=metadata,
+                )
             )
-        )
         sanitized = sanitize_target_output(response.raw_output)
         return TargetProbeResult(
             probe_prompt=prompt,

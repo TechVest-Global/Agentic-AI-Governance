@@ -191,18 +191,31 @@ The engine loads metric and framework configs, selects the relevant metrics for
 the system type and risk tier, runs tool wrappers or mock wrappers, captures
 evidence, and lets specialist agents produce findings.
 
+Specialist evaluation runs in two stages: peer-independent agents execute
+concurrently, then the Risk Scorer aggregates their findings once all have
+finished (FR-024a, FR-024b).
+
 Success:
 
 - Each metric result is normalized.
 - Each finding links to evidence.
 - Tool-specific outputs are preserved without leaking tool complexity into the
   public API.
+- Concurrent agents produce the same findings they would have produced alone —
+  execution order is never observable in the results.
+- A dimension that was not probed is recorded as such, not left implicit.
 
 Failure handling:
 
 - Tool errors become state events.
 - Partial evidence is preserved.
 - Missing configs fail validation before the run starts.
+- One agent's failure does not discard any other agent's findings.
+- The concurrent stage is bounded by a wall-clock budget; agents still running
+  when it expires are recorded as failed so a run always reaches a terminal
+  state.
+- Total concurrent load on the audited system is capped independently of how many
+  agents run at once, so parallelism cannot rate-limit the system under audit.
 
 ### Scenario D: Deliberate and Produce Verdict
 
@@ -308,6 +321,21 @@ streaming, automated remediation, and PDF export are **P2** follow-ups.
   framework references, evidence IDs, and recommended next step.
 - **FR-024:** Agents shall not directly message each other; they communicate
   through upstream state and append-only outputs.
+- **FR-024a:** Specialist agents that read only upstream state shall execute
+  concurrently. FR-024's no-direct-messaging rule is what makes this sound: with
+  no lateral dependency between them, their execution order cannot affect their
+  findings.
+- **FR-024b:** An agent whose findings are derived from other agents' findings
+  (the Risk Scorer, which computes a composite score) shall execute only after
+  every concurrent agent has completed, so it observes a complete finding set.
+  Such an agent shall declare that dependency rather than relying on its
+  position in a fixed execution order.
+- **FR-024c:** Each agent execution record shall state which stage scheduled it
+  and its measured start/end times, so the execution model is verifiable from
+  the audit record rather than asserted in documentation.
+- **FR-024d:** An agent that exits without probing shall record why, so
+  "dimension not verified" is never stored in a form indistinguishable from
+  "dimension verified and found clean".
 
 ### Deliberation and Verdict
 

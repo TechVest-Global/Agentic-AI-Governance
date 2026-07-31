@@ -17,6 +17,7 @@ from __future__ import annotations
 import contextvars
 import logging
 import time
+import urllib.error
 
 from openai import APIConnectionError, APITimeoutError, RateLimitError
 
@@ -133,9 +134,60 @@ def _estimate_cost_usd(
 # ---------------------------------------------------------------------------
 
 
-def _backoff(attempt: int) -> None:
-    wait = 2 ** attempt  # 1s, 2s, 4s
-    logger.warning("LLM Gateway: retrying in %ds (attempt %d)", wait, attempt + 1)
+# Transient HTTP statuses worth another attempt. The openai exception types above
+# only cover the SDK-based clients (Azure OpenAI, LiteLLM). The plain-HTTP target
+# adapters — techvest, hr_gateway, generic_http — raise urllib.error.HTTPError
+# instead, which fell through to the non-retryable branch and killed the calling
+# agent outright on a 429.
+#
+# That became a real failure mode once agent_execution.py started running
+# specialist agents concurrently: the same probe volume is compressed into far
+# less wall-clock, so an audited system's per-minute rate limit is reached where
+# sequential agents stayed under it. A concurrency cap alone cannot fix a
+# per-minute limit — the call has to back off and retry.
+_RETRYABLE_HTTP_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    if isinstance(exc, (RateLimitError, APIConnectionError, APITimeoutError)):
+        return True
+    # HTTPError subclasses URLError, so it must be checked first.
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code in _RETRYABLE_HTTP_STATUS
+    if isinstance(exc, urllib.error.URLError):
+        return True
+    return isinstance(exc, TimeoutError)
+
+
+def _is_rate_limit(exc: BaseException | None) -> bool:
+    """Whether a failure was specifically rate limiting, for audit-log status.
+
+    Covers the plain-HTTP adapters' 429 as well as the SDK's RateLimitError, so
+    a throttled audit is recorded as `rate_limited` rather than a generic error.
+    """
+    if isinstance(exc, RateLimitError):
+        return True
+    return isinstance(exc, urllib.error.HTTPError) and exc.code == 429
+
+
+def _retry_after_seconds(exc: BaseException) -> float | None:
+    """Seconds requested by a server's Retry-After header, if it sent one.
+
+    Capped so a malformed or hostile header can never park a run for hours.
+    """
+    headers = getattr(exc, "headers", None)
+    raw = headers.get("Retry-After") if headers is not None else None
+    if not raw:
+        return None
+    try:
+        return max(0.0, min(float(raw), 30.0))
+    except (TypeError, ValueError):
+        return None  # HTTP-date form — fall back to exponential backoff
+
+
+def _backoff(attempt: int, retry_after: float | None = None) -> None:
+    wait = retry_after if retry_after is not None else 2 ** attempt  # 1s, 2s, 4s
+    logger.warning("LLM Gateway: retrying in %.1fs (attempt %d)", wait, attempt + 1)
     time.sleep(wait)
 
 
@@ -206,18 +258,19 @@ class GatewayGovernanceModelClient:
                     "response_text": response.content,
                 })
                 return response
-            except (RateLimitError, APIConnectionError, APITimeoutError) as exc:
-                last_exc = exc
-                logger.warning(
-                    "llm_gov_error task=%s attempt=%d/%d error=%s",
-                    request.task,
-                    attempt + 1,
-                    self._max_retries,
-                    type(exc).__name__,
-                )
-                if attempt < self._max_retries - 1:
-                    _backoff(attempt)
-            except Exception:
+            except Exception as exc:
+                if _is_retryable(exc):
+                    last_exc = exc
+                    logger.warning(
+                        "llm_gov_error task=%s attempt=%d/%d error=%s",
+                        request.task,
+                        attempt + 1,
+                        self._max_retries,
+                        type(exc).__name__,
+                    )
+                    if attempt < self._max_retries - 1:
+                        _backoff(attempt, retry_after=_retry_after_seconds(exc))
+                    continue
                 # Non-retryable failure (e.g. BadRequestError, AuthenticationError) —
                 # log the attempt before re-raising so it still leaves an audit trail,
                 # matching the exhausted-retries path below instead of vanishing silently.
@@ -254,7 +307,7 @@ class GatewayGovernanceModelClient:
             "total_tokens": None,
             "estimated_cost_usd": None,
             "latency_ms": 0,
-            "status": "rate_limited" if isinstance(last_exc, RateLimitError) else "error",
+            "status": "rate_limited" if _is_rate_limit(last_exc) else "error",
             "request_chars": len(request.prompt),
             "response_chars": 0,
             "trace_id": None,
@@ -330,18 +383,19 @@ class GatewayTargetModelClient:
                     "response_text": response.raw_output,
                 })
                 return response
-            except (RateLimitError, APIConnectionError, APITimeoutError) as exc:
-                last_exc = exc
-                logger.warning(
-                    "llm_target_error endpoint=%s attempt=%d/%d error=%s",
-                    request.endpoint_ref,
-                    attempt + 1,
-                    self._max_retries,
-                    type(exc).__name__,
-                )
-                if attempt < self._max_retries - 1:
-                    _backoff(attempt)
-            except Exception:
+            except Exception as exc:
+                if _is_retryable(exc):
+                    last_exc = exc
+                    logger.warning(
+                        "llm_target_error endpoint=%s attempt=%d/%d error=%s",
+                        request.endpoint_ref,
+                        attempt + 1,
+                        self._max_retries,
+                        type(exc).__name__,
+                    )
+                    if attempt < self._max_retries - 1:
+                        _backoff(attempt, retry_after=_retry_after_seconds(exc))
+                    continue
                 # Non-retryable failure (e.g. BadRequestError, AuthenticationError) —
                 # log the attempt before re-raising so it still leaves an audit trail,
                 # matching the exhausted-retries path below instead of vanishing silently.
@@ -378,7 +432,7 @@ class GatewayTargetModelClient:
             "total_tokens": None,
             "estimated_cost_usd": None,
             "latency_ms": 0,
-            "status": "rate_limited" if isinstance(last_exc, RateLimitError) else "error",
+            "status": "rate_limited" if _is_rate_limit(last_exc) else "error",
             "request_chars": len(request.prompt),
             "response_chars": 0,
             "trace_id": None,

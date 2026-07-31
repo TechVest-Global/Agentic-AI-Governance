@@ -116,7 +116,9 @@ class MisuseDetectorAgent(ModelBackedAgent):
         review_metrics, attention_metrics = self._metrics_for_review(context, owned=owned_metrics)
 
         if not review_metrics and not destructive_unreviewed:
-            return []
+            return self._unprobed_dimension_findings(
+                context, metric_ids=_MISUSE_METRIC_IDS, keywords=_MISUSE_KEYWORDS
+            )
 
         probes: list[TargetProbeResult] = self._run_probes(_PROBE_PROMPTS, context=context)
         # Probes may be gated (e.g. modality mismatch) while the garak/presidio

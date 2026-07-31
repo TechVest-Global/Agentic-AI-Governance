@@ -67,6 +67,47 @@ def finding(
     )
 
 
+def dimension_not_probed_finding(
+    *, agent_name: str, dimension: str, reason: str
+) -> FindingCreate:
+    """An honest 'this dimension was never actively probed' record.
+
+    Fires when an agent exits without probing because none of its owned metrics
+    needed attention and the system's risk tier does not require verifying
+    passes with live evidence (see ModelBackedAgent._verify_even_when_passing).
+
+    Without this the agent returns nothing at all, so the run reads as "agent
+    completed, 0 findings" — indistinguishable from "this dimension was probed
+    and nothing was wrong". Those are very different governance claims and only
+    the second is evidence of safety. Recording the distinction is what lets a
+    report state its own coverage limits instead of implying clean results.
+
+    Shares finding_type "coverage_gap" with coverage_gap_finding above so
+    existing report and UI handling covers it; the payload's generated_by
+    distinguishes the two causes.
+    """
+    return FindingCreate(
+        finding_type="coverage_gap",
+        title=f"{dimension.title()} was not actively probed in this run",
+        summary=(
+            f"No {dimension} probes were sent to the target: {reason}. This is a limit on "
+            f"what this run verified, not a compliance finding — no conclusion should be "
+            f"drawn about the system's {dimension} behaviour from this run."
+        ),
+        severity=Severity.info,
+        confidence=1.0,
+        dimension=dimension,
+        evidence_ids=[],
+        agent_name=agent_name,
+        recommended_action=(
+            "Register the system at 'high' risk tier to force live verification of passing "
+            f"metrics, or select {dimension} metrics for the run, if active {dimension} "
+            "evidence is required."
+        ),
+        payload={"generated_by": "unprobed_dimension_gate", "reason": reason},
+    )
+
+
 def coverage_gap_finding(*, agent_name: str, dimension: str, reason: str) -> FindingCreate:
     """An honest 'this agent had nothing appropriate to probe' record.
 
