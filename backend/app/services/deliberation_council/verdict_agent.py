@@ -62,6 +62,14 @@ class VerdictOutput:
     objections_upheld: list[str] = field(default_factory=list)
     iteration_penalty: float = 0.0
     raw_response: str = ""
+    # Whether another Council iteration could still change this outcome.
+    #
+    # False means the verdict is insufficient by the threshold rule but is
+    # CONCLUSIVE: remediation cannot move it, so iterating would only burn
+    # budget and then mislabel a settled decision as unresolved uncertainty.
+    # Set by adjudicate() from the evidence, never by the LLM — whether a loop
+    # can converge is a mechanical property of the pipeline, not a judgement.
+    remediable: bool = True
 
 
 def _format_objections(objections: list[Objection]) -> str:
@@ -171,6 +179,58 @@ def _parse_verdict(content: str, iteration: int) -> VerdictOutput | None:
         return None
 
 
+def _failed_metric_count(metric_results: list[MetricResult]) -> int:
+    return sum(
+        1 for m in metric_results
+        if m.status in {"failed", "error"} or m.passed is False
+    )
+
+
+def _conclusive_failure_count(metric_results: list[MetricResult]) -> int:
+    """Metrics that actually FAILED — real negative evidence about the system.
+
+    Deliberately narrower than _failed_metric_count, which also counts ``error``.
+    An errored metric means the evaluator broke, so the evidence is MISSING, not
+    negative — that is genuine uncertainty and must stay eligible for remediation
+    and the exhaustion memo. Conflating a tool failure with a system failure
+    would let a crashed evaluator block the audited system.
+    """
+    return sum(
+        1 for m in metric_results
+        if m.passed is False or m.status == "failed"
+    )
+
+
+def _remediation_can_change_outcome(
+    verdict: VerdictOutput,
+    metric_results: list[MetricResult],
+) -> bool:
+    """Whether another Council iteration could still change this verdict.
+
+    No remediation path re-runs metric execution: ``re_probe`` re-runs a single
+    specialist agent, ``re_deliberate`` only re-synthesises, and ``re_plan`` is
+    inert. The metric verdicts are therefore frozen for the life of a
+    deliberation — so a metric that conclusively failed will still be failed at
+    the cap, and the deterministic sufficiency rule (``failed == 0``) can never
+    be satisfied.
+
+    Previously the loop ran to its cap regardless and stamped the verdict with a
+    LOOP EXHAUSTION memo reading "unresolved uncertainty: the Council lacked
+    enough evidence to decide". That inverts what happened: the evidence was
+    conclusive and the Council had already decided to block.
+
+    Two cases must stay remediable, and both are load-bearing:
+      * findings-driven shortfall — a re_probe appends a fresh finding, the
+        latest-per-agent read rule replaces that agent's previous one, and the
+        severity penalties (hence the score) genuinely move;
+      * errored or pending metrics — evidence is missing rather than negative,
+        which is exactly what exhaustion-with-an-uncertainty-memo is for.
+    """
+    if verdict.sufficient:
+        return True  # moot: the router exits on sufficiency before consulting this
+    return _conclusive_failure_count(metric_results) == 0
+
+
 def _extract_risk_bundle_score(findings: list[Finding]) -> float | None:
     """Return composite_score from a risk_summary finding if one exists."""
     for f in findings:
@@ -195,10 +255,7 @@ def _deterministic_fallback(
 
     Falls back to the original penalty-based approach when no risk bundle is found.
     """
-    failed = sum(
-        1 for m in metric_results
-        if m.status in {"failed", "error"} or m.passed is False
-    )
+    failed = _failed_metric_count(metric_results)
     pending = sum(
         1 for m in metric_results
         if m.status in {"pending", "skipped"}
@@ -310,9 +367,24 @@ class VerdictAgent:
             )
             parsed = _parse_verdict(response.content, iteration)
             if parsed is not None:
-                return parsed
+                return self._stamp_remediability(parsed, metric_results)
             logger.warning("VerdictAgent: could not parse LLM response; using fallback")
         except Exception as exc:
             logger.error("VerdictAgent: governance call failed: %s", exc)
 
-        return _deterministic_fallback(findings, metric_results, iteration)
+        return self._stamp_remediability(
+            _deterministic_fallback(findings, metric_results, iteration), metric_results
+        )
+
+    @staticmethod
+    def _stamp_remediability(
+        verdict: VerdictOutput,
+        metric_results: list[MetricResult],
+    ) -> VerdictOutput:
+        """Record whether iterating again could change this verdict.
+
+        Applied to BOTH the LLM and the deterministic-fallback paths, so the
+        router behaves identically whichever produced the verdict.
+        """
+        verdict.remediable = _remediation_can_change_outcome(verdict, metric_results)
+        return verdict
