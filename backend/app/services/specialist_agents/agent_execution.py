@@ -85,6 +85,31 @@ def run_agents(
         selected_capabilities=list(run.selected_capabilities or []),
     )
 
+    # Resuming a run interrupted mid-phase (see
+    # orchestration.reconcile_interrupted_runs) must not re-run agents that
+    # already completed — each agent may make real probe calls against the
+    # target system, and per-item commits (below) mean a prior partial
+    # attempt's completed agents are already durable. Remediation calls are
+    # exempt: re_probe/re_plan deliberately re-run a named agent regardless
+    # of an earlier completion, that's a different, intentional mechanism.
+    already_done_names: set[str] = set()
+    reused_executions: list[AgentExecution] = []
+    reused_findings: list[Finding] = []
+    if not is_remediation_call:
+        for execution in session.exec(
+            select(AgentExecution)
+            .where(AgentExecution.run_id == run_id)
+            .where(AgentExecution.status == AgentExecutionStatus.completed)
+        ).all():
+            if not (execution.metadata_json or {}).get("is_remediation"):
+                already_done_names.add(execution.agent_name)
+                reused_executions.append(execution)
+        if already_done_names:
+            reused_findings = [
+                f for f in _list_findings(session, run_id=run_id)
+                if f.agent_name in already_done_names
+            ]
+
     created_findings: list[Finding] = []
     summaries: list[AgentRunSummary] = []
     executions: list[AgentExecution] = []
@@ -94,6 +119,8 @@ def run_agents(
         target_client=context.target_client,
         governance_client=get_governance_model_client(),
     ):
+        if agent.name in already_done_names:
+            continue
         execution = AgentExecution(
             run_id=run_id,
             agent_name=agent.name,
@@ -102,6 +129,7 @@ def run_agents(
             metadata_json={
                 "execution_mode": getattr(agent, "execution_mode", "deterministic"),
                 "selected_by_request": payload.agent_names is not None,
+                "is_remediation": is_remediation_call,
             },
         )
         session.add(execution)
@@ -118,6 +146,7 @@ def run_agents(
         # calls visible) gives each agent exactly the findings created by
         # actually-earlier agents/runs, never ones from agents later in order.
         live_context = replace(context, existing_findings=_list_findings(session, run_id=run_id))
+        agent_findings: list[Finding] = []
         try:
             finding_payloads = agent.evaluate(live_context)
         except Exception as exc:  # noqa: BLE001
@@ -133,7 +162,7 @@ def run_agents(
             for finding_payload in finding_payloads:
                 finding = Finding(run_id=run_id, **finding_payload.model_dump())
                 session.add(finding)
-                created_findings.append(finding)
+                agent_findings.append(finding)
         finally:
             set_current_agent(None)
         # Persist the real probe count (set by the agent during evaluate) so the
@@ -146,8 +175,21 @@ def run_agents(
         }
         execution.completed_at = utc_now()
         execution.updated_at = utc_now()
+        # Commit this agent's execution + findings immediately rather than
+        # batching every agent into one commit at the end of the loop. Each
+        # agent may already have made real probe calls against the target
+        # system by this point — a crash on the NEXT agent must not discard
+        # the durable record of the ones that already finished.
+        session.add(execution)
+        session.commit()
+        session.refresh(execution)
+        for finding in agent_findings:
+            session.refresh(finding)
+        created_findings.extend(agent_findings)
         executions.append(execution)
         summaries.append(_execution_summary(execution))
+
+    newly_created_findings_count = len(created_findings)
 
     if not is_remediation_call:
         run.status = RunStatus.degraded if failed_execution_count else RunStatus.agents_running
@@ -156,7 +198,8 @@ def run_agents(
         **(run.result_summary or {}),
         "agents_run": [summary.model_dump(mode="json") for summary in summaries],
         "agent_executions_failed": failed_execution_count,
-        "agent_findings_created": len(created_findings),
+        "agent_findings_created": newly_created_findings_count,
+        "agents_reused_from_prior_attempt": len(reused_executions),
         "agents_completed_at": utc_now().isoformat(),
     }
     run.updated_at = utc_now()
@@ -164,17 +207,16 @@ def run_agents(
     for entry in drain_log_capture():
         session.add(LLMCallLog(run_id=run_id, **entry))
     session.commit()
-    for finding in created_findings:
-        session.refresh(finding)
-    for execution in executions:
-        session.refresh(execution)
 
+    # Full current state (reused + newly run), same reasoning as run_metrics:
+    # a resumed run's report/content-integrity digest must cover every
+    # execution/finding that exists, not just this call's delta.
     return AgentRunRead(
         run_id=run_id,
-        agents_run=summaries,
-        executions=executions,
-        findings_created=len(created_findings),
-        findings=created_findings,
+        agents_run=[_execution_summary(e) for e in reused_executions] + summaries,
+        executions=reused_executions + executions,
+        findings_created=newly_created_findings_count,
+        findings=reused_findings + created_findings,
     )
 
 

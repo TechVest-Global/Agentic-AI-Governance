@@ -13,6 +13,21 @@
 # it's running in a container, as long as all three interpreters exist on
 # the same filesystem.
 
+# ---- Stage: frontend build (Vite) ----
+# Combined-deployment mode: the backend serves the built SPA itself (see
+# FRONTEND_DIST_DIR handling in backend/app/main.py), so this is one image /
+# one Container App instead of a separate Static Web App + backend pair.
+FROM node:20-slim AS frontend-build
+WORKDIR /fe
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ .
+# Same-origin deployment: the SPA calls the API via a relative path, so no
+# CORS and no per-environment build is needed.
+ARG VITE_API_BASE_URL=/api/v1
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+RUN npm run build
+
 # ---- Stage: main venv (Python 3.14) ----
 FROM python:3.14-slim AS venv-main
 WORKDIR /build
@@ -31,9 +46,20 @@ COPY backend ./backend
 # lockfile, and fastapi/presidio/ragas/deepeval/garak/inspect-ai/langfuse
 # together form a graph too complex for pip's backtracking resolver to solve
 # in one shot). uv's resolver handles the same graph in seconds.
+# garak (a direct dependency, used only for its API-driven probes/detectors —
+# see backend/app/services/evaluators/garak_evaluator.py) unconditionally
+# requires torch>=2.6.0, but none of the probes/detectors this app actually
+# wires up (Dan_11_0, HijackHateHumans, GuardianComplete, TopLevel and their
+# detectors) load a local model — verified by import, torch/transformers never
+# land in sys.modules for those code paths. PyPI's default torch wheel bundles
+# full CUDA support anyway, which Container Apps (no GPU) can never use, so
+# pull the CPU-only build instead — same behavior, ~1.5-2GB smaller image.
 RUN pip install --no-cache-dir uv \
  && python -m venv .venv \
- && uv pip install --python .venv/bin/python --no-cache .
+ && uv pip install --python .venv/bin/python --no-cache \
+      --extra-index-url https://download.pytorch.org/whl/cpu \
+      --index-strategy unsafe-best-match \
+      .
 
 # ---- Stage: PyRIT venv (Python 3.14, openai>=2.2) ----
 FROM python:3.14-slim AS venv-pyrit
@@ -70,11 +96,13 @@ COPY --chown=app:app --from=venv-ragas /build/.venv-ragas  ./.venv-ragas
 # migrations, which a pip install of the local package would not carry.
 COPY --chown=app:app alembic.ini ./
 COPY --chown=app:app backend ./backend
+COPY --chown=app:app --from=frontend-build /fe/dist ./frontend-dist
 
 ENV PYRIT_PYTHON=/app/.venv-pyrit/bin/python \
     RAGAS_PYTHON=/app/.venv-ragas/bin/python \
     PATH="/app/.venv/bin:${PATH}" \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    FRONTEND_DIST_DIR=/app/frontend-dist
 
 # COPY --chown applies ownership during the copy itself instead of a separate
 # recursive `chown -R` pass afterward — on a multi-GB, multi-venv tree like

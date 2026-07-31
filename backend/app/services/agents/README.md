@@ -26,22 +26,14 @@ should not create database rows directly.
 
 ## Current Agents
 
-`deterministic/` contains rule-based placeholder agents. They keep the backend
-pipeline runnable while model-backed or tool-backed agents are designed.
+`model_backed/` contains the seven real specialist agents (quality, bias,
+misuse, drift, compliance mapper, risk scorer, explainability), each probing
+the audited system and reasoning over evidence with the governance LLM. Each
+agent falls back to a small built-in deterministic check (see
+`_deterministic_fallback` in each module) when the governance model is
+unavailable or returns non-JSON — there is no separate placeholder-agent
+package anymore.
 
-## Future Agents
-
-Real agents can be added behind the same contract, for example:
-
-```text
-agents/
-  model_backed/
-    compliance_agent.py
-    explainability_agent.py
-  deterministic/
-    compliance_agent.py
-```
-
-When replacing an agent, update `registry.py` so the runner selects the desired
-implementation while the API, database, findings, verdicts, and reports stay
-consistent.
+When adding or replacing an agent, update `registry.py` so the runner selects
+the desired implementation while the API, database, findings, verdicts, and
+reports stay consistent.

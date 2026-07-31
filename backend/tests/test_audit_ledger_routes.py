@@ -47,20 +47,25 @@ def test_audit_ledger_entries_are_appended_listed_and_verified(
             "payload": {"source": "manual"},
         },
     )
-    second_response = client.post(
-        ledger_url,
-        json={
-            "event_type": "metric_execution_completed",
-            "actor_type": "tool",
-            "actor_id": "mock_metric_runner",
-            "payload": {"metric_results_created": 1},
-        },
-    )
+    # The public route only accepts user-attributed entries (see
+    # test_audit_ledger_post_rejects_non_user_actor_type below); system/tool
+    # entries are written by internal pipeline code via the service function
+    # directly, exercised here the same way orchestration.py does.
+    with Session(db_session.engine) as session:
+        audit_ledger.append_ledger_entry(
+            session,
+            run_id=UUID(run["id"]),
+            payload=AuditLedgerEntryCreate(
+                event_type="metric_execution_completed",
+                actor_type=LedgerActorType.tool,
+                actor_id="mock_metric_runner",
+                payload={"metric_results_created": 1},
+            ),
+        )
 
     assert first_response.status_code == 201
-    assert second_response.status_code == 201
     first = first_response.json()
-    second = second_response.json()
+    second = client.get(ledger_url).json()[1]
     assert first["previous_hash"] is None
     assert second["previous_hash"] == first["entry_hash"]
 
@@ -89,6 +94,10 @@ def test_audit_ledger_entries_are_appended_listed_and_verified(
         "entry_count": 2,
         "failed_entry_id": None,
         "reason": None,
+        # No content_digest was recorded on either manually-created entry, so
+        # there is nothing to content-check here.
+        "content_valid": None,
+        "content_checks": [],
     }
 
 
@@ -129,7 +138,7 @@ def test_audit_ledger_requires_existing_run(client: TestClient) -> None:
 
     response = client.post(
         f"/api/v1/evaluation-runs/{run_id}/ledger",
-        json={"event_type": "missing_run"},
+        json={"event_type": "missing_run", "actor_type": "user"},
     )
 
     assert response.status_code == 404
@@ -146,7 +155,9 @@ def test_audit_ledger_entry_is_scoped_to_run(client: TestClient) -> None:
     second_run = create_run(client, second_system["id"])
     first_ledger_url = f"/api/v1/evaluation-runs/{first_run['id']}/ledger"
     second_ledger_url = f"/api/v1/evaluation-runs/{second_run['id']}/ledger"
-    entry = client.post(first_ledger_url, json={"event_type": "scoped"}).json()
+    entry = client.post(
+        first_ledger_url, json={"event_type": "scoped", "actor_type": "user"}
+    ).json()
 
     response = client.get(f"{second_ledger_url}/{entry['id']}")
 
@@ -155,3 +166,28 @@ def test_audit_ledger_entry_is_scoped_to_run(client: TestClient) -> None:
         "resource": "Audit ledger entry",
         "id": entry["id"],
     }
+
+
+def test_audit_ledger_post_rejects_non_user_actor_type(client: TestClient) -> None:
+    # Only manual, human-attributed annotations may be created through the
+    # public route — system/agent/tool entries must come from internal
+    # pipeline code calling the service directly, never a client-forgeable
+    # HTTP body, otherwise anyone could inject a fabricated pipeline event
+    # into the hash chain.
+    system = create_system(client)
+    run = create_run(client, system["id"])
+    ledger_url = f"/api/v1/evaluation-runs/{run['id']}/ledger"
+
+    for forged_actor_type in ("system", "agent", "tool"):
+        response = client.post(
+            ledger_url,
+            json={
+                "event_type": "forged_event",
+                "actor_type": forged_actor_type,
+                "actor_id": "attacker-controlled",
+            },
+        )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    assert client.get(ledger_url).json() == []

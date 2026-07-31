@@ -156,19 +156,36 @@ class ModelBackedAgent:
 
         return getattr(context.ai_system, "risk_tier", None) == RiskTier.high
 
-    def _metrics_for_review(
+    def _owned_metrics(
         self,
         context: AgentContext,
         *,
         metric_ids: set[str],
         keywords: tuple[str, ...],
-    ) -> tuple[list, list]:
+    ) -> list:
+        """Every metric result this agent is responsible for, planned or not.
+
+        An EMPTY result here means no metric was ever planned for this
+        agent's dimension on this run — distinct from "owned metrics exist
+        and all passed", which is a real, visible evaluation. Callers must
+        check this before ``_metrics_for_review`` and emit a coverage-gap
+        finding when it's empty, otherwise "never evaluated" and "evaluated
+        and clean" are indistinguishable in the stored findings.
+        """
+        return [
+            m for m in context.metric_results
+            if (
+                m.metric_id in metric_ids
+                or any(k in f"{m.metric_id} {m.dimension}".lower() for k in keywords)
+            )
+        ]
+
+    def _metrics_for_review(self, context: AgentContext, *, owned: list) -> tuple[list, list]:
         """Split this agent's owned metrics into (review, attention) lists.
 
-        ``owned``    = every metric result this agent is responsible for.
-        ``attention``= the failed/pending subset (drives deterministic fallback
-                       findings — passing metrics must never produce fallback
-                       failure findings).
+        ``attention``= the failed/pending subset of ``owned`` (drives
+                       deterministic fallback findings — passing metrics must
+                       never produce fallback failure findings).
         ``review``   = what the agent probes/reasons over: the attention set,
                        or — in high-risk verification mode — ALL owned metrics
                        even when they passed.
@@ -176,13 +193,6 @@ class ModelBackedAgent:
         """
         from app.services.agents.helpers import metric_failed, metric_pending
 
-        owned = [
-            m for m in context.metric_results
-            if (
-                m.metric_id in metric_ids
-                or any(k in f"{m.metric_id} {m.dimension}".lower() for k in keywords)
-            )
-        ]
         attention = [m for m in owned if metric_failed(m) or metric_pending(m)]
         if attention:
             return attention, attention

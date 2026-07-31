@@ -66,9 +66,10 @@ in services, per the spec invariant.
 
 ### Layer 2 Implementation (Adaptive Orchestrator)
 
-Layer 2 is implemented as the `app/services/adaptive_orchestrator` package and is
-deterministic. `planner.build_evaluation_plan` combines the run's metric plan, the
-system's risk tier, and the Layer 1 coverage gaps into an evaluation plan:
+Layer 2 is implemented as the `app/services/adaptive_orchestrator` package.
+`planner.build_evaluation_plan` — the core planning logic — is deterministic
+and combines the run's metric plan, the system's risk tier, and the Layer 1
+coverage gaps into an evaluation plan:
 
 - activates the agents responsible for the planned metrics;
 - assigns coverage gaps to agents by dimension (falling back to the control's
@@ -85,6 +86,15 @@ audit-ledger entry, and transitions the run to the `planned` status /
 `adaptive_orchestrator` phase. The `/orchestrate` pipeline prepares the plan before
 execution and, when no agents are explicitly requested, runs exactly the agents the
 plan activated.
+
+**The layer as a whole is not fully deterministic.** `prepare_evaluation_plan`
+calls `_apply_llm_plan_review` *before* the deterministic planner runs, and its
+result can narrow `run.selected_metrics` — an LLM call whose output can differ
+across runs (model sampling/version drift) even given identical inputs. This is
+observable, not silent: the review's output is captured in `plan.llm_review`,
+so an auditor can always see what it changed and why. Read this section as
+"deterministic core plus an observable, non-deterministic narrowing pass," not
+as a guarantee that identical inputs always produce an identical plan.
 
 ## Major Components
 
@@ -214,3 +224,25 @@ Target model output is untrusted at every boundary.
 - Add an agent by implementing the common finding contract.
 - Add a report view by consuming stored state/evidence rather than rerunning
   evaluations.
+
+## Known Limitations
+
+Deliberately deferred, not silently missing:
+
+- **Specialist/council model diversity.** All specialist agents and all three
+  council agents (Synthesis, Devil's Advocate, Verdict) currently share one
+  governance model client. A systematic blind spot in that model/prompt style
+  can propagate to every "independent" opinion and to the body adjudicating
+  them. Fixing this needs either a second Azure AI Foundry deployment or a
+  second model provider — an infra decision, not a code change.
+- **Role-based access control / segregation of duties.** `role` on a user is
+  free text supplied at self-serve signup and is not checked by any route —
+  any authenticated user can register systems, approve their own metric
+  plans, and override verdicts. There is no maker/checker separation.
+- **Statistical confidence calibration.** `Verdict.confidence_score` is a
+  governance model's self-reported number, only backstopped by a fixed
+  threshold (`verdict_agent._SUFFICIENCY_THRESHOLD`) — it is not calibrated
+  against ground-truth outcomes. The verdict-override capture
+  (`POST /evaluation-runs/{run_id}/verdict/override`) exists so a future
+  calibration pass has real human-disagreement data to work with, but no
+  calibration model is built from it yet.

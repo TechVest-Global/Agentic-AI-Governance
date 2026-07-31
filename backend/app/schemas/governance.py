@@ -241,6 +241,13 @@ class AuditLedgerChainVerification(APIModel):
     entry_count: int
     failed_entry_id: UUID | None = None
     reason: str | None = None
+    # Additive: whether the Finding/MetricResult rows the ledger summarizes
+    # still match the digest recorded at write time. None when neither phase
+    # has completed yet (nothing to check); the hash-chain fields above only
+    # prove the ledger rows themselves are untampered, not the domain rows
+    # they describe — see app.services.content_integrity.
+    content_valid: bool | None = None
+    content_checks: list[dict[str, object]] = Field(default_factory=list)
 
 
 class MetricConfigCreate(APIModel):
@@ -472,6 +479,17 @@ class VerdictRead(VerdictCreate):
     run_id: UUID
     created_at: datetime
     updated_at: datetime | None = None
+    # Override capture (calibration plumbing) — see VerdictOverrideCreate.
+    # Additive: the original fields above are never mutated by an override.
+    human_override_label: str | None = None
+    human_override_reason: str | None = None
+    overridden_by: str | None = None
+    overridden_at: datetime | None = None
+
+
+class VerdictOverrideCreate(APIModel):
+    human_override_label: str = Field(min_length=1, max_length=100)
+    human_override_reason: str = Field(min_length=1)
 
 
 class CouncilDeliberationCreate(APIModel):
@@ -503,6 +521,7 @@ class GovernanceReportRead(APIModel):
     findings: list[FindingRead] = Field(default_factory=list)
     verdict: VerdictRead | None = None
     state_chain: GovernanceStateChainVerification
+    ledger_chain: AuditLedgerChainVerification
     counts: dict[str, int] = Field(default_factory=dict)
 
 

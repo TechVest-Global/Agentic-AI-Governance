@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlmodel import Session
 
 from app.api.routes.auth import get_current_user
+from app.core.exceptions import ApplicationError
 from app.db.session import get_session
 from app.models.enums import LedgerActorType
 from app.schemas.governance import (
@@ -13,6 +14,7 @@ from app.schemas.governance import (
     AuditLedgerEntryRead,
 )
 from app.services import audit_ledger as service
+from app.services import content_integrity
 
 router = APIRouter(prefix="/evaluation-runs/{run_id}/ledger")
 SessionDependency = Annotated[Session, Depends(get_session)]
@@ -29,12 +31,23 @@ def append_ledger_entry(
     session: SessionDependency,
     current_user: Annotated[object, Depends(get_current_user)] = None,
 ) -> AuditLedgerEntryRead:
-    # A caller can request actor_type=user, but who that user *is* comes from
-    # the authenticated identity, never the request body — otherwise anyone
-    # could write a ledger entry claiming to be a different approver/user.
-    # System/agent/tool-attributed entries (internal pipeline calls) are
-    # unaffected since they don't come through this public route as "user".
-    if current_user is not None and payload.actor_type == LedgerActorType.user:
+    # This public route is for manual, human-attributed annotations only.
+    # system/agent/tool-attributed entries are written exclusively by internal
+    # pipeline code calling the audit_ledger service directly (never this HTTP
+    # route) — allowing a caller to POST those actor_types here would let any
+    # authenticated user forge an entry that looks like it came from the
+    # pipeline itself, indistinguishable once hash-chained.
+    if payload.actor_type != LedgerActorType.user:
+        raise ApplicationError(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message="Only user-attributed ledger entries may be created via this route.",
+            details={"actor_type": str(payload.actor_type)},
+        )
+    # Who that user *is* comes from the authenticated identity, never the
+    # request body — otherwise anyone could write an entry claiming to be a
+    # different approver/user.
+    if current_user is not None:
         payload = payload.model_copy(update={"actor_id": current_user.email})
     return service.append_ledger_entry(session, run_id=run_id, payload=payload)
 
@@ -63,7 +76,13 @@ def verify_ledger_chain(
     run_id: UUID,
     session: SessionDependency,
 ) -> AuditLedgerChainVerification:
-    return service.verify_ledger_chain(session, run_id=run_id)
+    chain_result = service.verify_ledger_chain(session, run_id=run_id)
+    content_result = content_integrity.verify_content_integrity(session, run_id=run_id)
+    return AuditLedgerChainVerification(
+        **chain_result,
+        content_valid=content_result["valid"],
+        content_checks=content_result["checks"],
+    )
 
 
 @router.get("/{entry_id}", response_model=AuditLedgerEntryRead)

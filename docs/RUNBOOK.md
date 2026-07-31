@@ -154,6 +154,52 @@ Docker is optional. If you are using the fallback compose workflow, make sure
 Docker Desktop is running and the terminal has permission to access the Docker
 engine.
 
+## Database Backups
+
+The database (registered systems, runs, findings, the audit ledger) lives
+only in the Docker volume the compose stack mounts — there is no other copy,
+and that volume was lost once already (2026-07-08, Docker Desktop WSL
+rebuild). `backend/scripts/backup_database.py` shells out to `pg_dump`
+inside the running `agentic-ai-governance-postgres` container and writes a
+timestamped dump to `./backups/` (outside the Docker volume), pruning beyond
+a retention count. It also appends each run's current audit-ledger
+`entry_hash`/`entry_count` to `./backups/ledger_anchors.log` — a checkpoint
+outside the database itself, so a later comparison can catch the *tail* of
+a run's ledger having been deleted (which the ledger's own hash chain alone
+cannot detect, since a shortened-but-otherwise-untouched chain still
+verifies as valid).
+
+Run manually:
+
+```powershell
+cd backend
+..\.venv\Scripts\python.exe -m scripts.backup_database
+```
+
+A daily Windows Scheduled Task (`AgenticGovernanceDBBackup`, 2:00 AM) runs
+this unattended. It was registered with:
+
+```powershell
+$repo = "C:\Users\12368\OneDrive\Desktop\aiintern\Agentic-AI-Governance"
+$python = "$repo\.venv\Scripts\python.exe"
+$backendDir = "$repo\backend"
+$action = "cmd /c cd /d `"$backendDir`" && `"$python`" -m scripts.backup_database"
+schtasks /create /tn "AgenticGovernanceDBBackup" /tr $action /sc daily /st 02:00 /f
+```
+
+Check its status or run it on demand:
+
+```powershell
+schtasks /query /tn "AgenticGovernanceDBBackup" /v /fo list
+schtasks /run /tn "AgenticGovernanceDBBackup"
+```
+
+Remove it:
+
+```powershell
+schtasks /delete /tn "AgenticGovernanceDBBackup" /f
+```
+
 ## Recovery Notes
 
 - If a migration fails before production data exists, inspect the migration and
