@@ -171,7 +171,9 @@ def _findings_from_governance(
 ) -> list[FindingCreate]:
     results: list[FindingCreate] = []
     metric_map = {m.metric_id: m for m in context.metric_results}
-    reviewed_evidence_ids = sorted({eid for m in reviewed_metrics for eid in (m.evidence_ids or [])})
+    reviewed_evidence_ids = sorted(
+        {eid for m in reviewed_metrics for eid in (m.evidence_ids or [])}
+    )
     for item in raw:
         try:
             severity = Severity(str(item.get("severity", "medium")).lower())

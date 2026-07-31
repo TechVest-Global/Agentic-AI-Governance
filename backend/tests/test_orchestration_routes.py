@@ -174,7 +174,10 @@ def test_full_pipeline_stays_degraded_when_an_agent_fails(
     assert run_after["status"] == "degraded"
     assert run_after["current_phase"] == "completed"
     assert run_after["error_summary"]["degraded_reason"] == "specialist_agent_failure"
-    assert run_after["error_summary"]["failed_agents"] == [
+    # Detail is nested per failure reason, because a run can lose an agent AND the
+    # verdict AND the report in one pass and must report all of them — see
+    # test_pipeline_partial_failure.py.
+    assert run_after["error_summary"]["specialist_agent_failure"]["failed_agents"] == [
         {
             "agent_name": "failing_agent",
             "error": {

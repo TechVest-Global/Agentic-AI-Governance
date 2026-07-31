@@ -198,7 +198,13 @@ def test_llm_calls_after_re_probe_remediation_are_still_logged(
         name="Council ReProbe System",
         metric_id="COUNCIL-REPROBE",
         control_ref="MAP-REPROBE",
-        mock_score=0.5,
+        # Must PASS. This test needs the re_probe remediation path to actually be
+        # taken, and the router now short-circuits an insufficient verdict when a
+        # metric has conclusively failed — no remediation path re-runs metric
+        # execution, so iterating on a failed metric can never change the outcome
+        # (see test_council_conclusive_exit.py). A passing metric keeps the
+        # shortfall genuinely remediable, which is the case remediation exists for.
+        mock_score=0.95,
     )
 
     # Patch _parse_verdict (not adjudicate() itself) so the real governance

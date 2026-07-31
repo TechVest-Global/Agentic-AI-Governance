@@ -152,7 +152,9 @@ class RiskScorerAgent(ModelBackedAgent):
             ]
 
         # High-risk verification mode: probe even when all owned metrics passed.
-        oversight_metrics, attention_metrics = self._metrics_for_review(context, owned=owned_metrics)
+        oversight_metrics, attention_metrics = self._metrics_for_review(
+            context, owned=owned_metrics
+        )
 
         if not oversight_metrics:
             return findings
@@ -223,7 +225,9 @@ def _findings_from_governance(
 ) -> list[FindingCreate]:
     results: list[FindingCreate] = []
     metric_map = {m.metric_id: m for m in context.metric_results}
-    reviewed_evidence_ids = sorted({eid for m in reviewed_metrics for eid in (m.evidence_ids or [])})
+    reviewed_evidence_ids = sorted(
+        {eid for m in reviewed_metrics for eid in (m.evidence_ids or [])}
+    )
     for item in raw:
         try:
             severity = Severity(str(item.get("severity", "high")).lower())

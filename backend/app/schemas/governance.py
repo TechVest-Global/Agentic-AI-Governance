@@ -521,6 +521,10 @@ class GovernanceReportRead(APIModel):
     findings: list[FindingRead] = Field(default_factory=list)
     verdict: VerdictRead | None = None
     state_chain: GovernanceStateChainVerification
+    # The run keeps TWO hash-chained append-only records — the state chain and
+    # the audit ledger — but the report verified only the first. A reader seeing
+    # a report that attests to chain integrity would reasonably assume the audit
+    # trail was covered; it was not. Both are verified and reported now.
     ledger_chain: AuditLedgerChainVerification
     counts: dict[str, int] = Field(default_factory=dict)
 
@@ -778,8 +782,12 @@ class GovernancePipelineRunRead(APIModel):
     evaluation_plan: EvaluationPlanRead | None = None
     metric_execution: MetricExecutionRead
     agent_run: AgentRunRead
-    council: CouncilDeliberationRead
-    report: GovernanceReportRead
+    # Both optional so a run whose council or report step failed still returns
+    # the evidence the earlier phases DID produce, instead of the whole pipeline
+    # collapsing to an error and discarding it. The run is marked `degraded` and
+    # the reason recorded in error_summary — see orchestration._execute_and_report.
+    council: CouncilDeliberationRead | None = None
+    report: GovernanceReportRead | None = None
 
 
 # ---------------------------------------------------------------------------

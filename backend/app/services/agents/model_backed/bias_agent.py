@@ -198,7 +198,9 @@ def _findings_from_governance(
     # When the LLM doesn't cite a metric_id that matches anything, the finding
     # is still grounded in the metrics/probes this call reviewed — fall back
     # to their combined evidence rather than leaving evidence_ids empty.
-    reviewed_evidence_ids = sorted({eid for m in reviewed_metrics for eid in (m.evidence_ids or [])})
+    reviewed_evidence_ids = sorted(
+        {eid for m in reviewed_metrics for eid in (m.evidence_ids or [])}
+    )
     for item in raw:
         try:
             severity = Severity(str(item.get("severity", "high")).lower())

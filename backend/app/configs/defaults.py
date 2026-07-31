@@ -25,7 +25,7 @@ DEFAULT_METRIC_CONFIGS: tuple[MetricConfigCreate, ...] = (
             "personal or sensitive information."
         ),
         dimension="Privacy",
-        primary_agent="compliance_agent",
+        primary_agent="compliance_mapper",
         tool_name="mock_metric_runner",
         framework_ids=["nist_ai_rmf", "iso_42001"],
         modality="text",
@@ -57,7 +57,7 @@ DEFAULT_METRIC_CONFIGS: tuple[MetricConfigCreate, ...] = (
             "selected governance frameworks."
         ),
         dimension="Compliance",
-        primary_agent="compliance_agent",
+        primary_agent="compliance_mapper",
         tool_name="mock_metric_runner",
         framework_ids=["nist_ai_rmf", "iso_42001"],
         modality="text",
@@ -73,7 +73,7 @@ DEFAULT_METRIC_CONFIGS: tuple[MetricConfigCreate, ...] = (
             "by appropriate human review."
         ),
         dimension="Risk Controls",
-        primary_agent="risk_agent",
+        primary_agent="risk_scorer",
         tool_name="mock_metric_runner",
         framework_ids=["nist_ai_rmf"],
         modality="workflow",
@@ -172,7 +172,7 @@ DEFAULT_FRAMEWORK_MAPPINGS: tuple[FrameworkMappingCreate, ...] = (
             "risk thresholds, and review responsibilities."
         ),
         metric_ids=["GOV-M004", "GOV-M005"],
-        agent_names=["compliance_agent", "risk_agent"],
+        agent_names=["compliance_mapper", "risk_scorer"],
         risk_tiers=["medium", "high"],
         evidence_requirements=["context_profile", "capability_inventory", "metric_result"],
         metadata_json={"default_seed": True},
@@ -190,7 +190,7 @@ DEFAULT_FRAMEWORK_MAPPINGS: tuple[FrameworkMappingCreate, ...] = (
             "and foreseeable misuse should be documented before evaluation."
         ),
         metric_ids=["GOV-M001", "GOV-M002", "GOV-M003"],
-        agent_names=["explainability_agent", "compliance_agent", "misuse_agent"],
+        agent_names=["explainability_agent", "compliance_mapper", "misuse_agent"],
         risk_tiers=["low", "medium", "high"],
         evidence_requirements=["application_context_profile", "evidence_record"],
         metadata_json={"default_seed": True},
@@ -226,7 +226,7 @@ DEFAULT_FRAMEWORK_MAPPINGS: tuple[FrameworkMappingCreate, ...] = (
             "resolved through a documented verdict and audit trail."
         ),
         metric_ids=["GOV-M003", "GOV-M004", "GOV-M005"],
-        agent_names=["risk_agent", "misuse_agent", "compliance_agent"],
+        agent_names=["risk_scorer", "misuse_agent", "compliance_mapper"],
         risk_tiers=["medium", "high"],
         evidence_requirements=["finding", "verdict", "audit_ledger_entry"],
         metadata_json={"default_seed": True},
@@ -247,7 +247,7 @@ DEFAULT_FRAMEWORK_MAPPINGS: tuple[FrameworkMappingCreate, ...] = (
             "accountability for AI systems that plan and take actions."
         ),
         metric_ids=["GOV-M004", "GOV-M005"],
-        agent_names=["compliance_agent", "risk_agent"],
+        agent_names=["compliance_mapper", "risk_scorer"],
         risk_tiers=["medium", "high"],
         evidence_requirements=["context_profile", "capability_inventory", "audit_ledger_entry"],
         metadata_json={"default_seed": True},
@@ -265,7 +265,7 @@ DEFAULT_FRAMEWORK_MAPPINGS: tuple[FrameworkMappingCreate, ...] = (
             "under adversarial conditions, including unsafe tool-call attempts."
         ),
         metric_ids=["GOV-M003", "GOV-M005"],
-        agent_names=["misuse_agent", "risk_agent"],
+        agent_names=["misuse_agent", "risk_scorer"],
         risk_tiers=["medium", "high"],
         evidence_requirements=["metric_result", "evidence_record", "finding"],
         metadata_json={"default_seed": True},
@@ -283,7 +283,7 @@ DEFAULT_FRAMEWORK_MAPPINGS: tuple[FrameworkMappingCreate, ...] = (
             "override of consequential autonomous actions."
         ),
         metric_ids=["GOV-M005"],
-        agent_names=["risk_agent"],
+        agent_names=["risk_scorer"],
         risk_tiers=["high"],
         evidence_requirements=["capability_inventory", "metric_result", "audit_ledger_entry"],
         metadata_json={"default_seed": True},
@@ -301,7 +301,7 @@ DEFAULT_FRAMEWORK_MAPPINGS: tuple[FrameworkMappingCreate, ...] = (
             "and reviewed through repeatable operational evidence."
         ),
         metric_ids=["GOV-M002", "GOV-M004", "GOV-M007"],
-        agent_names=["compliance_agent", "drift_agent"],
+        agent_names=["compliance_mapper", "drift_agent"],
         risk_tiers=["medium", "high"],
         evidence_requirements=["metric_result", "governance_state_entry"],
         metadata_json={"default_seed": True},
@@ -321,7 +321,7 @@ DEFAULT_FRAMEWORK_MAPPINGS: tuple[FrameworkMappingCreate, ...] = (
             "against intended behaviour before and during operation."
         ),
         metric_ids=["GOV-M003", "GOV-M005"],
-        agent_names=["misuse_agent", "risk_agent"],
+        agent_names=["misuse_agent", "risk_scorer"],
         risk_tiers=["medium", "high"],
         evidence_requirements=["metric_result", "finding"],
         metadata_json={"default_seed": True},
@@ -339,7 +339,7 @@ DEFAULT_FRAMEWORK_MAPPINGS: tuple[FrameworkMappingCreate, ...] = (
             "lifecycle with repeatable operational evidence."
         ),
         metric_ids=["GOV-M005", "GOV-M007"],
-        agent_names=["risk_agent", "drift_agent"],
+        agent_names=["risk_scorer", "drift_agent"],
         risk_tiers=["medium", "high"],
         evidence_requirements=["metric_result", "governance_state_entry"],
         metadata_json={"default_seed": True},
@@ -357,7 +357,7 @@ DEFAULT_FRAMEWORK_MAPPINGS: tuple[FrameworkMappingCreate, ...] = (
             "be defined and monitored for AI system actions."
         ),
         metric_ids=["GOV-M005"],
-        agent_names=["risk_agent"],
+        agent_names=["risk_scorer"],
         risk_tiers=["high"],
         evidence_requirements=["capability_inventory", "metric_result", "audit_ledger_entry"],
         metadata_json={"default_seed": True},
@@ -375,7 +375,7 @@ DEFAULT_FRAMEWORK_MAPPINGS: tuple[FrameworkMappingCreate, ...] = (
             "process with identified hazards, mitigations, and residual risk."
         ),
         metric_ids=["CM-040", "CM-041", "CM-042", "CM-043", "CM-044"],
-        agent_names=["risk_agent", "compliance_agent"],
+        agent_names=["risk_scorer", "compliance_mapper"],
         risk_tiers=["high"],
         evidence_requirements=["context_profile", "metric_result", "verdict"],
         metadata_json={"default_seed": True},
@@ -393,7 +393,7 @@ DEFAULT_FRAMEWORK_MAPPINGS: tuple[FrameworkMappingCreate, ...] = (
             "relevant, representative, and checked for bias where applicable."
         ),
         metric_ids=["CM-017", "CM-018", "CM-019", "CM-020", "CM-021"],
-        agent_names=["bias_agent", "compliance_agent"],
+        agent_names=["bias_agent", "compliance_mapper"],
         risk_tiers=["medium", "high"],
         evidence_requirements=["metric_result", "finding", "coverage_gap"],
         metadata_json={"default_seed": True},
@@ -411,7 +411,7 @@ DEFAULT_FRAMEWORK_MAPPINGS: tuple[FrameworkMappingCreate, ...] = (
             "users and downstream reviewers."
         ),
         metric_ids=["CM-035", "CM-036", "CM-037", "CM-038", "CM-039"],
-        agent_names=["explainability_agent", "compliance_agent"],
+        agent_names=["explainability_agent", "compliance_mapper"],
         risk_tiers=["medium", "high"],
         evidence_requirements=["metric_result", "evidence_record"],
         metadata_json={"default_seed": True},
@@ -429,7 +429,7 @@ DEFAULT_FRAMEWORK_MAPPINGS: tuple[FrameworkMappingCreate, ...] = (
             "action routing should be auditable."
         ),
         metric_ids=["CM-040", "CM-041", "CM-042", "CM-043", "CM-044"],
-        agent_names=["risk_agent", "compliance_agent"],
+        agent_names=["risk_scorer", "compliance_mapper"],
         risk_tiers=["high"],
         evidence_requirements=["capability_inventory", "metric_result", "audit_ledger_entry"],
         metadata_json={"default_seed": True},
@@ -465,7 +465,7 @@ DEFAULT_FRAMEWORK_MAPPINGS: tuple[FrameworkMappingCreate, ...] = (
             "prompts, and protected retrieval context."
         ),
         metric_ids=["CM-022", "CM-023", "CM-024", "CM-025"],
-        agent_names=["compliance_agent", "misuse_agent"],
+        agent_names=["compliance_mapper", "misuse_agent"],
         risk_tiers=["medium", "high"],
         evidence_requirements=["metric_result", "evidence_record", "finding"],
         metadata_json={"default_seed": True},
@@ -506,7 +506,7 @@ DEFAULT_FRAMEWORK_MAPPINGS: tuple[FrameworkMappingCreate, ...] = (
             "limits and human oversight before execution."
         ),
         metric_ids=["CM-040", "CM-042", "CM-026"],
-        agent_names=["risk_agent", "misuse_agent"],
+        agent_names=["risk_scorer", "misuse_agent"],
         risk_tiers=["high"],
         evidence_requirements=["capability_inventory", "metric_result", "audit_ledger_entry"],
         metadata_json={"default_seed": True},
@@ -542,7 +542,7 @@ DEFAULT_FRAMEWORK_MAPPINGS: tuple[FrameworkMappingCreate, ...] = (
             "misreport, or fabricate its actions or reasoning."
         ),
         metric_ids=["CM-013", "CM-015", "CM-040"],
-        agent_names=["misuse_agent", "risk_agent"],
+        agent_names=["misuse_agent", "risk_scorer"],
         risk_tiers=["medium", "high"],
         evidence_requirements=["metric_result", "finding", "audit_ledger_entry"],
         metadata_json={"default_seed": True},
