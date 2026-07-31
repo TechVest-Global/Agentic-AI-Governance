@@ -503,6 +503,11 @@ class GovernanceReportRead(APIModel):
     findings: list[FindingRead] = Field(default_factory=list)
     verdict: VerdictRead | None = None
     state_chain: GovernanceStateChainVerification
+    # The run keeps TWO hash-chained append-only records — the state chain and
+    # the audit ledger — but the report verified only the first. A reader seeing
+    # a report that attests to chain integrity would reasonably assume the audit
+    # trail was covered; it was not. Both are verified and reported now.
+    ledger_chain: AuditLedgerChainVerification
     counts: dict[str, int] = Field(default_factory=dict)
 
 

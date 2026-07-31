@@ -410,6 +410,7 @@ def _execute_and_report(
             payload={
                 "counts": report.counts,
                 "state_chain_valid": report.state_chain.valid,
+                "ledger_chain_valid": report.ledger_chain.valid,
             },
         )
 
