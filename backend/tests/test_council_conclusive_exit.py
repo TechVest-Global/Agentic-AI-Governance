@@ -182,16 +182,87 @@ def test_conclusive_block_still_routes_to_human_review() -> None:
     assert verdict.label == "blocked"
     assert verdict.action_tier is ActionTier.human_review
     assert route(
-        VerdictAgent._stamp_remediability(verdict, failed), iteration=1
+        VerdictAgent._apply_policy_floor(verdict, failed), iteration=1
     ).exit is RouterExit.action
 
 
-def test_stamp_remediability_applies_to_the_fallback_path() -> None:
+def test_policy_floor_applies_to_the_fallback_path() -> None:
     """The router must behave the same whether the LLM or the fallback decided."""
     failed = [_metric("CM-003", status=MetricResultStatus.failed, passed=False)]
     verdict = _deterministic_fallback([], failed, iteration=1)
 
-    assert VerdictAgent._stamp_remediability(verdict, failed).remediable is False
+    assert VerdictAgent._apply_policy_floor(verdict, failed).remediable is False
+
+
+# --------------------------------------------------------------------------
+# The governance floor: one policy, whichever path decided
+# --------------------------------------------------------------------------
+
+
+def test_a_failed_metric_cannot_be_approved_by_the_model() -> None:
+    """The two paths encoded different policies; the same evidence gave
+    approved/autonomous via the LLM and blocked/human_review via the fallback.
+
+    _deterministic_fallback refuses to approve while any metric has failed. The
+    LLM template has no such rule, so the model could approve a system with a
+    failed control — making the verdict depend on whether the judge happened to
+    be reachable. Whether a failed control blocks approval is policy, not a
+    judgement to delegate, so it is enforced in code.
+    """
+    failed = [_metric("CM-003", status=MetricResultStatus.failed, passed=False)]
+
+    approving = VerdictOutput(
+        confidence_score=0.9,
+        sufficient=True,
+        label="approved",
+        action_tier=ActionTier.autonomous,
+        reasoning="model thought it looked fine",
+        remediation_type=None,
+        target_agent=None,
+    )
+    floored = VerdictAgent._apply_policy_floor(approving, failed)
+
+    assert floored.sufficient is False
+    assert floored.label == "blocked"
+    assert floored.action_tier is ActionTier.human_review
+    # And having been floored, it is also conclusive — so it decides immediately.
+    assert route(floored, iteration=1).exit is RouterExit.action
+
+
+def test_the_floor_does_not_touch_a_clean_run() -> None:
+    """Guard against the floor blocking systems that did not fail anything."""
+    passing = [_metric("CM-003", status=MetricResultStatus.passed, passed=True)]
+
+    approving = VerdictOutput(
+        confidence_score=0.9,
+        sufficient=True,
+        label="approved",
+        action_tier=ActionTier.autonomous,
+        reasoning="clean",
+        remediation_type=None,
+        target_agent=None,
+    )
+    floored = VerdictAgent._apply_policy_floor(approving, passing)
+
+    assert floored.sufficient is True
+    assert floored.label == "approved"
+    assert floored.action_tier is ActionTier.autonomous
+
+
+def test_the_floor_leaves_findings_driven_shortfalls_to_the_model() -> None:
+    """Deliberately narrow: only the FAILED-metric rule is enforced.
+
+    The fallback also blocks on high/critical findings, but findings genuinely
+    change between iterations — freezing a verdict on them would break the
+    remediation loop this same change works hard to preserve.
+    """
+    passing = [_metric("CM-003", status=MetricResultStatus.passed, passed=True)]
+    verdict = _insufficient_verdict(label="conditional_approval")
+
+    floored = VerdictAgent._apply_policy_floor(verdict, passing)
+
+    assert floored.label == "conditional_approval"
+    assert floored.remediable is True
 
 
 # --------------------------------------------------------------------------

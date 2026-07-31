@@ -367,24 +367,58 @@ class VerdictAgent:
             )
             parsed = _parse_verdict(response.content, iteration)
             if parsed is not None:
-                return self._stamp_remediability(parsed, metric_results)
+                return self._apply_policy_floor(parsed, metric_results)
             logger.warning("VerdictAgent: could not parse LLM response; using fallback")
         except Exception as exc:
             logger.error("VerdictAgent: governance call failed: %s", exc)
 
-        return self._stamp_remediability(
+        return self._apply_policy_floor(
             _deterministic_fallback(findings, metric_results, iteration), metric_results
         )
 
     @staticmethod
-    def _stamp_remediability(
+    def _apply_policy_floor(
         verdict: VerdictOutput,
         metric_results: list[MetricResult],
     ) -> VerdictOutput:
-        """Record whether iterating again could change this verdict.
+        """Enforce the deterministic governance floor on ANY verdict, then record
+        whether iterating again could change it.
 
-        Applied to BOTH the LLM and the deterministic-fallback paths, so the
-        router behaves identically whichever produced the verdict.
+        Applied to BOTH the LLM and the deterministic-fallback paths, because the
+        two encoded DIFFERENT policies and the same evidence therefore produced
+        different verdicts depending only on whether the judge happened to be
+        reachable:
+
+            one failed metric, LLM path      -> approved / autonomous
+            one failed metric, fallback path -> blocked  / human_review
+
+        _deterministic_fallback refuses to approve while any metric has failed
+        (``sufficient = score >= threshold and failed == 0``, and
+        ``if failed > 0 ... label = "blocked"``). The LLM template carries no such
+        rule — its contract is only "confidence >= threshold AND objections
+        resolved" — so the model could approve a system with a failed control.
+
+        Whether a failed control blocks approval is a governance policy decision,
+        not a judgement call to delegate to a model, so the floor is enforced in
+        code and the model's opinion cannot lift it. The model still decides
+        everything the floor does not constrain: confidence, reasoning, which
+        objections were upheld, and the remediation route.
+
+        Deliberately narrow. Only the FAILED-metric rule is enforced, because that
+        evidence is frozen for the life of the deliberation. The fallback's
+        ``has_high`` findings rule is not enforced here: findings genuinely change
+        between iterations, so freezing a verdict on them would break remediation.
         """
+        if _conclusive_failure_count(metric_results) > 0:
+            verdict.sufficient = False
+            if verdict.label != "blocked":
+                logger.warning(
+                    "VerdictAgent: overriding label '%s' -> 'blocked'; %d metric(s) "
+                    "failed and the governance floor does not permit approval",
+                    verdict.label,
+                    _conclusive_failure_count(metric_results),
+                )
+                verdict.label = "blocked"
+                verdict.action_tier = _safe_action_tier("blocked")
         verdict.remediable = _remediation_can_change_outcome(verdict, metric_results)
         return verdict
