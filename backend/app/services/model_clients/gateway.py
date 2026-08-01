@@ -37,6 +37,23 @@ logger = logging.getLogger(__name__)
 # Per-request audit log buffer (one buffer per thread/async-context)
 # ---------------------------------------------------------------------------
 
+class _CaptureBuffer(list):
+    """The per-run capture buffer, which also remembers whose run and phase it is.
+
+    Subclassing ``list`` keeps every existing contract intact — workers still
+    just ``append``, which is atomic under the GIL — while giving ``_append_log``
+    the run_id it needs to persist an entry the moment it happens, and the
+    pipeline phase to stamp on it. The alternative was threading both through
+    ``bind_log_capture`` into every worker in every phase; contextvars don't
+    cross thread boundaries, but the buffer object itself already does.
+    """
+
+    def __init__(self, run_id: object | None = None, phase: object | None = None) -> None:
+        super().__init__()
+        self.run_id = run_id
+        self.phase = phase
+
+
 _log_buffer: contextvars.ContextVar[list[dict] | None] = contextvars.ContextVar(
     "llm_gateway_log_buffer", default=None
 )
@@ -49,16 +66,32 @@ _current_agent: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 )
 
 
-def start_log_capture() -> None:
-    """Reset the audit buffer for this request context."""
-    _log_buffer.set([])
+def start_log_capture(run_id: object | None = None, phase: object | None = None) -> None:
+    """Reset the audit buffer for this request context.
+
+    Pass the run_id to have each call written to llm_call_logs as it completes
+    instead of only at the phase-end drain (see _persist_now). Omitting it
+    keeps the buffer-only behaviour, which is what tests and any non-run caller
+    want.
+
+    ``phase`` is stamped on every call captured here. Without it a run's calls
+    are one undifferentiated list: a reviewer cannot tell an evaluator's probe
+    in metric execution from a specialist agent's, and the UI has to guess the
+    owning layer from the agent_name/task strings.
+    """
+    _log_buffer.set(_CaptureBuffer(run_id, phase))
 
 
 def drain_log_capture() -> list[dict]:
-    """Return all buffered log entries and clear the buffer."""
+    """Return the log entries still needing a write, and clear the buffer.
+
+    Entries already persisted by _persist_now are filtered out, so a caller's
+    existing "insert everything drained" loop now writes only what the
+    immediate path missed — it never double-inserts.
+    """
     buf = _log_buffer.get(None) or []
     _log_buffer.set(None)
-    return buf
+    return [entry for entry in buf if not entry.pop("_persisted", False)]
 
 
 def get_log_buffer() -> list[dict] | None:
@@ -100,7 +133,36 @@ def _append_log(entry: dict) -> None:
 
     buf = _log_buffer.get(None)
     if buf is not None:
+        # Which pipeline layer made this call. Set here rather than at every
+        # _append_log site so no call site can forget it.
+        entry.setdefault("phase", getattr(buf, "phase", None))
         buf.append(entry)
+        _persist_now(entry, buf)
+
+
+def _persist_now(entry: dict, buf: list[dict]) -> None:
+    """Write this call to llm_call_logs immediately, on its own session.
+
+    Captured calls used to reach the database only when the phase drained its
+    buffer. A specialist-agent or metric-execution phase runs for minutes, so
+    for that whole window GET /llm-calls returned nothing and the Live Run view
+    showed a run with zero probes — and a crash mid-phase discarded every call
+    the phase had made, because the buffer was memory-only.
+
+    Best-effort by design: on any failure the entry stays unflagged in the
+    buffer and the phase-end drain writes it, so this can only ever make the
+    audit log MORE complete than before, never less.
+    """
+    run_id = getattr(buf, "run_id", None)
+    if run_id is None:
+        return
+    try:
+        from app.services.llm_gateway.call_log import persist_call_log_entry
+
+        persist_call_log_entry(run_id, entry)
+        entry["_persisted"] = True
+    except Exception as exc:  # noqa: BLE001 - audit capture must never fail a call
+        logger.debug("LLM Gateway: live call-log write failed, deferring to drain: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +246,23 @@ def _retry_after_seconds(exc: BaseException) -> float | None:
         return max(0.0, min(float(raw), 30.0))
     except (TypeError, ValueError):
         return None  # HTTP-date form — fall back to exponential backoff
+
+
+def _describe_error(exc: BaseException | None) -> str | None:
+    """A one-line, storable reason a call failed.
+
+    Written to LLMCallLog.error_text so a failed row in the UI explains itself.
+    An HTTPError's code is included explicitly: str(HTTPError) renders as
+    "HTTP Error 429: Too Many Requests" for some servers but not all, and the
+    status is the single most useful field for triaging a failed probe.
+    """
+    if exc is None:
+        return None
+    name = type(exc).__name__
+    if isinstance(exc, urllib.error.HTTPError):
+        name = f"{name}[{exc.code}]"
+    detail = str(exc).strip()
+    return f"{name}: {detail}" if detail else name
 
 
 def _backoff(attempt: int, retry_after: float | None = None) -> None:
@@ -292,6 +371,12 @@ class GatewayGovernanceModelClient:
                     "response_chars": 0,
                     "trace_id": None,
                     "policy_flags": [],
+                    # Keep the prompt even though nothing came back: a failed
+                    # governance call is exactly when a reviewer needs to see
+                    # what was asked, and error_text says why it didn't answer.
+                    "prompt_text": request.prompt,
+                    "response_text": None,
+                    "error_text": _describe_error(exc),
                 })
                 raise
 
@@ -313,6 +398,9 @@ class GatewayGovernanceModelClient:
             "response_chars": 0,
             "trace_id": None,
             "policy_flags": [],
+            "prompt_text": request.prompt,
+            "response_text": None,
+            "error_text": _describe_error(last_exc),
         })
         raise last_exc  # type: ignore[misc]
 
@@ -384,6 +472,14 @@ class GatewayTargetModelClient:
             len(request.prompt),
         )
 
+        # LLMCallLog.task is NOT NULL, but capability_name is None for any probe
+        # sent at a system's base endpoint rather than a named capability. That
+        # produced a log entry the database rejects — previously only at the
+        # phase-end commit, which is the SAME commit that writes the run's
+        # result_summary, so one unnamed probe could take down a whole phase's
+        # bookkeeping. Coalesce to a stable label instead.
+        task = request.capability_name or "target_probe"
+
         last_exc: Exception | None = None
         for attempt in range(self._max_retries):
             try:
@@ -402,7 +498,7 @@ class GatewayTargetModelClient:
                 ct = meta.get("completion_tokens")
                 model = meta.get("model") or self.provider
                 _append_log({
-                    "task": request.capability_name,
+                    "task": task,
                     "call_type": "target",
                     "model": model,
                     "deployment_name": getattr(self._inner, "deployment_name", None),
@@ -449,7 +545,7 @@ class GatewayTargetModelClient:
                 # log the attempt before re-raising so it still leaves an audit trail,
                 # matching the exhausted-retries path below instead of vanishing silently.
                 _append_log({
-                    "task": request.capability_name,
+                    "task": task,
                     "call_type": "target",
                     "model": getattr(self._inner, "deployment_name", self.provider),
                     "deployment_name": getattr(self._inner, "deployment_name", None),
@@ -465,12 +561,17 @@ class GatewayTargetModelClient:
                     "response_chars": 0,
                     "trace_id": None,
                     "policy_flags": [],
+                    # Same reasoning as the governance path: the probe that
+                    # failed is the one worth reading.
+                    "prompt_text": request.prompt,
+                    "response_text": None,
+                    "error_text": _describe_error(exc),
                 })
                 raise
 
         # Exhausted retries — log the failure before raising
         _append_log({
-            "task": request.capability_name,
+            "task": task,
             "call_type": "target",
             "model": getattr(self._inner, "deployment_name", self.provider),
             "deployment_name": getattr(self._inner, "deployment_name", None),
@@ -486,5 +587,8 @@ class GatewayTargetModelClient:
             "response_chars": 0,
             "trace_id": None,
             "policy_flags": [],
+            "prompt_text": request.prompt,
+            "response_text": None,
+            "error_text": _describe_error(last_exc),
         })
         raise last_exc  # type: ignore[misc]

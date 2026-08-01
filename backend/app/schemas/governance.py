@@ -799,6 +799,7 @@ class LLMCallLogRead(APIModel):
     id: UUID
     run_id: UUID | None = None
     agent_name: str | None = None
+    phase: str | None = None
     task: str
     call_type: str
     model: str
@@ -818,6 +819,7 @@ class LLMCallLogRead(APIModel):
     created_at: datetime
     prompt_text: str | None = None
     response_text: str | None = None
+    error_text: str | None = None
 
 
 class LLMCallLogSummary(APIModel):

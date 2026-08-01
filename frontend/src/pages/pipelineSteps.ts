@@ -14,6 +14,17 @@ export const PIPELINE_STEPS = [
   ...LAYERS.map((layer, i) => ({ id: layer.id, number: String(i + 1), label: layer.label, eventLayer: layer.eventLayer })),
 ];
 
+/** Layers that actually call a model, so only these get a transcript panel.
+ *  Matches the phase the gateway stamps on each captured call — context
+ *  assembly and reporting are deterministic and would show a permanent
+ *  "no calls" box. */
+export const MODEL_CALLING_LAYERS = new Set([
+  "adaptive_orchestrator",
+  "metric_execution",
+  "specialist_agents",
+  "deliberation_council",
+]);
+
 export const STOPPED_RUN_STATUSES = new Set(["failed", "cancelled", "canceled"]);
 
 export function layerStatus(layerId: string, currentPhase: string, runStatus: string): "done" | "active" | "pending" | "failed" {

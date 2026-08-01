@@ -112,7 +112,7 @@ def deliberate(
     if existing_verdict is not None:
         raise ResourceConflictError("Verdict", "run_id", str(run_id))
 
-    start_log_capture()
+    start_log_capture(run_id, RunPhase.deliberation_council.value)
 
     # Build council agents — share one registry load across all three agents
     governance_client = _get_governance_client()
@@ -766,6 +766,11 @@ def _append_council_ledger(
             actor_type=LedgerActorType.system,
             actor_id="deliberation_council",
             payload={
+                # The Live Run view's Runtime Event Stream filters ledger events
+                # by payload.phase. Without it this event belongs to no layer, so
+                # the Council step showed "no ledger events recorded" even after
+                # a full three-iteration deliberation.
+                "phase": RunPhase.deliberation_council.value,
                 "requested_by": requested_by,
                 "label": label if not exhausted else "blocked",
                 "action_tier": str(action_tier),
