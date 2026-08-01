@@ -119,7 +119,16 @@ class ComplianceMapperAgent(ModelBackedAgent):
         )
 
         if not transparency_metrics:
-            return findings
+            # Owned metrics exist and all passed. A bare `return findings` here
+            # left NO record that the compliance dimension went unprobed, so
+            # "never verified" and "verified and clean" were indistinguishable
+            # in the stored findings — the ambiguity _unprobed_dimension_findings
+            # exists to prevent, and which every other dimension agent already
+            # avoids. Added to `findings` rather than replacing it: an earlier
+            # no-framework finding on this run must not be dropped.
+            return findings + self._unprobed_dimension_findings(
+                context, metric_ids=_TRANSPARENCY_METRIC_IDS, keywords=_TRANSPARENCY_KEYWORDS
+            )
 
         probes: list[TargetProbeResult] = self._run_probes(_PROBE_PROMPTS, context=context)
         if not probes and context.probe_skips.get(self.name):

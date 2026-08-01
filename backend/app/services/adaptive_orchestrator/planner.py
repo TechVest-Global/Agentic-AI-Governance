@@ -80,7 +80,7 @@ def prepare_evaluation_plan(
     # against the target system's context; persists any accepted refinement to
     # run.selected_metrics BEFORE the final plan is built so the plan, metric
     # execution, and agent activation all see the same refined set.
-    start_log_capture()
+    start_log_capture(run_id, RunPhase.adaptive_orchestrator.value)
     llm_review = _apply_llm_plan_review(session, run_id=run_id)
     for entry in drain_log_capture():
         session.add(LLMCallLog(run_id=run_id, **entry))

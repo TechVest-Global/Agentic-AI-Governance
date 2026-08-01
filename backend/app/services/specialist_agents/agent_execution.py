@@ -12,7 +12,7 @@ from app.db import session as db_session
 from app.models.agent import AgentExecution
 from app.models.ai_system import AISystem, AISystemCapability, ApplicationContextProfile
 from app.models.base import utc_now
-from app.models.enums import AgentExecutionStatus, RunPhase, RunStatus
+from app.models.enums import AgentExecutionStatus, LedgerActorType, RunPhase, RunStatus
 from app.models.evaluation import EvaluationRun
 from app.models.evidence import EvidenceRecord, MetricResult
 from app.models.finding import Finding
@@ -21,10 +21,12 @@ from app.schemas.governance import (
     AgentRunCreate,
     AgentRunRead,
     AgentRunSummary,
+    AuditLedgerEntryCreate,
     EvaluationPlanRead,
     FindingCreate,
     MetricPlanItem,
 )
+from app.services import audit_ledger
 from app.services.agents.base import AgentContext, GovernanceAgent
 from app.services.agents.registry import select_agents
 from app.services.model_clients.gateway import (
@@ -190,7 +192,10 @@ def run_agents(
         session.add(run)
         session.commit()
 
-    start_log_capture()
+    # run_id makes each captured call durable as it happens, so a client
+    # watching this (slow) phase sees probes accumulate instead of nothing
+    # until the drain below.
+    start_log_capture(run_id, RunPhase.specialist_agents.value)
     capture_buffer = get_log_buffer()
     if probe_budget_override is not None:
         # Mid-council re_probe remediation needs a *bit* more sample size, not
@@ -399,6 +404,45 @@ def run_agents(
             finding = Finding(run_id=run_id, **finding_payload.model_dump())
             session.add(finding)
             created_findings.append(finding)
+        # One tamper-evident ledger event PER AGENT. The orchestrator writes a
+        # single agent_execution.completed for the whole layer, which is all the
+        # Runtime Event Stream had to show for it: one row covering seven agents,
+        # only after every one of them had finished. The per-agent rows are what
+        # make the fan-out legible in the run trace — and, because each carries
+        # its own execution window, what lets a reviewer confirm the agents
+        # actually overlapped rather than taking the stage label on faith.
+        #
+        # commit=False so the execution row, its findings, and this event land in
+        # the single commit below: a ledger claiming an agent completed must
+        # never outlive a rollback of the work it describes.
+        audit_ledger.append_ledger_entry(
+            session,
+            run_id=run_id,
+            payload=AuditLedgerEntryCreate(
+                event_type="agent.failed" if outcome.error else "agent.completed",
+                actor_type=LedgerActorType.agent,
+                actor_id=agent.name,
+                payload={
+                    # The Runtime Event Stream filters on payload.phase; without
+                    # it these events exist but render on no layer.
+                    "phase": RunPhase.specialist_agents.value,
+                    "agent_name": agent.name,
+                    "status": execution.status.value,
+                    "execution_stage": (execution.metadata_json or {}).get("execution_stage"),
+                    "probe_count": outcome.probe_count,
+                    "probes_skipped": len(outcome.probes_skipped),
+                    "finding_count": len(outcome.findings),
+                    "started_at": outcome.started_at.isoformat(),
+                    "completed_at": outcome.completed_at.isoformat(),
+                    "duration_ms": int(
+                        (outcome.completed_at - outcome.started_at).total_seconds() * 1000
+                    ),
+                    "is_remediation": is_remediation_call,
+                    "error": outcome.error,
+                },
+            ),
+            commit=False,
+        )
         # Commit each agent as it is finalized rather than batching the whole
         # phase into the commit at the end. Every agent finalized here has
         # already made real probe calls against the target system, and the
