@@ -81,6 +81,35 @@ def route(
             ),
         )
 
+    # Exit 1b: insufficient, but CONCLUSIVELY so — decide now rather than loop.
+    #
+    # Sufficiency is gated on there being no failed metric, and no remediation
+    # path re-runs metric execution, so once a metric has failed the gate can
+    # never be satisfied (see _remediation_can_change_outcome). Iterating to the
+    # cap then exited via `exhausted`, which attaches an uncertainty memo saying
+    # the Council "lacked enough evidence to decide" — the opposite of the truth:
+    # the evidence was conclusive and the verdict was already `blocked`.
+    #
+    # This exit routes to the action tier the verdict itself carries. That is not
+    # a weakening: action_tier is always derived from the label via
+    # _safe_action_tier, and `blocked` maps to human_review — the same tier the
+    # exhaustion path forced, reached in one iteration instead of three.
+    if not verdict.remediable:
+        return RouterDecision(
+            exit=RouterExit.action,
+            remediation_type=None,
+            target_agent=None,
+            iteration=iteration,
+            reason=(
+                f"Evidence insufficient by threshold (confidence="
+                f"{verdict.confidence_score:.3f}) but CONCLUSIVE: a failed metric "
+                "cannot be cleared by any remediation path, so no further "
+                f"iteration can change this verdict. Deciding at iteration "
+                f"{iteration} as '{verdict.label}' instead of looping to the cap "
+                "and reporting settled evidence as unresolved uncertainty."
+            ),
+        )
+
     # Exit 2: exhaustion — cap reached, escalate to human review
     if iteration >= MAX_ITERATIONS:
         return RouterDecision(

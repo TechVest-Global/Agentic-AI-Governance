@@ -662,7 +662,7 @@ function ProbesTab({ agent, runId }: { agent: IntelligenceAgent; runId: string |
                 </div>
                 <div className="space-y-2">
                   {group.calls.map(({ call, number }) => (
-                    <ProbeRow
+                    <CallTranscriptRow
                       key={call.id}
                       call={call}
                       number={number}
@@ -679,10 +679,6 @@ function ProbesTab({ agent, runId }: { agent: IntelligenceAgent; runId: string |
     </div>
   );
 }
-
-// One probe row: header + "why this probe" caption, expanding to the full
-// prompt/response transcript, a disparity strip for ranking probes, and a note
-// on what a failure means.
 
 /** One experiment's header plus its probes. Shared by the flat (single-endpoint)
  *  transcript and the endpoint-grouped one, so the two cannot drift apart. */
@@ -712,7 +708,7 @@ function ProbeExperimentGroup({
       </div>
       <div className="space-y-2">
         {group.calls.map(({ call, number }) => (
-          <ProbeRow
+          <CallTranscriptRow
             key={call.id}
             call={call}
             number={number}
@@ -725,7 +721,12 @@ function ProbeExperimentGroup({
   );
 }
 
-function ProbeRow({
+// One call row: header + "why this probe" caption, expanding to the full
+// prompt/response transcript, a disparity strip for ranking probes, and the
+// failure reason when the call didn't succeed. Exported because the same row
+// renders every layer's transcript (see CallTranscripts.tsx) — a target probe
+// from an evaluator and a council reasoning call are the same shape.
+export function CallTranscriptRow({
   call,
   number,
   open,
@@ -737,7 +738,10 @@ function ProbeRow({
   onToggle: () => void;
 }) {
   const meta = probeMetaFor(call.task);
-  const hasText = Boolean(call.prompt_text || call.response_text);
+  const hasText = Boolean(call.prompt_text || call.response_text || call.error_text);
+  // A governance call went to the judge, not the audited system — labelling its
+  // prompt "probe sent to target" misdescribes who was asked.
+  const isTargetCall = call.call_type === "target";
   const responseMedia = mediaFromResponseText(call.response_text);
   const rankingScores = open && !responseMedia ? parseRankingScores(call.response_text) : null;
 
@@ -821,7 +825,9 @@ function ProbeRow({
             <div className="p-3 space-y-1.5">
               <div className="flex items-center gap-2">
                 <MessageSquare className="h-3.5 w-3.5 text-blue-500 dark:text-blue-400" />
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-600 dark:text-blue-400">Probe sent to target</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-600 dark:text-blue-400">
+                  {isTargetCall ? "Probe sent to target" : "Prompt sent to governance model"}
+                </p>
               </div>
               <pre className="rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 text-[11px] leading-5 text-slate-800 dark:text-slate-200 whitespace-pre-wrap font-mono overflow-x-auto max-h-48 overflow-y-auto">
                 {call.prompt_text}
@@ -832,8 +838,14 @@ function ProbeRow({
             <div className="p-3 space-y-1.5">
               <div className="flex items-center gap-2">
                 <MessageSquare className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" />
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-600 dark:text-emerald-400">Response from target</p>
-                <span className="ml-auto text-[10px] text-amber-600 dark:text-amber-400 font-medium">⚠ sanitized · fenced before governance use</span>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-600 dark:text-emerald-400">
+                  {isTargetCall ? "Response from target" : "Governance model response"}
+                </p>
+                {/* Only the AUDITED system's output is untrusted and fenced.
+                    Stamping this on a judge response would misdescribe it. */}
+                {isTargetCall && (
+                  <span className="ml-auto text-[10px] text-amber-600 dark:text-amber-400 font-medium">⚠ sanitized · fenced before governance use</span>
+                )}
               </div>
               {responseMedia ? (
                 <div className="flex items-center justify-center rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3">
@@ -852,9 +864,22 @@ function ProbeRow({
               )}
             </div>
           )}
-          {!call.prompt_text && !call.response_text && (
+          {call.error_text && (
+            <div className="p-3 space-y-1.5">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-3.5 w-3.5 text-red-500 dark:text-red-400" />
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-red-600 dark:text-red-400">
+                  Why this call failed
+                </p>
+              </div>
+              <pre className="rounded bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 p-3 text-[11px] leading-5 text-red-800 dark:text-red-300 whitespace-pre-wrap font-mono overflow-x-auto">
+                {call.error_text}
+              </pre>
+            </div>
+          )}
+          {!call.prompt_text && !call.response_text && !call.error_text && (
             <div className="px-3 py-2 text-[11px] text-slate-500 dark:text-slate-400">
-              Probe text not captured for this run (available from next run onwards).
+              Call text not captured for this run (available from next run onwards).
             </div>
           )}
           {call.trace_id && (
@@ -906,6 +931,7 @@ function ScoreSpread({ scores }: { scores: CandidateScore[] }) {
 function RuntimeTab({ agent, runId }: { agent: IntelligenceAgent; runId: string | null }) {
   const [calls, setCalls] = useState<LlmCall[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [openCallId, setOpenCallId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!runId) return;
@@ -999,6 +1025,25 @@ function RuntimeTab({ agent, runId }: { agent: IntelligenceAgent; runId: string 
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* The table above summarises; this is the substance. The Probes tab only
+          ever shows call_type "target", so an agent whose work is governance
+          reasoning (drift analysis, transparency mapping) had its actual input
+          and output stored, fetched here, and then thrown away at render. */}
+      <div>
+        <SectionTitle icon={Terminal} title="Prompts & Responses" />
+        <div className="space-y-2">
+          {agentCalls.map((call, idx) => (
+            <CallTranscriptRow
+              key={call.id}
+              call={call}
+              number={idx + 1}
+              open={openCallId === call.id}
+              onToggle={() => setOpenCallId(openCallId === call.id ? null : call.id)}
+            />
+          ))}
         </div>
       </div>
     </div>

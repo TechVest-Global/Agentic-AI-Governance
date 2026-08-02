@@ -20,6 +20,8 @@ import threading
 import time
 
 import pytest
+from openai import APITimeoutError
+
 from app.core.config import get_settings
 from app.services import concurrency_settings
 from app.services.model_clients import target_throttle
@@ -146,21 +148,27 @@ def test_gateway_enforces_the_cap_for_every_caller(monkeypatch) -> None:
 
 
 class _ThrottledOnceClient(_RecordingTargetClient):
-    """Returns HTTP 429 on the first attempt, then succeeds."""
+    """Times out on the first attempt, then succeeds.
+
+    Deliberately a timeout rather than a 429. A 429 now publishes a cooldown
+    shared by every worker probing the target (see GatewayTargetModelClient.
+    _await_cooldown), so it would make the second caller below wait by design —
+    which is the opposite of what this test is about. A timeout is retried with
+    the same backoff but carries no cooldown, so it isolates slot occupancy,
+    the property under test here.
+    """
 
     def __init__(self) -> None:
         super().__init__(hold_seconds=0.0)
-        self._lock_429 = threading.Lock()
+        self._lock_fail = threading.Lock()
         self._failed_once = False
 
     def invoke(self, request: TargetModelRequest) -> TargetModelResponse:
-        import urllib.error
-
-        with self._lock_429:
+        with self._lock_fail:
             first = not self._failed_once
             self._failed_once = True
         if first:
-            raise urllib.error.HTTPError("http://t", 429, "Too Many Requests", {}, None)
+            raise APITimeoutError(request=None)  # type: ignore[arg-type]
         return super().invoke(request)
 
 
@@ -182,7 +190,7 @@ def test_retry_backoff_does_not_occupy_a_slot(monkeypatch) -> None:
     second_finished_at: list[float] = []
 
     def _second() -> None:
-        # Let the first caller take its 429 and enter backoff before starting.
+        # Let the first caller take its timeout and enter backoff before starting.
         time.sleep(0.15)
         gateway.invoke(TargetModelRequest(endpoint_ref="e", prompt="p", capability_name="c"))
         second_finished_at.append(time.monotonic())

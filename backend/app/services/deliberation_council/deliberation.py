@@ -112,7 +112,7 @@ def deliberate(
     if existing_verdict is not None:
         raise ResourceConflictError("Verdict", "run_id", str(run_id))
 
-    start_log_capture()
+    start_log_capture(run_id, RunPhase.deliberation_council.value)
 
     # Build council agents — share one registry load across all three agents
     governance_client = _get_governance_client()
@@ -252,6 +252,11 @@ def deliberate(
         exhaustion_memo=exhaustion_memo,
         iteration=iteration,
         governance_is_mock=governance_is_mock,
+        # Decided below the sufficiency threshold because the shortfall was
+        # conclusive and no further iteration could move it (router Exit 1b).
+        decided_conclusively=(
+            decision.exit == RouterExit.action and not last_verdict.sufficient
+        ),
     )
 
     # Update run phase/status
@@ -594,6 +599,7 @@ def _persist_verdict(
     exhaustion_memo: dict | None,
     iteration: int,
     governance_is_mock: bool = False,
+    decided_conclusively: bool = False,
 ) -> Verdict:
     objections_payload = [
         {
@@ -640,11 +646,22 @@ def _persist_verdict(
             if finding.recommended_action
         ]
 
+    # A conclusive exit is forced to `blocked` / human_review exactly as loop
+    # exhaustion is. The deterministic sufficiency rule already refuses to
+    # approve while a metric has failed, but the LLM path's contract is only
+    # "confidence >= threshold AND objections resolved" — it carries no
+    # failed-metric rule, so it could in principle return label="approved" with
+    # sufficient=false. Deciding early must never be a route to a softer tier
+    # than looping would have produced.
+    forced_block = exhaustion_memo is not None or decided_conclusively
+    if decided_conclusively:
+        action_tier = ActionTier.human_review
+
     verdict = Verdict(
         run_id=run_id,
         confidence_score=verdict_out.confidence_score,
         action_tier=action_tier,
-        label=verdict_out.label if exhaustion_memo is None else "blocked",
+        label=verdict_out.label if not forced_block else "blocked",
         synthesis=memo.narrative,
         objections=objections_payload,
         reasoning=verdict_out.reasoning,
@@ -659,6 +676,18 @@ def _persist_verdict(
     if exhaustion_memo:
         extra_context += (
             f" | LOOP EXHAUSTION: {exhaustion_memo['distinction']}"
+        )
+    if decided_conclusively:
+        # Stated positively, and deliberately NOT as an uncertainty memo: the
+        # confidence is below the sufficiency threshold, but the shortfall is a
+        # settled failure rather than missing evidence. Without this a reader
+        # would see a sub-threshold score and assume the Council ran out of
+        # evidence, which is the misreading the exhaustion memo used to create.
+        extra_context += (
+            " | DECIDED ON CONCLUSIVE EVIDENCE: confidence is below the sufficiency "
+            "threshold because a metric failed, not because evidence was missing. No "
+            "remediation path can clear a failed metric, so further iterations were "
+            "skipped. This is a settled verdict, not unresolved uncertainty"
         )
     if governance_is_mock:
         # Stated on the verdict itself, not only in result_summary: the verdict
@@ -737,6 +766,11 @@ def _append_council_ledger(
             actor_type=LedgerActorType.system,
             actor_id="deliberation_council",
             payload={
+                # The Live Run view's Runtime Event Stream filters ledger events
+                # by payload.phase. Without it this event belongs to no layer, so
+                # the Council step showed "no ledger events recorded" even after
+                # a full three-iteration deliberation.
+                "phase": RunPhase.deliberation_council.value,
                 "requested_by": requested_by,
                 "label": label if not exhausted else "blocked",
                 "action_tier": str(action_tier),

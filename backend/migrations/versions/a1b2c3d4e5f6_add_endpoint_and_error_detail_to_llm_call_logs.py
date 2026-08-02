@@ -23,7 +23,7 @@ All nullable / defaulted, so existing rows stay valid and read back as
 "unknown" rather than being back-filled with a guess.
 
 Revision ID: a1b2c3d4e5f6
-Revises: 65e671d8f0b0
+Revises: c9e4a2b81f36
 Create Date: 2026-07-31 00:00:00.000000
 """
 
@@ -33,7 +33,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "a1b2c3d4e5f6"
-down_revision: str | None = "65e671d8f0b0"
+down_revision: str | None = "c9e4a2b81f36"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

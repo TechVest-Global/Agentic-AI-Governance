@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextvars
 import logging
+import threading
 import time
 import urllib.error
 
@@ -38,6 +39,23 @@ logger = logging.getLogger(__name__)
 # Per-request audit log buffer (one buffer per thread/async-context)
 # ---------------------------------------------------------------------------
 
+class _CaptureBuffer(list):
+    """The per-run capture buffer, which also remembers whose run and phase it is.
+
+    Subclassing ``list`` keeps every existing contract intact — workers still
+    just ``append``, which is atomic under the GIL — while giving ``_append_log``
+    the run_id it needs to persist an entry the moment it happens, and the
+    pipeline phase to stamp on it. The alternative was threading both through
+    ``bind_log_capture`` into every worker in every phase; contextvars don't
+    cross thread boundaries, but the buffer object itself already does.
+    """
+
+    def __init__(self, run_id: object | None = None, phase: object | None = None) -> None:
+        super().__init__()
+        self.run_id = run_id
+        self.phase = phase
+
+
 _log_buffer: contextvars.ContextVar[list[dict] | None] = contextvars.ContextVar(
     "llm_gateway_log_buffer", default=None
 )
@@ -50,16 +68,32 @@ _current_agent: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 )
 
 
-def start_log_capture() -> None:
-    """Reset the audit buffer for this request context."""
-    _log_buffer.set([])
+def start_log_capture(run_id: object | None = None, phase: object | None = None) -> None:
+    """Reset the audit buffer for this request context.
+
+    Pass the run_id to have each call written to llm_call_logs as it completes
+    instead of only at the phase-end drain (see _persist_now). Omitting it
+    keeps the buffer-only behaviour, which is what tests and any non-run caller
+    want.
+
+    ``phase`` is stamped on every call captured here. Without it a run's calls
+    are one undifferentiated list: a reviewer cannot tell an evaluator's probe
+    in metric execution from a specialist agent's, and the UI has to guess the
+    owning layer from the agent_name/task strings.
+    """
+    _log_buffer.set(_CaptureBuffer(run_id, phase))
 
 
 def drain_log_capture() -> list[dict]:
-    """Return all buffered log entries and clear the buffer."""
+    """Return the log entries still needing a write, and clear the buffer.
+
+    Entries already persisted by _persist_now are filtered out, so a caller's
+    existing "insert everything drained" loop now writes only what the
+    immediate path missed — it never double-inserts.
+    """
     buf = _log_buffer.get(None) or []
     _log_buffer.set(None)
-    return buf
+    return [entry for entry in buf if not entry.pop("_persisted", False)]
 
 
 def get_log_buffer() -> list[dict] | None:
@@ -101,7 +135,36 @@ def _append_log(entry: dict) -> None:
 
     buf = _log_buffer.get(None)
     if buf is not None:
+        # Which pipeline layer made this call. Set here rather than at every
+        # _append_log site so no call site can forget it.
+        entry.setdefault("phase", getattr(buf, "phase", None))
         buf.append(entry)
+        _persist_now(entry, buf)
+
+
+def _persist_now(entry: dict, buf: list[dict]) -> None:
+    """Write this call to llm_call_logs immediately, on its own session.
+
+    Captured calls used to reach the database only when the phase drained its
+    buffer. A specialist-agent or metric-execution phase runs for minutes, so
+    for that whole window GET /llm-calls returned nothing and the Live Run view
+    showed a run with zero probes — and a crash mid-phase discarded every call
+    the phase had made, because the buffer was memory-only.
+
+    Best-effort by design: on any failure the entry stays unflagged in the
+    buffer and the phase-end drain writes it, so this can only ever make the
+    audit log MORE complete than before, never less.
+    """
+    run_id = getattr(buf, "run_id", None)
+    if run_id is None:
+        return
+    try:
+        from app.services.llm_gateway.call_log import persist_call_log_entry
+
+        persist_call_log_entry(run_id, entry)
+        entry["_persisted"] = True
+    except Exception as exc:  # noqa: BLE001 - audit capture must never fail a call
+        logger.debug("LLM Gateway: live call-log write failed, deferring to drain: %s", exc)
 
 
 
@@ -114,10 +177,14 @@ def _probe_name(capability_name: str | None) -> str:
     the probe's identity, which is why a transcript row reads
     "Ai Generated Disclosure@Http://Localhost:8001/..." — a title-cased URL.
     The endpoint is now its own column, so the name can stay a name.
+
+    Falls back to "target_probe" rather than "": capability_name is None at a
+    base endpoint, and LLMCallLog.task is NOT NULL, so an empty name builds a
+    row the database rejects at the phase-end commit.
     """
     if not capability_name:
-        return ""
-    return capability_name.split("@", 1)[0]
+        return "target_probe"
+    return capability_name.split("@", 1)[0] or "target_probe"
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +268,23 @@ def _retry_after_seconds(exc: BaseException) -> float | None:
         return max(0.0, min(float(raw), 30.0))
     except (TypeError, ValueError):
         return None  # HTTP-date form — fall back to exponential backoff
+
+
+def _describe_error(exc: BaseException | None) -> str | None:
+    """A one-line, storable reason a call failed.
+
+    Written to LLMCallLog.error_text so a failed row in the UI explains itself.
+    An HTTPError's code is included explicitly: str(HTTPError) renders as
+    "HTTP Error 429: Too Many Requests" for some servers but not all, and the
+    status is the single most useful field for triaging a failed probe.
+    """
+    if exc is None:
+        return None
+    name = type(exc).__name__
+    if isinstance(exc, urllib.error.HTTPError):
+        name = f"{name}[{exc.code}]"
+    detail = str(exc).strip()
+    return f"{name}: {detail}" if detail else name
 
 
 def _backoff(attempt: int, retry_after: float | None = None) -> None:
@@ -314,7 +398,12 @@ class GatewayGovernanceModelClient:
                     "response_chars": 0,
                     "trace_id": None,
                     "policy_flags": [],
+                    # Keep the prompt even though nothing came back: a failed
+                    # governance call is exactly when a reviewer needs to see
+                    # what was asked, and error_text says why it didn't answer.
                     "prompt_text": request.prompt,
+                    "response_text": None,
+                    "error_text": _describe_error(exc),
                 })
                 raise
 
@@ -340,6 +429,8 @@ class GatewayGovernanceModelClient:
             "trace_id": None,
             "policy_flags": [],
             "prompt_text": request.prompt,
+            "response_text": None,
+            "error_text": _describe_error(last_exc),
         })
         raise last_exc  # type: ignore[misc]
 
@@ -366,6 +457,42 @@ class GatewayTargetModelClient:
         # media capability flag must be forwarded from the inner client
         # rather than evaluators reaching past this wrapper to check it.
         self.supports_media = getattr(inner, "supports_media", False)
+        # Shared rate-limit cooldown for this target.
+        #
+        # A concurrency cap (AGENT_TARGET_MAX_INFLIGHT) bounds how many requests
+        # are in flight at once, but a 429 is usually a PER-MINUTE quota, which
+        # concurrency alone cannot bound. Worse, without shared state every
+        # worker rediscovers the limit on its own: a live TechVest run produced
+        # four separate 429s, each backing off independently, then all retrying
+        # into the same wall again.
+        #
+        # One client instance is constructed per run and handed to every agent
+        # and evaluator (see agent_execution.run_agents), so instance state is
+        # exactly the right scope: shared by all workers probing this target,
+        # isolated from other audited systems.
+        self._cooldown_lock = threading.Lock()
+        self._cooldown_until = 0.0
+
+    def _await_cooldown(self, endpoint_ref: str) -> None:
+        """Block while this target is cooling off from a rate limit."""
+        with self._cooldown_lock:
+            remaining = self._cooldown_until - time.monotonic()
+        if remaining > 0:
+            logger.info(
+                "llm_target_cooldown endpoint=%s waiting %.1fs (shared rate-limit backoff)",
+                endpoint_ref,
+                remaining,
+            )
+            time.sleep(remaining)
+
+    def _enter_cooldown(self, seconds: float) -> None:
+        """Publish a rate limit to every other worker probing this target.
+
+        Extends rather than replaces, so a shorter later Retry-After cannot cut
+        an existing cooldown short.
+        """
+        with self._cooldown_lock:
+            self._cooldown_until = max(self._cooldown_until, time.monotonic() + seconds)
 
     def invoke(self, request: TargetModelRequest) -> TargetModelResponse:
         logger.debug(
@@ -375,6 +502,14 @@ class GatewayTargetModelClient:
             len(request.prompt),
         )
 
+        # LLMCallLog.task is NOT NULL, but capability_name is None for any probe
+        # sent at a system's base endpoint rather than a named capability. That
+        # produced a log entry the database rejects — previously only at the
+        # phase-end commit, which is the SAME commit that writes the run's
+        # result_summary, so one unnamed probe could take down a whole phase's
+        # bookkeeping. Coalesce to a stable label instead.
+        task = request.capability_name or "target_probe"
+
         last_exc: Exception | None = None
         # Measured, not assumed. Both failure paths below used to hardcode
         # latency_ms=0, which the UI rendered as a real "0 ms" measurement — so a
@@ -383,6 +518,11 @@ class GatewayTargetModelClient:
         attempt = 0
         for attempt in range(self._max_retries):
             try:
+                # Honour any cooldown another worker discovered, before spending
+                # this attempt on a request the target is going to reject — and
+                # before taking a slot, so a cooling-off worker isn't holding one
+                # while it sleeps.
+                self._await_cooldown(request.endpoint_ref)
                 # One process-wide slot per ATTEMPT, held around the network call
                 # only. Acquiring here rather than around the whole retry loop is
                 # what keeps the backoff sleep below from occupying a slot while
@@ -433,8 +573,17 @@ class GatewayTargetModelClient:
                         self._max_retries,
                         type(exc).__name__,
                     )
-                    if attempt < self._max_retries - 1:
-                        _backoff(attempt, retry_after=_retry_after_seconds(exc))
+                    if _is_rate_limit(exc):
+                        # Publish it, then let the cooldown gate at the top of the
+                        # next attempt do the waiting — for this worker AND every
+                        # other one, instead of each colliding with the limit in
+                        # turn. Deliberately not also calling _backoff here: that
+                        # would make this worker wait twice.
+                        self._enter_cooldown(
+                            _retry_after_seconds(exc) or float(2 ** attempt)
+                        )
+                    elif attempt < self._max_retries - 1:
+                        _backoff(attempt)
                     continue
                 # Non-retryable failure (e.g. BadRequestError, AuthenticationError) —
                 # log the attempt before re-raising so it still leaves an audit trail,
@@ -464,6 +613,8 @@ class GatewayTargetModelClient:
                     # see; omitting it here is what made the transcript say
                     # "metadata only" for precisely the calls worth inspecting.
                     "prompt_text": request.prompt,
+                    "response_text": None,
+                    "error_text": _describe_error(exc),
                 })
                 raise
 
@@ -490,5 +641,7 @@ class GatewayTargetModelClient:
             "trace_id": None,
             "policy_flags": [],
             "prompt_text": request.prompt,
+            "response_text": None,
+            "error_text": _describe_error(last_exc),
         })
         raise last_exc  # type: ignore[misc]

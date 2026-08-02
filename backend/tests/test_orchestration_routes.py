@@ -98,6 +98,10 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
         "context_assembly.completed",
         "evaluation_plan.prepared",
         "metric_execution.completed",
+        # Each specialist agent appends its own event as it is finalized (this
+        # run activates only risk_scorer), before the orchestrator's
+        # layer-level summary — see test_per_agent_ledger_events.py.
+        "agent.completed",
         "agent_execution.completed",
         "council_deliberation.completed",
         "governance_report.generated",
@@ -111,7 +115,8 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
     }
     ledger_verification = client.get(f"/api/v1/evaluation-runs/{run['id']}/ledger/verify").json()
     assert ledger_verification["valid"] is True
-    assert ledger_verification["entry_count"] == 6
+    # Six layer-level events plus one per-agent event for the single activated agent.
+    assert ledger_verification["entry_count"] == 7
     assert ledger_verification["failed_entry_id"] is None
     assert ledger_verification["reason"] is None
     # Content-integrity checkpoint: the Finding/MetricResult rows the
@@ -174,7 +179,10 @@ def test_full_pipeline_stays_degraded_when_an_agent_fails(
     assert run_after["status"] == "degraded"
     assert run_after["current_phase"] == "completed"
     assert run_after["error_summary"]["degraded_reason"] == "specialist_agent_failure"
-    assert run_after["error_summary"]["failed_agents"] == [
+    # Detail is nested per failure reason, because a run can lose an agent AND the
+    # verdict AND the report in one pass and must report all of them — see
+    # test_pipeline_partial_failure.py.
+    assert run_after["error_summary"]["specialist_agent_failure"]["failed_agents"] == [
         {
             "agent_name": "failing_agent",
             "error": {

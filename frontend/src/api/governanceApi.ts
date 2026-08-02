@@ -1127,6 +1127,10 @@ export type LlmCall = {
   id: string;
   run_id: string;
   agent_name?: string | null;
+  /** Pipeline layer that made the call — adaptive_orchestrator, metric_execution,
+   *  specialist_agents, deliberation_council. Null on runs recorded before the
+   *  gateway started stamping it. */
+  phase?: string | null;
   task: string;
   call_type: string;
   model?: string | null;
@@ -1152,6 +1156,8 @@ export type LlmCall = {
   error_detail?: string | null;
   /** Physical HTTP requests this one logical call cost (retries included). */
   attempts?: number | null;
+  /** Why a non-success call failed (status code / exception). */
+  error_text?: string | null;
 };
 
 export type LlmCallLog = {

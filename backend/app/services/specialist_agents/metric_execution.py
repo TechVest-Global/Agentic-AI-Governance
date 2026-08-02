@@ -166,7 +166,7 @@ def run_metrics(
     # Capture every LLM call the evaluators make (target probes + judge calls)
     # so the metric-execution phase is audited in llm_call_logs like the agent
     # and council phases already are.
-    start_log_capture()
+    start_log_capture(run_id, RunPhase.metric_execution.value)
     capture_buffer = get_log_buffer()
 
     # Evaluate all metrics concurrently. Each worker uses its own short-lived DB

@@ -23,6 +23,7 @@ import { useAuthStore } from "@/store/useAuthStore";
 import { personaForRole } from "@/lib/persona";
 import { EndpointCoveragePanel } from "@/components/execution/EndpointCoveragePanel";
 import { AgentDetailCard, AgentGlyph, buildAgentsFromBackend, type AgentTab } from "@/components/execution/AgentDetailCard";
+import { CallTranscripts } from "@/components/execution/CallTranscripts";
 import { AdaptiveOrchestratorPanel } from "@/components/execution/AdaptiveOrchestratorPanel";
 import { ContextAssemblyPanel } from "@/components/execution/ContextAssemblyPanel";
 import { DeliberationCouncilPanel } from "@/components/execution/DeliberationCouncilPanel";
@@ -41,7 +42,7 @@ import {
 } from "@/utils/complianceReport";
 import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
 import { useRunProgress, phaseIndex, type AgentProgress } from "@/hooks/useRunProgress";
-import { PIPELINE_STEPS, layerStatus } from "@/pages/pipelineSteps";
+import { MODEL_CALLING_LAYERS, PIPELINE_STEPS, layerStatus } from "@/pages/pipelineSteps";
 import { metricBlurb, metricName } from "@/data/metricCatalog";
 import type { AuditLedgerEntry, FindingToolCall, FrameworkComplianceMap, GovernanceReport, LlmCall } from "@/api/governanceApi";
 
@@ -325,9 +326,23 @@ function PipelineStepContent({
     return <NotStartedMessage label={step.label} />;
   }
 
+  // Every layer gets the same three-part runtime detail: the tamper-evident
+  // event trail, the full prompt/response transcript of the model calls that
+  // layer made, and its generated artifacts. The transcript used to exist only
+  // inside a specialist agent's Probes tab, which meant the Layer 3a evaluator
+  // probes and the council's reasoning — most of a run's calls — were stored
+  // and served but rendered nowhere.
   const runtimeDetail = (
     <div className="space-y-4">
       <RuntimeEventStream entries={ledgerEntries} phaseFilter={step.id === "created" ? undefined : step.id} />
+      {MODEL_CALLING_LAYERS.has(step.id) && (
+        <CallTranscripts
+          calls={llmCalls}
+          phase={step.id}
+          title={`${step.label} — Model Calls`}
+          emptyHint={`No model calls recorded for ${step.label} yet.`}
+        />
+      )}
       <ArtifactDrawer liveData={liveArtifactData} layerFilter={step.eventLayer ?? undefined} />
     </div>
   );
