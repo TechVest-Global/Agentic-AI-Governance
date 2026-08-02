@@ -29,6 +29,8 @@ from app.services.model_clients.base import (
     TargetModelRequest,
     TargetModelResponse,
 )
+from app.services.model_clients.http_errors import error_detail
+from app.services.model_clients.target_throttle import target_slot
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +102,22 @@ def _append_log(entry: dict) -> None:
     buf = _log_buffer.get(None)
     if buf is not None:
         buf.append(entry)
+
+
+
+def _probe_name(capability_name: str | None) -> str:
+    """The probe's own name, without the endpoint that used to be glued onto it.
+
+    Probe planning tags names as "probe_name@endpoint" when a system has more
+    than one endpoint, purely to keep dict keys unique (see
+    agents/model_backed/base.py). That tag then leaked into the audit record as
+    the probe's identity, which is why a transcript row reads
+    "Ai Generated Disclosure@Http://Localhost:8001/..." — a title-cased URL.
+    The endpoint is now its own column, so the name can stay a name.
+    """
+    if not capability_name:
+        return ""
+    return capability_name.split("@", 1)[0]
 
 
 # ---------------------------------------------------------------------------
@@ -218,6 +236,8 @@ class GatewayGovernanceModelClient:
         )
 
         last_exc: Exception | None = None
+        started = time.monotonic()
+        attempt = 0
         for attempt in range(self._max_retries):
             try:
                 response = self._inner.complete(request)
@@ -285,12 +305,16 @@ class GatewayGovernanceModelClient:
                     "completion_tokens": None,
                     "total_tokens": None,
                     "estimated_cost_usd": None,
-                    "latency_ms": 0,
+                    "latency_ms": int((time.monotonic() - started) * 1000),
                     "status": "error",
+                    "error_type": exc.__class__.__name__,
+                    "error_detail": error_detail(exc),
+                    "attempts": attempt + 1,
                     "request_chars": len(request.prompt),
                     "response_chars": 0,
                     "trace_id": None,
                     "policy_flags": [],
+                    "prompt_text": request.prompt,
                 })
                 raise
 
@@ -306,12 +330,16 @@ class GatewayGovernanceModelClient:
             "completion_tokens": None,
             "total_tokens": None,
             "estimated_cost_usd": None,
-            "latency_ms": 0,
+            "latency_ms": int((time.monotonic() - started) * 1000),
             "status": "rate_limited" if _is_rate_limit(last_exc) else "error",
+            "error_type": last_exc.__class__.__name__ if last_exc else None,
+            "error_detail": error_detail(last_exc) if last_exc else None,
+            "attempts": attempt + 1,
             "request_chars": len(request.prompt),
             "response_chars": 0,
             "trace_id": None,
             "policy_flags": [],
+            "prompt_text": request.prompt,
         })
         raise last_exc  # type: ignore[misc]
 
@@ -348,9 +376,19 @@ class GatewayTargetModelClient:
         )
 
         last_exc: Exception | None = None
+        # Measured, not assumed. Both failure paths below used to hardcode
+        # latency_ms=0, which the UI rendered as a real "0 ms" measurement — so a
+        # probe that spent 30s timing out and two backoffs looked instantaneous.
+        started = time.monotonic()
+        attempt = 0
         for attempt in range(self._max_retries):
             try:
-                response = self._inner.invoke(request)
+                # One process-wide slot per ATTEMPT, held around the network call
+                # only. Acquiring here rather than around the whole retry loop is
+                # what keeps the backoff sleep below from occupying a slot while
+                # doing nothing — see model_clients/target_throttle.py.
+                with target_slot():
+                    response = self._inner.invoke(request)
                 logger.info(
                     "llm_target_response endpoint=%s latency_ms=%d output_chars=%d",
                     request.endpoint_ref,
@@ -362,8 +400,10 @@ class GatewayTargetModelClient:
                 ct = meta.get("completion_tokens")
                 model = meta.get("model") or self.provider
                 _append_log({
-                    "task": request.capability_name,
+                    "task": _probe_name(request.capability_name),
                     "call_type": "target",
+                    "endpoint_ref": request.endpoint_ref,
+                    "attempts": attempt + 1,
                     "model": model,
                     "deployment_name": getattr(self._inner, "deployment_name", None),
                     "client_mode": meta.get("client_mode", "unknown"),
@@ -400,8 +440,10 @@ class GatewayTargetModelClient:
                 # log the attempt before re-raising so it still leaves an audit trail,
                 # matching the exhausted-retries path below instead of vanishing silently.
                 _append_log({
-                    "task": request.capability_name,
+                    "task": _probe_name(request.capability_name),
                     "call_type": "target",
+                    "endpoint_ref": request.endpoint_ref,
+                    "attempts": attempt + 1,
                     "model": getattr(self._inner, "deployment_name", self.provider),
                     "deployment_name": getattr(self._inner, "deployment_name", None),
                     "client_mode": "live",
@@ -410,19 +452,27 @@ class GatewayTargetModelClient:
                     "completion_tokens": None,
                     "total_tokens": None,
                     "estimated_cost_usd": None,
-                    "latency_ms": 0,
+                    "latency_ms": int((time.monotonic() - started) * 1000),
                     "status": "error",
+                    "error_type": exc.__class__.__name__,
+                    "error_detail": error_detail(exc),
                     "request_chars": len(request.prompt),
                     "response_chars": 0,
                     "trace_id": None,
                     "policy_flags": [],
+                    # A failed probe's prompt is exactly what a reviewer needs to
+                    # see; omitting it here is what made the transcript say
+                    # "metadata only" for precisely the calls worth inspecting.
+                    "prompt_text": request.prompt,
                 })
                 raise
 
         # Exhausted retries — log the failure before raising
         _append_log({
-            "task": request.capability_name,
+            "task": _probe_name(request.capability_name),
             "call_type": "target",
+            "endpoint_ref": request.endpoint_ref,
+            "attempts": attempt + 1,
             "model": getattr(self._inner, "deployment_name", self.provider),
             "deployment_name": getattr(self._inner, "deployment_name", None),
             "client_mode": "live",
@@ -431,11 +481,14 @@ class GatewayTargetModelClient:
             "completion_tokens": None,
             "total_tokens": None,
             "estimated_cost_usd": None,
-            "latency_ms": 0,
+            "latency_ms": int((time.monotonic() - started) * 1000),
             "status": "rate_limited" if _is_rate_limit(last_exc) else "error",
+            "error_type": last_exc.__class__.__name__ if last_exc else None,
+            "error_detail": error_detail(last_exc) if last_exc else None,
             "request_chars": len(request.prompt),
             "response_chars": 0,
             "trace_id": None,
             "policy_flags": [],
+            "prompt_text": request.prompt,
         })
         raise last_exc  # type: ignore[misc]

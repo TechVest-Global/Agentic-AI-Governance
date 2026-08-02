@@ -79,3 +79,30 @@ def client() -> Generator[TestClient, None, None]:
     app.dependency_overrides.clear()
     db_session.engine = original_engine
     SQLModel.metadata.drop_all(engine)
+
+
+def advance_run_to_council(run_id: str) -> None:
+    """Move a run to the deliberation-council phase.
+
+    POST /evaluation-runs/{id}/verdict now refuses to record a verdict for a run
+    that has not reached the council, because a verdict written earlier gets
+    adopted by the pipeline as the council's own outcome (see
+    app/services/verdicts.py). Tests that only need a verdict to exist use this
+    to reach an eligible phase without driving the whole pipeline.
+
+    Writes through db_session.engine, which the `client` fixture has already
+    pointed at the in-memory test database.
+    """
+    from uuid import UUID
+
+    import app.db.session as db_session
+    from app.models.enums import RunPhase, RunStatus
+    from app.models.evaluation import EvaluationRun
+
+    with Session(db_session.engine) as session:
+        run = session.get(EvaluationRun, UUID(run_id))
+        assert run is not None, f"run {run_id} does not exist"
+        run.status = RunStatus.council_running
+        run.current_phase = RunPhase.deliberation_council
+        session.add(run)
+        session.commit()

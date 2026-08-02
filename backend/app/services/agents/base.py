@@ -46,6 +46,19 @@ class AgentContext:
     # An honest record of coverage gaps, never a fabricated result — see
     # ModelBackedAgent._execute_probe_plan's fail-closed modality gate.
     probe_skips: dict[str, list[dict]] = None  # type: ignore[assignment]
+    # agent_name -> probes that WERE sent but errored (timeout, connection reset,
+    # HTTP error), each a dict with endpoint_ref/probe_name/dimension/error_type/
+    # message. Deliberately separate from probe_skips: a skip means the probe was
+    # never sent, a failure means the target was asked and gave nothing back.
+    # Collapsing them would let an unreachable target read as a modality gap.
+    probe_failures: dict[str, list[dict]] = None  # type: ignore[assignment]
+    # agent_name -> probes sent to the target by EVIDENCE TOOLS (garak, deepeval,
+    # presidio, ragas) rather than by the agent's own probe plan. Counted
+    # separately because probe_counts is assigned, not accumulated: _run_probes
+    # deliberately overwrites _select_probes' planned count with the actually-sent
+    # count, so folding tool probes into the same key would be silently erased by
+    # whichever ran last. The two are summed when the execution row is written.
+    tool_probe_counts: dict[str, int] = None  # type: ignore[assignment]
     # Audit scope: capability endpoint_refs to probe (e.g. ["parse-resume"]).
     # Empty = whole application (probe the system's base endpoint).
     selected_capabilities: list[str] = None  # type: ignore[assignment]
@@ -62,6 +75,10 @@ class AgentContext:
             object.__setattr__(self, "probe_counts", {})
         if self.probe_skips is None:
             object.__setattr__(self, "probe_skips", {})
+        if self.probe_failures is None:
+            object.__setattr__(self, "probe_failures", {})
+        if self.tool_probe_counts is None:
+            object.__setattr__(self, "tool_probe_counts", {})
         if self.selected_capabilities is None:
             object.__setattr__(self, "selected_capabilities", [])
 

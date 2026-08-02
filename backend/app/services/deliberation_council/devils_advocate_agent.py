@@ -39,7 +39,15 @@ _TEMPLATE_ID = "devils_advocate_agent.council_objection"
 # v4: adds a raw-findings section (see _format_findings_detail) so the Devil's
 # Advocate can catch Synthesis omitting/mischaracterizing a finding, not just
 # critique the narrative prose it was handed — v1-v3 had no path to that.
-_PHASE_HASH = "53b1bb88d92d73b0b2852f95f3df86f891cea0c453324d00d113a96d936e997f"
+# v5. Supersedes v4 (53b1bb88…), which instructed the model to fall back to a
+# sample-adequacy objection whenever the evidence looked clean, and asserted
+# "n < 50 is a regulatory threshold in most frameworks" — a number that appears
+# in no framework and in no code. Together those produced the same two
+# objections in nearly every run (da-001/sample_adequacy in 60 of 60 audited
+# runs) and put fabricated regulatory authority into governance output. v4 is
+# left in place unmodified: these templates are content-addressed, so a version
+# is immutable once shipped.
+_PHASE_HASH = "583363011ba86fa0dc3279f4833e6b8ade1718a2b481e318518d8b376223a7e5"
 
 
 def _format_findings_detail(findings: list[Finding]) -> str:

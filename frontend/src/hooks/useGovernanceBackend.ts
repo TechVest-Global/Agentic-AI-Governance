@@ -82,6 +82,10 @@ export function useGovernanceBackend() {
   const [refreshToken, setRefreshToken] = useState(0);
   // Honor the workspace-wide selected run so every tab stays in sync.
   const selectedRunId = useSelectionStore((s) => s.selectedRunId);
+  // An explicit Reset means "show no run", which has to suppress the
+  // fall-back-to-latest below — otherwise Reset re-loads the run it just
+  // cleared and looks like a dead button.
+  const runSelectionCleared = useSelectionStore((s) => s.runSelectionCleared);
 
   const refresh = useCallback(() => setRefreshToken((value) => value + 1), []);
 
@@ -89,6 +93,12 @@ export function useGovernanceBackend() {
     let cancelled = false;
 
     async function load() {
+      if (runSelectionCleared) {
+        // Nothing to load, and nothing to report as an error — this is the
+        // deliberate "no run selected" state, not a failure to find one.
+        if (!cancelled) setState({ ...initialState, loading: false, error: null });
+        return;
+      }
       setState((current) => ({ ...current, loading: true, error: null }));
       try {
         let latestRun = null;
@@ -163,7 +173,7 @@ export function useGovernanceBackend() {
     return () => {
       cancelled = true;
     };
-  }, [refreshToken, selectedRunId]);
+  }, [refreshToken, selectedRunId, runSelectionCleared]);
 
   // Poll while the run is in flight so counts stay live even without SSE.
   // Stops automatically once the run reaches a terminal state or errors.

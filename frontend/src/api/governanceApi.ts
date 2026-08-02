@@ -396,6 +396,7 @@ export type GovernanceReport = {
   metric_results: MetricResult[];
   findings: BackendFinding[];
   verdict?: Verdict | null;
+  endpoint_coverage?: EndpointCoverageSummary | null;
   counts: Record<string, number>;
   state_chain: {
     valid: boolean;
@@ -1144,6 +1145,13 @@ export type LlmCall = {
   created_at: string;
   prompt_text?: string | null;
   response_text?: string | null;
+  /** Which audited endpoint this call hit (target calls only). */
+  endpoint_ref?: string | null;
+  /** Why it failed, in the target's own words where it sent one. */
+  error_type?: string | null;
+  error_detail?: string | null;
+  /** Physical HTTP requests this one logical call cost (retries included). */
+  attempts?: number | null;
 };
 
 export type LlmCallLog = {
@@ -1161,6 +1169,41 @@ export type LlmCallLog = {
 
 export async function getLlmCalls(runId: string): Promise<LlmCallLog> {
   return request<LlmCallLog>(`/evaluation-runs/${runId}/llm-calls`);
+}
+
+/**
+ * Probes broken down by the audited endpoint they were sent to.
+ *
+ * `probes_sent` counts logical probes; `requests_made` counts HTTP round trips,
+ * which is higher wherever the gateway retried. They are deliberately separate —
+ * conflating them either understates load on the audited system or inflates the
+ * probe count.
+ */
+export type EndpointCoverage = {
+  endpoint_ref?: string | null;
+  capability_name?: string | null;
+  modality?: string | null;
+  /** False when probes hit an endpoint that is not a registered capability. */
+  registered: boolean;
+  probes_sent: number;
+  probes_failed: number;
+  /** Never sent — incompatible with the capability. Not the same as failed. */
+  probes_skipped: number;
+  requests_made: number;
+  agents: string[];
+  error_types: Record<string, number>;
+  sample_error?: string | null;
+};
+
+export type EndpointCoverageSummary = {
+  run_id: string;
+  endpoints: EndpointCoverage[];
+  registered_endpoint_count: number;
+  unprobed_endpoint_count: number;
+};
+
+export async function getEndpointCoverage(runId: string): Promise<EndpointCoverageSummary> {
+  return request<EndpointCoverageSummary>(`/evaluation-runs/${runId}/endpoint-coverage`);
 }
 
 /* ──────────────────────────────────────── Execution artifacts ── */

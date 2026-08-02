@@ -1,6 +1,7 @@
+import functools
 import logging
-import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -12,7 +13,7 @@ from app.db import session as db_session
 from app.models.agent import AgentExecution
 from app.models.ai_system import AISystem, AISystemCapability, ApplicationContextProfile
 from app.models.base import utc_now
-from app.models.enums import AgentExecutionStatus, RunPhase, RunStatus
+from app.models.enums import AgentExecutionStatus, LedgerActorType, RunPhase, RunStatus
 from app.models.evaluation import EvaluationRun
 from app.models.evidence import EvidenceRecord, MetricResult
 from app.models.finding import Finding
@@ -21,12 +22,19 @@ from app.schemas.governance import (
     AgentRunCreate,
     AgentRunRead,
     AgentRunSummary,
+    AuditLedgerEntryCreate,
     EvaluationPlanRead,
     FindingCreate,
     MetricPlanItem,
 )
+from app.services import audit_ledger
 from app.services.agents.base import AgentContext, GovernanceAgent
+from app.services.agents.helpers import unprobed_endpoints_finding
 from app.services.agents.registry import select_agents
+from app.services.concurrency_settings import (
+    agent_execution_budget_seconds,
+    agent_execution_max_workers,
+)
 from app.services.model_clients.gateway import (
     bind_log_capture,
     drain_log_capture,
@@ -58,14 +66,125 @@ logger = logging.getLogger(__name__)
 # either knob risks the HTTP 429 storm that already forced
 # METRIC_EXECUTION_MAX_WORKERS down from 6 to 3. Override with
 # AGENT_EXECUTION_MAX_WORKERS.
-_MAX_AGENT_WORKERS = int(os.getenv("AGENT_EXECUTION_MAX_WORKERS", "3"))
-
+#
 # Hard wall-clock budget for the parallel fan-out, mirroring metric_execution's
 # guard: an agent blocked on an unbounded network call would otherwise hang the
 # pool join forever and park the run in `agents_running`. Any agent still in
 # flight when the budget expires is recorded as failed, so the run always
 # advances to a terminal state. Override with AGENT_EXECUTION_BUDGET_SECONDS.
-_AGENT_PHASE_BUDGET_SECONDS = float(os.getenv("AGENT_EXECUTION_BUDGET_SECONDS", "900"))
+#
+# Both resolve through concurrency_settings per call rather than os.getenv at
+# import: the app reads its config from <repo>/.env via pydantic-settings, which
+# never populates os.environ, so setting either of these in .env did nothing at
+# all despite the comments above documenting them as the override mechanism.
+
+
+class _LateLogSink:
+    """Hands the audit buffer's post-drain tail to abandoned agents' callbacks.
+
+    ``drain_log_capture()`` returns the live buffer list and detaches it from the
+    contextvar, but abandoned straggler threads still hold a reference through
+    ``bind_log_capture`` and keep appending to it. Anything they appended after
+    the drain was written to a list nobody read again — the LLM calls a
+    still-running agent made simply vanished from ``llm_call_logs``.
+
+    The cursor records how many entries the main thread actually persisted; each
+    orphan callback then claims the slice past it, under a lock so two
+    stragglers finishing together cannot both take the same entries.
+    """
+
+    def __init__(self, buffer: list[dict] | None) -> None:
+        self._buffer = buffer
+        self._cursor = 0
+        self._lock = threading.Lock()
+
+    def mark_drained(self, persisted_count: int) -> None:
+        with self._lock:
+            self._cursor = persisted_count
+
+    def take_late_entries(self) -> list[dict]:
+        if self._buffer is None:
+            return []
+        with self._lock:
+            late = self._buffer[self._cursor:]
+            self._cursor += len(late)
+            return late
+
+
+def _record_orphaned_agent_completion(
+    run_id: UUID,
+    agent_name: str,
+    late_logs: _LateLogSink,
+    future: Future,
+) -> None:
+    """Ledger-record a specialist agent that finished after its phase timed out.
+
+    ``pool.shutdown(wait=False)`` deliberately does not block on stragglers so a
+    single hung agent can never park the run — but the thread keeps running,
+    keeps probing the live target system, and keeps committing execution
+    artifacts on its own session, all against a run whose execution row already
+    says the agent failed with a timeout. Without this callback none of that was
+    recorded anywhere: the audit trail claimed the agent produced nothing while
+    its artifacts were quietly landing in the database.
+
+    Mirrors metric_execution._record_orphaned_completion. The agent's findings
+    are deliberately NOT persisted — the phase is closed and its content digest
+    already checkpointed, so folding late findings in would silently invalidate
+    it. The count is recorded instead, so the loss is visible rather than
+    implicit. Runs on the straggler's own thread with its own session, since the
+    pipeline session is long closed by then.
+    """
+    try:
+        outcome = "completed"
+        detail: str | None = None
+        finding_count = 0
+        probe_count = 0
+        try:
+            result = future.result()
+            if result is not None:
+                finding_count = len(result.findings)
+                probe_count = result.probe_count
+                if result.error:
+                    outcome = "error"
+                    detail = result.error.get("message")
+        except Exception as exc:  # noqa: BLE001
+            outcome = "error"
+            detail = str(exc)
+
+        late_entries = late_logs.take_late_entries()
+        with Session(db_session.engine) as session:
+            for entry in late_entries:
+                session.add(LLMCallLog(run_id=run_id, **entry))
+            if late_entries:
+                session.commit()
+            audit_ledger.append_ledger_entry(
+                session,
+                run_id=run_id,
+                payload=AuditLedgerEntryCreate(
+                    event_type="agent.orphaned_after_timeout",
+                    actor_type=LedgerActorType.system,
+                    actor_id="agent_execution",
+                    payload={
+                        "agent_name": agent_name,
+                        "outcome": outcome,
+                        "detail": detail,
+                        # Recorded, not persisted — see the docstring.
+                        "findings_discarded": finding_count,
+                        "probes_sent": probe_count,
+                        "late_llm_calls_recovered": len(late_entries),
+                        "note": (
+                            "This agent was abandoned when the specialist-agent phase hit its "
+                            "time budget and is recorded as failed. It kept running afterward "
+                            "and may have sent further probes to the target system and written "
+                            "execution artifacts; its findings were discarded."
+                        ),
+                    },
+                ),
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "Could not record orphaned-agent completion for %s (run %s)", agent_name, run_id
+        )
 
 
 @dataclass
@@ -83,6 +202,11 @@ class _AgentOutcome:
     error: dict[str, str] | None = None
     probe_count: int = 0
     probes_skipped: list[dict] = field(default_factory=list)
+    # Probes that were sent and errored. Captured even when the agent SUCCEEDS,
+    # so a partially-degraded evaluation is visible in the audit record rather
+    # than only in the logs — a reviewer must be able to tell that this agent
+    # reasoned over fewer probes than the plan allocated.
+    probes_failed: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -159,8 +283,18 @@ def _execute_agent(
         completed_at=utc_now(),
         findings=findings,
         error=error,
-        probe_count=context.probe_counts.get(agent.name, 0),
+        # Own probes PLUS evidence-tool probes. Both are real requests to the
+        # audited system, and this total is what the Council reads as
+        # sample_sizes — an agent whose evidence came from garak/deepeval used to
+        # report 0 here, so the Devil's Advocate objected that its findings
+        # rested on no probes at all and the verdict's confidence was docked for
+        # an evidence deficit that never existed.
+        probe_count=(
+            context.probe_counts.get(agent.name, 0)
+            + context.tool_probe_counts.get(agent.name, 0)
+        ),
         probes_skipped=context.probe_skips.get(agent.name, []),
+        probes_failed=context.probe_failures.get(agent.name, []),
     )
 
 
@@ -263,6 +397,8 @@ def run_agents(
             target_client=target_client,
             probe_counts={},
             probe_skips={},
+            probe_failures={},
+            tool_probe_counts={},
             selected_capabilities=selected_capabilities,
         )
 
@@ -333,19 +469,24 @@ def run_agents(
                 capture_buffer=capture_buffer,
             )
 
+    # Late LLM calls made by any agent abandoned below are recovered through
+    # this sink; see _LateLogSink and _record_orphaned_agent_completion.
+    late_logs = _LateLogSink(capture_buffer)
+
     outcomes: dict[str, _AgentOutcome] = {}
     if len(fanout_agents) == 1:
         # Single agent (e.g. the council's re_probe remediation): skip the pool
         # and stay on this thread, as _execute_probe_plan does for one probe.
         outcomes[fanout_agents[0].name] = _run_in_worker(fanout_agents[0])
     elif fanout_agents:
-        worker_count = max(1, min(_MAX_AGENT_WORKERS, len(fanout_agents)))
+        phase_budget_seconds = agent_execution_budget_seconds()
+        worker_count = max(1, min(agent_execution_max_workers(), len(fanout_agents)))
         # Collect as agents complete, up to a hard budget; shutdown(wait=False)
         # is deliberate — stragglers are abandoned, never blocked on.
         pool = ThreadPoolExecutor(max_workers=worker_count)
         future_to_agent = {pool.submit(_run_in_worker, a): a for a in fanout_agents}
         try:
-            for future in as_completed(future_to_agent, timeout=_AGENT_PHASE_BUDGET_SECONDS):
+            for future in as_completed(future_to_agent, timeout=phase_budget_seconds):
                 agent = future_to_agent[future]
                 try:
                     outcomes[agent.name] = future.result()
@@ -357,13 +498,26 @@ def run_agents(
                         error={"error_type": exc.__class__.__name__, "message": str(exc)},
                     )
         except FuturesTimeout:
-            pending = [a.name for f, a in future_to_agent.items() if not f.done()]
+            pending = {f: a for f, a in future_to_agent.items() if not f.done()}
             logger.warning(
                 "Specialist agents hit the %.0fs budget; abandoning %d unfinished agent(s): %s",
-                _AGENT_PHASE_BUDGET_SECONDS,
+                phase_budget_seconds,
                 len(pending),
-                pending,
+                [a.name for a in pending.values()],
             )
+            # An abandoned agent keeps running, keeps probing the target and
+            # keeps committing execution artifacts against this run. Attach a
+            # completion callback so what it actually did lands in the ledger
+            # instead of only its timeout stub appearing in the audit record.
+            for pending_future, pending_agent in pending.items():
+                pending_future.add_done_callback(
+                    functools.partial(
+                        _record_orphaned_agent_completion,
+                        run_id,
+                        pending_agent.name,
+                        late_logs,
+                    )
+                )
         pool.shutdown(wait=False)
 
     created_findings: list[Finding] = []
@@ -390,6 +544,7 @@ def run_agents(
             # on failure, so partial probing is still counted.
             "probe_count": outcome.probe_count,
             "probes_skipped": outcome.probes_skipped,
+            "probes_failed": outcome.probes_failed,
         }
         execution.updated_at = utc_now()
         if outcome.error:
@@ -445,6 +600,25 @@ def run_agents(
             ),
         )
 
+    # ---- Endpoint coverage -------------------------------------------------
+    # Every probe this phase sent has now been logged with the endpoint it hit,
+    # so this is the first point where "which registered surfaces did we
+    # actually reach" can be answered. Recorded here, inside the phase, so the
+    # finding is part of `created_findings` and therefore covered by the content
+    # digest the orchestrator checkpoints — a coverage claim added afterwards
+    # would sit outside the integrity record it belongs to.
+    #
+    # Skipped for a remediation call: a council re_probe deliberately targets one
+    # agent, so "endpoints it didn't reach" is not a coverage gap, just its scope.
+    if not is_remediation_call:
+        _finalize_endpoint_coverage(
+            session,
+            run_id=run_id,
+            ai_system_id=run.ai_system_id,
+            capture_buffer=capture_buffer,
+            created_findings=created_findings,
+        )
+
     summaries = [_execution_summary(execution) for execution in executions]
 
     newly_created_findings_count = len(created_findings)
@@ -468,12 +642,21 @@ def run_agents(
         run.result_summary["agent_execution_model"] = {
             "parallel_stage": [a.name for a in fanout_agents],
             "aggregate_stage": [a.name for a in aggregate_agents],
-            "max_parallel_workers": max(1, min(_MAX_AGENT_WORKERS, len(fanout_agents) or 1)),
+            "max_parallel_workers": max(
+                1, min(agent_execution_max_workers(), len(fanout_agents) or 1)
+            ),
         }
     run.updated_at = utc_now()
     session.add(run)
-    for entry in drain_log_capture():
+    # Snapshot the length BEFORE iterating: an abandoned straggler may still be
+    # appending to this same list, and the cursor handed to late_logs has to be
+    # exactly what we persisted here, so its callback claims the tail and
+    # nothing is either dropped or written twice.
+    drained = drain_log_capture()
+    persisted_log_count = len(drained)
+    for entry in drained[:persisted_log_count]:
         session.add(LLMCallLog(run_id=run_id, **entry))
+    late_logs.mark_drained(persisted_log_count)
     session.commit()
 
     # Full current state (reused + newly run), same reasoning as run_metrics:
@@ -486,6 +669,54 @@ def run_agents(
         findings_created=newly_created_findings_count,
         findings=reused_findings + created_findings,
     )
+
+
+def _finalize_endpoint_coverage(
+    session: Session,
+    *,
+    run_id: UUID,
+    ai_system_id: UUID,
+    capture_buffer: list[dict] | None,
+    created_findings: list[Finding],
+) -> None:
+    """Record any registered endpoint this run's probes never reached.
+
+    Reads the phase's own capture buffer rather than re-querying llm_call_logs,
+    because those rows are not written until the final commit below — and a
+    coverage claim has to be computed from what this phase actually did, not
+    from whatever happens to be in the table.
+    """
+    probed: set[str] = {
+        str(entry.get("endpoint_ref"))
+        for entry in (capture_buffer or [])
+        if entry.get("call_type") == "target" and entry.get("endpoint_ref")
+    }
+    registered = list(
+        session.exec(
+            select(AISystemCapability).where(
+                AISystemCapability.ai_system_id == ai_system_id
+            )
+        ).all()
+    )
+    # Nothing to claim either way when a system declares no capability
+    # endpoints — the audit ran against its single base endpoint.
+    if len(registered) < 2:
+        return
+    unprobed = [(c.endpoint_ref, c.name) for c in registered if c.endpoint_ref not in probed]
+    if not unprobed or len(unprobed) == len(registered):
+        # All reached, or none were — the latter is already loud (every agent
+        # failed, the run is degraded), and claiming a coverage gap on top would
+        # just add noise to an outage.
+        return
+    finding = Finding(
+        run_id=run_id,
+        **unprobed_endpoints_finding(
+            agent_name="agent_orchestrator", endpoints=unprobed
+        ).model_dump(),
+    )
+    session.add(finding)
+    created_findings.append(finding)
+    session.commit()
 
 
 def list_agent_executions(session: Session, *, run_id: UUID) -> list[AgentExecution]:

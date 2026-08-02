@@ -2,6 +2,8 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from tests.conftest import advance_run_to_council
+
 
 def create_system(client: TestClient, name: str) -> dict[str, object]:
     response = client.post(
@@ -23,7 +25,11 @@ def create_run(client: TestClient, system_id: str) -> dict[str, object]:
         json={"ai_system_id": system_id, "selected_metrics": ["M01"]},
     )
     assert response.status_code == 201
-    return response.json()
+    run = response.json()
+    # A verdict may only be recorded once the run has reached the council; these
+    # tests exercise the verdict routes themselves, not that gate.
+    advance_run_to_council(run["id"])
+    return run
 
 
 def test_verdict_can_be_created_and_retrieved(client: TestClient) -> None:

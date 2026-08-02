@@ -87,6 +87,33 @@ class Settings(BaseSettings):
     # override via env for any shared deployment.
     secret_key: str = "dev-insecure-secret-change-me"
 
+    # --- Pipeline concurrency ------------------------------------------------
+    # These live here, rather than as module-level os.getenv() reads in the
+    # services that use them, for two reasons. pydantic-settings loads the
+    # project .env into *this* object without ever touching os.environ, so an
+    # os.getenv() read silently ignored every one of these knobs when set in
+    # .env — despite the surrounding comments documenting them as overridable.
+    # And a module-level read binds the value at import time, so no test could
+    # vary it. Read them via app.services.concurrency_settings, which resolves
+    # get_settings() per call.
+    #
+    # Specialist agents (Layer 3) run concurrently; bounded low because the
+    # per-agent probe pools multiply with this number. See agent_execution.py.
+    agent_execution_max_workers: int = Field(default=3, ge=1)
+    # Wall-clock ceiling on the whole specialist-agent phase, so one hung agent
+    # cannot park a run in `agents_running`.
+    agent_execution_budget_seconds: float = Field(default=900.0, gt=0)
+    # Per-agent probe fan-out width.
+    agent_probe_max_workers: int = Field(default=6, ge=1)
+    # Process-wide ceiling on concurrent requests into an audited target system,
+    # enforced in the gateway so it covers every caller (specialist-agent probes
+    # AND metric-execution evaluators). 0 means "same as agent_probe_max_workers",
+    # which keeps peak load on the target at its pre-parallelism level.
+    agent_target_max_inflight: int = Field(default=0, ge=0)
+    # Metric evaluation fan-out width and phase budget. See metric_execution.py.
+    metric_execution_max_workers: int = Field(default=3, ge=1)
+    metric_execution_budget_seconds: float = Field(default=600.0, gt=0)
+
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore"
     )

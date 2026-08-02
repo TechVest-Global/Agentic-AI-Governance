@@ -2,6 +2,8 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from tests.conftest import advance_run_to_council
+
 
 def create_system(client: TestClient) -> dict[str, object]:
     response = client.post(
@@ -116,6 +118,8 @@ def test_governance_report_aggregates_run_outputs(client: TestClient) -> None:
         },
     )
     assert finding_response.status_code == 201
+    # Recording a verdict by hand requires the run to have reached the council.
+    advance_run_to_council(run["id"])
     verdict_response = client.post(
         f"/api/v1/evaluation-runs/{run['id']}/verdict",
         json={
@@ -146,7 +150,18 @@ def test_governance_report_aggregates_run_outputs(client: TestClient) -> None:
         "agent_executions": 0,
         "findings": 1,
         "state_entries": 1,
+        # This run registered one capability endpoint and never probed it. The
+        # report says so rather than implying the surface was covered.
+        "endpoints_registered": 1,
+        "endpoints_unprobed": 1,
     }
+
+    # ...and the per-endpoint breakdown names the surface that went unprobed.
+    coverage = report["endpoint_coverage"]
+    assert coverage["registered_endpoint_count"] == 1
+    assert coverage["unprobed_endpoint_count"] == 1
+    assert [e["capability_name"] for e in coverage["endpoints"]] == ["answer_question"]
+    assert coverage["endpoints"][0]["probes_sent"] == 0
     assert report["evidence"][0]["id"] == evidence_id
     assert report["metric_results"][0]["metric_id"] == "REPORT-M01"
     assert report["findings"][0]["title"] == "Report finding"

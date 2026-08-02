@@ -21,6 +21,7 @@ import { MetricCard } from "@/components/ui/MetricCard";
 import { useAppStore } from "@/store/useAppStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { personaForRole } from "@/lib/persona";
+import { EndpointCoveragePanel } from "@/components/execution/EndpointCoveragePanel";
 import { AgentDetailCard, AgentGlyph, buildAgentsFromBackend, type AgentTab } from "@/components/execution/AgentDetailCard";
 import { AdaptiveOrchestratorPanel } from "@/components/execution/AdaptiveOrchestratorPanel";
 import { ContextAssemblyPanel } from "@/components/execution/ContextAssemblyPanel";
@@ -400,6 +401,11 @@ function PipelineStepContent({
     const selected = selectedAgentId ? intelligenceAgents.find((a) => a.id === selectedAgentId) : undefined;
     return (
       <div className="space-y-4">
+        {/* Which audited surface received what, across every agent. Sits above
+            the per-agent detail because coverage is a property of the run, not
+            of any one agent — an endpoint nobody probed is invisible from
+            inside each agent's own transcript. */}
+        <EndpointCoveragePanel runId={runId} />
         {intelligenceAgents.length === 0 ? (
           <p className="text-[12px] text-slate-500 dark:text-slate-400">No agent executions recorded for this run yet.</p>
         ) : selected ? (
@@ -639,6 +645,17 @@ export function LiveRuns() {
   const effectiveStep = selectedStep ?? (runId ? livePanelPhase : "created");
   const currentStepDef = PIPELINE_STEPS.find((s) => s.id === effectiveStep) ?? PIPELINE_STEPS[0];
 
+  // Reset drops the run selection in the shared store (see useSelectionStore);
+  // this drops the page's own per-run UI state alongside it, so the canvas
+  // returns to "pick a target and run an audit" instead of keeping a pipeline
+  // step and agent highlighted for a run that is no longer on screen.
+  function handleResetView() {
+    setSelectedStep(null);
+    setSelectedAgentId(null);
+    setSelectedCouncilMemberId(null);
+    setShowApprovalModal(false);
+  }
+
   // Clicking the already-selected agent toggles its detail closed.
   function handleSelectAgent(id: string) {
     setSelectedAgentId((current) => (current === id ? null : id));
@@ -680,6 +697,7 @@ export function LiveRuns() {
             selectedCouncilMemberId={selectedCouncilMemberId}
             onSelectCouncilMember={handleSelectCouncilMember}
             resultSummary={liveResultSummary}
+            onReset={handleResetView}
           />
         </div>
       )}
@@ -771,6 +789,7 @@ export function LiveRuns() {
             selectedCouncilMemberId={selectedCouncilMemberId}
             onSelectCouncilMember={handleSelectCouncilMember}
             resultSummary={liveResultSummary}
+            onReset={handleResetView}
           />
         </div>
 

@@ -108,6 +108,53 @@ def dimension_not_probed_finding(
     )
 
 
+def unprobed_endpoints_finding(
+    *, agent_name: str, endpoints: list[tuple[str, str | None]]
+) -> FindingCreate:
+    """An honest 'these registered surfaces were never reached' record.
+
+    A system registered with several capability endpoints is several
+    independent audit surfaces. The run-level probe total says nothing about the
+    distribution, so a run that exercised one endpoint heavily and another not
+    at all produced exactly the same headline as one that covered both — and a
+    reader would reasonably assume the whole system was audited.
+
+    The same reasoning as ``dimension_not_probed_finding``, one axis over:
+    absence of findings for a surface nobody asked is not evidence the surface
+    is sound. Shares the ``coverage_gap`` finding_type so existing report and UI
+    handling applies; ``generated_by`` distinguishes the cause.
+    """
+    labels = [name or ref for ref, name in endpoints]
+    listed = ", ".join(labels)
+    return FindingCreate(
+        finding_type="coverage_gap",
+        title=(
+            f"{len(endpoints)} registered endpoint(s) received no probes in this run"
+        ),
+        summary=(
+            f"These capability endpoints were registered for this system but were never "
+            f"probed: {listed}. This run therefore says nothing about their behaviour. It "
+            "is a limit on coverage, not a compliance finding — but a report covering this "
+            "system should not be read as covering these surfaces."
+        ),
+        severity=Severity.info,
+        confidence=1.0,
+        dimension="coverage",
+        evidence_ids=[],
+        agent_name=agent_name,
+        recommended_action=(
+            "Re-run the audit scoped to these endpoints, or confirm they are out of scope "
+            "and disable them on the registered system so they stop appearing as gaps."
+        ),
+        payload={
+            "generated_by": "unprobed_endpoint_gate",
+            "endpoints": [
+                {"endpoint_ref": ref, "capability_name": name} for ref, name in endpoints
+            ],
+        },
+    )
+
+
 def coverage_gap_finding(*, agent_name: str, dimension: str, reason: str) -> FindingCreate:
     """An honest 'this agent had nothing appropriate to probe' record.
 

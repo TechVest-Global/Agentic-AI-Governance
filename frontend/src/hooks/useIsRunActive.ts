@@ -12,6 +12,7 @@ export function useIsRunActive(): { active: boolean; activeRunId: string | null 
   const [active, setActive] = useState(false);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const selectedRunId = useSelectionStore((s) => s.selectedRunId);
+  const runSelectionCleared = useSelectionStore((s) => s.runSelectionCleared);
   const globalRunnerStatus = useAppStore((s) => s.globalRunnerStatus);
 
   // Immediately reflect runner hook state. "awaiting" (paused for plan approval)
@@ -25,6 +26,14 @@ export function useIsRunActive(): { active: boolean; activeRunId: string | null 
   useEffect(() => {
     let cancelled = false;
     async function check() {
+      // Reset cleared the run selection — there is nothing being watched, so
+      // don't fall back to the latest run. Otherwise the sidebar keeps offering
+      // "Pause Audit" for a run the canvas no longer shows.
+      if (runSelectionCleared) {
+        setActive(false);
+        setActiveRunId(null);
+        return;
+      }
       try {
         const run = selectedRunId
           ? await getEvaluationRun(selectedRunId)
@@ -46,7 +55,7 @@ export function useIsRunActive(): { active: boolean; activeRunId: string | null 
     check();
     const id = setInterval(check, 4000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [selectedRunId]);
+  }, [selectedRunId, runSelectionCleared]);
 
   return { active, activeRunId };
 }

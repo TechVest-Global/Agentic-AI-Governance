@@ -20,6 +20,7 @@ from app.models.finding import Finding
 from app.schemas.governance import (
     ContextAssemblyCreate,
     ContextAssemblyRead,
+    EndpointCoverageSummary,
     EvaluationPlanCreate,
     EvaluationPlanRead,
     EvaluationRunCancel,
@@ -45,8 +46,9 @@ from app.services import (
     orchestration,
 )
 from app.services import evaluation_runs as service
-from app.services.action_reporting import framework_maps, reports
+from app.services.action_reporting import endpoint_coverage, framework_maps, reports
 from app.services.llm_gateway import call_log as llm_call_log_service
+from app.services.run_validation import get_run_or_raise
 from app.services.specialist_agents import metric_execution, metric_plans
 
 router = APIRouter(prefix="/evaluation-runs")
@@ -254,6 +256,22 @@ def get_llm_call_logs(
     session: SessionDependency,
 ) -> LLMCallLogSummary:
     return llm_call_log_service.get_llm_call_log_summary(session, run_id=run_id)
+
+
+@router.get("/{run_id}/endpoint-coverage", response_model=EndpointCoverageSummary)
+def get_endpoint_coverage(
+    run_id: UUID,
+    session: SessionDependency,
+) -> EndpointCoverageSummary:
+    """Probes broken down by the audited endpoint they were sent to.
+
+    A system with several capability endpoints is several audit surfaces; a
+    single run-wide "probes sent" total cannot show that one of them was never
+    exercised. Registered endpoints appear here even with zero probes, which is
+    the whole point — see services/action_reporting/endpoint_coverage.py.
+    """
+    get_run_or_raise(session, run_id)
+    return endpoint_coverage.build_endpoint_coverage(session, run_id=run_id)
 
 
 @router.get("/{run_id}/execution-artifacts", response_model=list[ExecutionArtifactRead])
