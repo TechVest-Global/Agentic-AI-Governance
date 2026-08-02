@@ -39,18 +39,35 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column("llm_call_logs", sa.Column("endpoint_ref", sa.String(length=500), nullable=True))
-    op.create_index(
-        "ix_llm_call_logs_endpoint_ref", "llm_call_logs", ["endpoint_ref"], unique=False
-    )
-    op.add_column("llm_call_logs", sa.Column("error_type", sa.String(length=100), nullable=True))
-    op.add_column("llm_call_logs", sa.Column("error_detail", sa.Text(), nullable=True))
-    op.add_column(
-        "llm_call_logs",
-        sa.Column("attempts", sa.Integer(), nullable=False, server_default=sa.text("1")),
-    )
-    # Drop the server default so the model's own default owns the value from here.
-    op.alter_column("llm_call_logs", "attempts", server_default=None)
+    # Guarded per column, matching the sibling llm_call_logs migrations. This
+    # revision originally sat directly on 65e671d8f0b0, alongside the error_text
+    # and phase revisions rather than after them; a database stamped under that
+    # earlier ordering already has these columns but not those. Re-running from
+    # 65e671d8f0b0 is how such a database is brought onto the linear chain, so
+    # every step in it has to tolerate work that is already done.
+    bind = op.get_bind()
+    cols = {c["name"] for c in sa.inspect(bind).get_columns("llm_call_logs")}
+
+    if "endpoint_ref" not in cols:
+        op.add_column(
+            "llm_call_logs", sa.Column("endpoint_ref", sa.String(length=500), nullable=True)
+        )
+        op.create_index(
+            "ix_llm_call_logs_endpoint_ref", "llm_call_logs", ["endpoint_ref"], unique=False
+        )
+    if "error_type" not in cols:
+        op.add_column(
+            "llm_call_logs", sa.Column("error_type", sa.String(length=100), nullable=True)
+        )
+    if "error_detail" not in cols:
+        op.add_column("llm_call_logs", sa.Column("error_detail", sa.Text(), nullable=True))
+    if "attempts" not in cols:
+        op.add_column(
+            "llm_call_logs",
+            sa.Column("attempts", sa.Integer(), nullable=False, server_default=sa.text("1")),
+        )
+        # Drop the server default so the model's own default owns the value from here.
+        op.alter_column("llm_call_logs", "attempts", server_default=None)
 
 
 def downgrade() -> None:
