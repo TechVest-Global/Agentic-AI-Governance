@@ -21,6 +21,8 @@ import { MetricCard } from "@/components/ui/MetricCard";
 import { useAppStore } from "@/store/useAppStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { personaForRole } from "@/lib/persona";
+import { isTerminalRunStatus } from "@/lib/runStatus";
+import { describeMediaResponse, mediaFromResponseText } from "@/lib/probeMedia";
 import { EndpointCoveragePanel } from "@/components/execution/EndpointCoveragePanel";
 import { AgentDetailCard, AgentGlyph, buildAgentsFromBackend, type AgentTab } from "@/components/execution/AgentDetailCard";
 import { CallTranscripts } from "@/components/execution/CallTranscripts";
@@ -44,7 +46,7 @@ import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
 import { useRunProgress, phaseIndex, type AgentProgress } from "@/hooks/useRunProgress";
 import { MODEL_CALLING_LAYERS, PIPELINE_STEPS, layerStatus } from "@/pages/pipelineSteps";
 import { metricBlurb, metricName } from "@/data/metricCatalog";
-import type { AuditLedgerEntry, CouncilIteration, FindingToolCall, FrameworkComplianceMap, GovernanceReport, LlmCall } from "@/api/governanceApi";
+import type { AgentExecution, AuditLedgerEntry, CouncilIteration, FindingToolCall, FrameworkComplianceMap, GovernanceReport, LlmCall } from "@/api/governanceApi";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -227,20 +229,41 @@ function ExpandableFindingCard({
               </p>
               {probeSamples.length > 0 ? (
                 <div className="mt-1.5 space-y-1.5">
-                  {probeSamples.map((probe) => (
-                    <div key={probe.id} className="rounded-md border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 px-2.5 py-2">
-                      <p className="text-[11px] leading-snug text-slate-600 dark:text-slate-300">
-                        <span className="font-semibold text-slate-500 dark:text-slate-400">→ </span>
-                        {probe.prompt_text!.length > 220 ? `${probe.prompt_text!.slice(0, 220)}…` : probe.prompt_text}
-                      </p>
-                      {probe.response_text && (
-                        <p className="mt-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
-                          <span className="font-semibold">← </span>
-                          {probe.response_text.length > 220 ? `${probe.response_text.slice(0, 220)}…` : probe.response_text}
+                  {probeSamples.map((probe) => {
+                    // An image/video/audio target answers with a base64 data URL in
+                    // response_text. Truncating it still leaves one unbreakable
+                    // 220-char token that overflows the card, and the bytes say
+                    // nothing anyway — show the asset instead.
+                    const media = mediaFromResponseText(probe.response_text);
+                    return (
+                      <div key={probe.id} className="rounded-md border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 px-2.5 py-2">
+                        <p className="text-[11px] leading-snug break-words text-slate-600 dark:text-slate-300">
+                          <span className="font-semibold text-slate-500 dark:text-slate-400">→ </span>
+                          {probe.prompt_text!.length > 220 ? `${probe.prompt_text!.slice(0, 220)}…` : probe.prompt_text}
                         </p>
-                      )}
-                    </div>
-                  ))}
+                        {media ? (
+                          <div className="mt-1.5 flex items-center gap-2">
+                            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">←</span>
+                            {media.kind === "image" ? (
+                              <img
+                                src={media.url}
+                                alt={`Generated ${media.format} returned by the target`}
+                                className="max-h-20 max-w-40 rounded border border-slate-200 dark:border-slate-700"
+                              />
+                            ) : null}
+                            <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                              {describeMediaResponse(media)}
+                            </span>
+                          </div>
+                        ) : probe.response_text ? (
+                          <p className="mt-1 text-[11px] leading-snug break-words text-slate-500 dark:text-slate-400">
+                            <span className="font-semibold">← </span>
+                            {probe.response_text.length > 220 ? `${probe.response_text.slice(0, 220)}…` : probe.response_text}
+                          </p>
+                        ) : null}
+                      </div>
+                    );
+                  })}
                   {agentProbes.length > probeSamples.length && (
                     <p className="text-[10px] text-slate-400 dark:text-slate-500">
                       +{agentProbes.length - probeSamples.length} more — see the agent's Probes tab in Specialist Agents.
@@ -604,7 +627,12 @@ export function LiveRuns() {
   // A run can contain multiple execution rows per agent (re-probes) — keep only the latest.
   const liveAgents: AgentProgress[] = progress?.agents ?? [];
   const restAgents = useMemo(() => {
-    const latestByName = new Map<string, (typeof backend.agentExecutions)[number]>();
+    // Named type rather than `typeof backend.agentExecutions[number]`: the type
+    // query reads as a reference to `backend` itself, so exhaustive-deps asked
+    // for the whole object in the dep array. Adding it would rebuild this memo
+    // on every unrelated backend field change — the annotation is erased at
+    // runtime, and `backend.agentExecutions` is already the real dependency.
+    const latestByName = new Map<string, AgentExecution>();
     for (const execution of backend.agentExecutions) {
       const existing = latestByName.get(execution.agent_name);
       if (!existing || (execution.started_at ?? "") > (existing.started_at ?? "")) {
@@ -732,7 +760,7 @@ export function LiveRuns() {
         {/* Connection indicator — reflects the live-stream state without alarming
             copy when a run has simply finished (nothing left to stream). */}
         {runId && (() => {
-          const isTerminal = ["completed", "failed", "cancelled"].includes(liveStatus);
+          const isTerminal = isTerminalRunStatus(liveStatus);
           const tone = connected ? "live" : isTerminal ? "done" : "polling";
           const toneClass = {
             live: "border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400",

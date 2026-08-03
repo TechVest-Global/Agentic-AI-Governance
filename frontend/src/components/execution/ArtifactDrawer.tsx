@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import type { ExecutionArtifact } from "@/data/executionLayerData";
+import { describeMediaResponse, mediaFromResponseText } from "@/lib/probeMedia";
 import { Card, CardHeader } from "@/components/ui/Card";
 import {
   executionArtifactMediaUrl,
@@ -411,6 +412,7 @@ const typeColors: Record<ExecutionArtifact["type"], string> = {
 };
 
 function MediaArtifactBody({ media }: { media: NonNullable<ExecutionArtifact["media"]> }) {
+  const responseTextMedia = mediaFromResponseText(media.responseText);
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/40 p-3">
@@ -426,15 +428,25 @@ function MediaArtifactBody({ media }: { media: NonNullable<ExecutionArtifact["me
         <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
           What was asked
         </p>
-        <p className="text-[12px] leading-5 text-slate-700 dark:text-slate-300">{media.promptText}</p>
+        <p className="break-words text-[12px] leading-5 text-slate-700 dark:text-slate-300">{media.promptText}</p>
       </div>
       <div>
         <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
           Response from target
         </p>
-        <p className="whitespace-pre-wrap text-[12px] leading-5 text-slate-800 dark:text-slate-200">
-          {media.responseText}
-        </p>
+        {/* The asset itself is already rendered above. When response_text is just
+            the base64 data URL for that same asset, repeating it here is an
+            unreadable, unwrappable wall of bytes — describe it instead. Genuine
+            text responses (captions, refusals) still print in full. */}
+        {responseTextMedia ? (
+          <p className="text-[12px] leading-5 text-slate-500 dark:text-slate-400">
+            {describeMediaResponse(responseTextMedia)} — shown above.
+          </p>
+        ) : (
+          <p className="whitespace-pre-wrap break-words text-[12px] leading-5 text-slate-800 dark:text-slate-200">
+            {media.responseText}
+          </p>
+        )}
       </div>
     </div>
   );

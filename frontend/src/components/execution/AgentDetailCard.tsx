@@ -12,6 +12,7 @@ import {
   type LlmCall,
 } from "@/api/governanceApi";
 import { metricBlurb, metricName } from "@/data/metricCatalog";
+import { mediaFromResponseText } from "@/lib/probeMedia";
 import {
   experimentFor,
   parseRankingScores,
@@ -42,22 +43,6 @@ export type IntelligenceAgent = {
 };
 
 export const AGENT_TABS: AgentTab[] = ["Overview", "Probes", "Evidence", "Frameworks", "Remediation", "Runtime"];
-
-// Image/video-generation targets return the generated media as a base64 data
-// URL in the same text field a chat target would use for its reply — there's
-// no separate media channel on LlmCall. Detect that shape here so it renders
-// as actual media instead of dumping the raw base64 into a <pre> block.
-const DATA_URL_MEDIA_RE = /^data:(image|video|audio)\/[a-zA-Z0-9.+-]+;base64,/;
-
-function mediaFromResponseText(
-  text: string | null | undefined,
-): { kind: "image" | "video" | "audio"; url: string } | null {
-  if (!text) return null;
-  const trimmed = text.trim();
-  const match = trimmed.match(DATA_URL_MEDIA_RE);
-  if (!match) return null;
-  return { kind: match[1] as "image" | "video" | "audio", url: trimmed };
-}
 
 /**
  * Turn a raw probe identifier into a readable title, keeping the pass number as
