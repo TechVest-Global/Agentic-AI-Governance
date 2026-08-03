@@ -11,7 +11,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import clsx from "clsx";
-import { Card, CardHeader } from "@/components/ui/Card";
+import { Card } from "@/components/ui/Card";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { Badge } from "@/components/ui/Badge";
 import { useAppStore } from "@/store/useAppStore";

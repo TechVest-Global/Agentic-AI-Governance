@@ -5,6 +5,7 @@ import { useThemeStore } from "@/store/useThemeStore";
 import { API_BASE_URL } from "@/api/governanceApi";
 
 function sanitizeInput(value: string): string {
+  // eslint-disable-next-line no-control-regex -- matching control characters is this function's entire purpose
   return value.replace(/[\x00-\x1F\x7F]/g, "").slice(0, 256);
 }
 
@@ -67,7 +68,7 @@ export function SignUp({ onSwitchToSignIn }: { onSwitchToSignIn: () => void }) {
       errs.name = "Full name is required.";
     } else if (nameClean.length < 2) {
       errs.name = "Name must be at least 2 characters.";
-    } else if (!/^[\p{L}\s'\-]+$/u.test(nameClean)) {
+    } else if (!/^[\p{L}\s'-]+$/u.test(nameClean)) {
       errs.name = "Name contains invalid characters.";
     }
 

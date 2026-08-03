@@ -23,7 +23,6 @@ import {
   AuditorModal,
   AuditorPageHeader,
   DemoDataBanner,
-  PriorityTag,
   VerdictTag,
   formatDueDate,
   isOverdue,

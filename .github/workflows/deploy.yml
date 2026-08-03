@@ -59,6 +59,17 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      # Mirrors `ruff` on the backend side. The script existed and passed
+      # locally for months but was never wired in here, so lint regressions
+      # reached the default branch unnoticed — including a JSX comment ESLint
+      # parsed as a `/* global */` directive, and four react-hooks rule
+      # suppressions for a plugin that had never been installed.
+      # exhaustive-deps is a warning, so this gates on errors only — see
+      # frontend/eslint.config.mjs.
+      - name: Frontend lint
+        working-directory: frontend
+        run: npm run lint
+
       # Placeholder API URL — this build is only a correctness gate, not what
       # gets deployed. deploy-frontend rebuilds with the real backend URL.
       - name: Frontend typecheck + build
