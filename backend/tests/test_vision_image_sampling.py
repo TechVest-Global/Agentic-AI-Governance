@@ -17,7 +17,7 @@ from app.models.ai_system import AISystem
 from app.models.enums import MetricResultStatus
 from app.schemas.governance import MetricPlanItem
 from app.services.evaluators.base import MetricEvaluationInput
-from app.services.evaluators.vision_evaluator import _IMAGE_PROBE_PROMPTS, VisionEvaluator
+from app.services.evaluators.vision_evaluator import _IMAGE_PROBE_INTENTS, VisionEvaluator
 from app.services.model_clients.base import MediaAsset, TargetModelResponse
 
 _PNG = (
@@ -104,8 +104,18 @@ def _evaluate(target, verdicts):
         target_endpoint_ref="http://localhost:8001/api/compliance/probe/image",
         run_id=None,
     )
+    designed = [
+        {"boundary": f"b{i}", "prompt": f"designed in-domain request {i}"}
+        for i in range(1, 5)
+    ]
+
+    def _fake_design(_input, _client, count):
+        return designed[:count]
+
     with (
         patch("app.services.evaluators.vision_evaluator._judge_ready", return_value=True),
+        patch("app.services.evaluators.vision_evaluator._governance_client", return_value=object()),
+        patch("app.services.evaluators.vision_evaluator._design_image_probes", side_effect=_fake_design),
         patch("app.services.evaluators.vision_evaluator._vision_client", return_value=(object(), "gpt-4.1")),
         patch("app.services.evaluators.vision_evaluator._judge_image", side_effect=_fake_judge),
         patch("app.services.evaluators.vision_evaluator._capability_endpoint", return_value=None),
@@ -172,5 +182,83 @@ def test_a_target_producing_nothing_falls_back_and_labels_it() -> None:
     assert result.status is MetricResultStatus.passed
 
 
-def test_every_probe_prompt_is_distinct() -> None:
-    assert len(set(_IMAGE_PROBE_PROMPTS)) == len(_IMAGE_PROBE_PROMPTS)
+def test_every_probe_targets_a_distinct_boundary() -> None:
+    """One boundary per probe, so a failure names which control gave way."""
+    assert len(set(_IMAGE_PROBE_INTENTS)) == len(_IMAGE_PROBE_INTENTS)
+
+
+# ---------------------------------------------------------------------------
+# Probe design: the prompts must come from THIS system, or not at all.
+# ---------------------------------------------------------------------------
+
+
+class _DesignerJudge:
+    """Governance client returning one canned design response."""
+
+    def __init__(self, content: str) -> None:
+        self._content = content
+        self.prompts: list[str] = []
+
+    def complete(self, request):  # noqa: ANN001 - test double
+        self.prompts.append(request.prompt)
+        return type("R", (), {"content": self._content})()
+
+
+def _design_input(**overrides):
+    kwargs = dict(
+        metric=_metric(),
+        mock_score=0.0,
+        force_status=None,
+        source_name="test",
+        session=None,
+        ai_system=_system(),
+        target_client=_ImageTarget(),
+        target_endpoint_ref="http://localhost:8001/api/compliance/probe/image",
+        run_id=None,
+    )
+    kwargs.update(overrides)
+    return MetricEvaluationInput(**kwargs)
+
+
+def test_designed_probes_describe_the_system_under_audit() -> None:
+    """A prompt bank written for one domain is noise everywhere else."""
+    from app.services.evaluators.vision_evaluator import _design_image_probes
+
+    judge = _DesignerJudge(
+        '{"probes": [{"boundary": "minors", "prompt": "an in-domain request"}]}'
+    )
+
+    probes = _design_image_probes(_design_input(), judge, 1)
+
+    assert probes == [{"prompt": "an in-domain request", "boundary": "minors"}]
+    sent = judge.prompts[0]
+    assert "Marketing Campaign Generator" in sent
+    assert "content_generation" in sent
+    assert "not as an attack or jailbreak" in sent
+
+
+def test_design_failure_skips_the_metric_rather_than_using_generic_prompts() -> None:
+    """A confused off-domain refusal contains no unsafe content, so it scores
+    as a clean pass — a guardrail reported as tested that never was."""
+    target = _ImageTarget()
+    evaluation_input = _design_input(target_client=target)
+
+    with (
+        patch("app.services.evaluators.vision_evaluator._judge_ready", return_value=True),
+        patch("app.services.evaluators.vision_evaluator._governance_client", return_value=object()),
+        patch("app.services.evaluators.vision_evaluator._design_image_probes", return_value=None),
+    ):
+        result = VisionEvaluator().evaluate(evaluation_input)
+
+    assert result.status is MetricResultStatus.skipped
+    assert "could not design image probes" in result.payload["skipped_reason"]
+    assert target.prompts == [], "no probe may be sent when design failed"
+
+
+def test_a_non_json_design_reply_is_retried_then_gives_up() -> None:
+    from app.services.evaluators.vision_evaluator import _design_image_probes
+
+    judge = _DesignerJudge("not json at all")
+
+    assert _design_image_probes(_design_input(), judge, 2) is None
+    assert len(judge.prompts) == 2, "design should retry once before giving up"
