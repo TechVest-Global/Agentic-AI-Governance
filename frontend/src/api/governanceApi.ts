@@ -1,4 +1,5 @@
 import { useAuthStore } from "@/store/useAuthStore";
+import { isTerminalRunStatus } from "@/lib/runStatus";
 
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "http://127.0.0.1:8000/api/v1";
@@ -1542,8 +1543,6 @@ export async function uploadContextDocument(
   return response.json();
 }
 
-const TERMINAL_STATUSES = new Set(["completed", "report_ready", "degraded", "failed", "cancelled", "canceled"]);
-
 export async function waitForRunCompletion(
   runId: string,
   onProgress?: (run: EvaluationRun) => void,
@@ -1556,7 +1555,7 @@ export async function waitForRunCompletion(
     // Stop polling when the run finishes OR pauses for plan approval — a gated
     // run parks at 'planned' and would otherwise poll forever. Callers inspect
     // isAwaitingApproval() on the returned run to route the user to approval.
-    if (TERMINAL_STATUSES.has(run.status) || isAwaitingApproval(run)) return run;
+    if (isTerminalRunStatus(run.status) || isAwaitingApproval(run)) return run;
     await new Promise((res) => setTimeout(res, 3000));
   }
 }

@@ -444,10 +444,9 @@ export function AISystems() {
             latestBySystem.set(run.ai_system_id, run);
           }
         }
-        const hasVerdict = (status: string) => status === "completed" || status === "report_ready";
         const entries = await Promise.all(
           Array.from(latestBySystem.entries()).map(async ([systemId, run]) => {
-            const verdict = hasVerdict(run.status) ? await getRunVerdict(run.id).catch(() => null) : null;
+            const verdict = runHasVerdict(run.status) ? await getRunVerdict(run.id).catch(() => null) : null;
             const info: SystemRunInfo = {
               lastRun: new Date(run.created_at).toLocaleDateString(),
               verdict: mapVerdictLabel(verdict?.label),

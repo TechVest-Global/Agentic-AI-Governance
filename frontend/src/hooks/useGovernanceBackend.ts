@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSelectionStore } from "@/store/useSelectionStore";
+import { isTerminalRunStatus } from "@/lib/runStatus";
 import {
   getAgentExecutions,
   getAuditLedger,
@@ -69,15 +70,6 @@ const initialState: BackendState = {
   councilIterations: [],
 };
 
-// A run that has reached one of these states will not change again, so we stop
-// polling it. Keep US/UK spellings and the report_ready interim state.
-const TERMINAL_RUN_STATUSES = new Set([
-  "completed",
-  "report_ready",
-  "failed",
-  "cancelled",
-  "canceled",
-]);
 
 // While a run is in flight, refresh the REST snapshot on this cadence so tiles
 // (findings, agent executions, counts) update even when the SSE stream is
@@ -190,7 +182,7 @@ export function useGovernanceBackend() {
   const runStatus = state.latestRun?.status;
   useEffect(() => {
     if (state.error) return;
-    if (runStatus && TERMINAL_RUN_STATUSES.has(runStatus)) return;
+    if (runStatus && isTerminalRunStatus(runStatus)) return;
     const timer = setInterval(refresh, POLL_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [runStatus, state.error, refresh]);

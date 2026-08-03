@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { getEvaluationRun, getLatestEvaluationRun } from "@/api/governanceApi";
 import { useAppStore } from "@/store/useAppStore";
 import { useSelectionStore } from "@/store/useSelectionStore";
-
-const TERMINAL = new Set(["completed", "report_ready", "failed", "cancelled", "canceled"]);
+import { isTerminalRunStatus } from "@/lib/runStatus";
 
 /** The real, backend-polled "is a governance run currently active" signal — shared by
  * the header's run indicator and the Live Runs sidebar so both reflect the same state,
@@ -39,7 +38,7 @@ export function useIsRunActive(): { active: boolean; activeRunId: string | null 
           ? await getEvaluationRun(selectedRunId)
           : await getLatestEvaluationRun();
         if (!cancelled && run) {
-          const isActive = !TERMINAL.has(run.status);
+          const isActive = !isTerminalRunStatus(run.status);
           setActive(isActive);
           setActiveRunId(isActive ? (run.id ?? null) : null);
         }

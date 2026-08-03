@@ -19,9 +19,11 @@ import logging
 import threading
 import time
 import urllib.error
+from datetime import UTC, datetime, timedelta
 
 from openai import APIConnectionError, APITimeoutError, RateLimitError
 
+from app.services import concurrency_settings
 from app.services.model_clients.base import (
     GovernanceModelClient,
     GovernanceModelRequest,
@@ -234,6 +236,10 @@ _RETRYABLE_HTTP_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
 
 
 def _is_retryable(exc: BaseException) -> bool:
+    # Checked first: retrying is exactly what must not happen here. Every
+    # further attempt spends an allowance the target has already refused.
+    if isinstance(exc, TargetQuotaExhausted):
+        return False
     if isinstance(exc, (RateLimitError, APIConnectionError, APITimeoutError)):
         return True
     # HTTPError subclasses URLError, so it must be checked first.
@@ -250,24 +256,85 @@ def _is_rate_limit(exc: BaseException | None) -> bool:
     Covers the plain-HTTP adapters' 429 as well as the SDK's RateLimitError, so
     a throttled audit is recorded as `rate_limited` rather than a generic error.
     """
-    if isinstance(exc, RateLimitError):
+    if isinstance(exc, (RateLimitError, TargetQuotaExhausted)):
         return True
     return isinstance(exc, urllib.error.HTTPError) and exc.code == 429
 
 
-def _retry_after_seconds(exc: BaseException) -> float | None:
-    """Seconds requested by a server's Retry-After header, if it sent one.
+class TargetQuotaExhausted(Exception):
+    """The target is out of quota, not merely throttling a burst.
 
-    Capped so a malformed or hostile header can never park a run for hours.
+    Raised instead of retrying when a 429 names a wait longer than any audit
+    could sensibly absorb. Deliberately NOT a subclass of HTTPError: it must
+    not be classified as retryable, because retrying is precisely the behaviour
+    that spends the rest of an already-exhausted allowance.
+    """
+
+    def __init__(self, endpoint_ref: str, retry_after: float, resets_at: str) -> None:
+        self.endpoint_ref = endpoint_ref
+        self.retry_after = retry_after
+        self.resets_at = resets_at
+        hours = retry_after / 3600.0
+        super().__init__(
+            f"Target quota exhausted for {endpoint_ref}: it asked for "
+            f"{retry_after:.0f}s ({hours:.1f}h), resetting at {resets_at}. "
+            f"No further probes were sent."
+        )
+
+
+def _requested_retry_after(exc: BaseException) -> float | None:
+    """Seconds the server asked us to wait, uncapped, from header or body.
+
+    The Retry-After header is the standard channel, but a target may instead
+    put the wait in its JSON error payload (see TargetHTTPError.body_retry_after)
+    — reading only the header made such a target look like it had named no wait
+    at all, so the gateway fell back to a 1-2-4s backoff against a limit that
+    had hours left to run.
+
+    Uncapped on purpose: the caller needs the real number to tell throttling
+    from exhaustion. _retry_after_seconds does the capping for actual sleeping.
     """
     headers = getattr(exc, "headers", None)
     raw = headers.get("Retry-After") if headers is not None else None
-    if not raw:
+    if raw:
+        try:
+            return max(0.0, float(raw))
+        except (TypeError, ValueError):
+            pass  # HTTP-date form — fall through to the body
+    body_value = getattr(exc, "body_retry_after", None)
+    if isinstance(body_value, (int, float)) and body_value > 0:
+        return float(body_value)
+    return None
+
+
+def _quota_exhaustion(exc: BaseException, endpoint_ref: str) -> TargetQuotaExhausted | None:
+    """Classify a 429 as exhaustion rather than throttling, when it says so.
+
+    The distinction is the wait the target names. A few seconds is a burst
+    limit and backoff is the right answer. A window longer than
+    target_quota_exhausted_seconds cannot be waited out inside one audit, so
+    continuing to probe only spends an allowance that is already gone.
+    """
+    requested = _requested_retry_after(exc)
+    if requested is None or requested <= concurrency_settings.target_quota_exhausted_seconds():
         return None
-    try:
-        return max(0.0, min(float(raw), 30.0))
-    except (TypeError, ValueError):
-        return None  # HTTP-date form — fall back to exponential backoff
+    resets_at = (
+        datetime.now(UTC) + timedelta(seconds=requested)
+    ).isoformat(timespec="seconds")
+    return TargetQuotaExhausted(endpoint_ref, requested, resets_at)
+
+
+def _retry_after_seconds(exc: BaseException) -> float | None:
+    """How long to actually sleep before the next attempt.
+
+    Capped so a malformed or hostile value can never park a run for hours. A
+    genuinely long wait is not handled by sleeping through it — see
+    TargetQuotaExhausted.
+    """
+    requested = _requested_retry_after(exc)
+    if requested is None:
+        return None
+    return max(0.0, min(requested, 30.0))
 
 
 def _describe_error(exc: BaseException | None) -> str | None:
@@ -472,6 +539,29 @@ class GatewayTargetModelClient:
         # isolated from other audited systems.
         self._cooldown_lock = threading.Lock()
         self._cooldown_until = 0.0
+        # Latched once a 429 names a wait no audit can outlast. Shared by every
+        # worker on this target for the same reason the cooldown is: the quota
+        # belongs to the target, not to whichever worker happened to discover
+        # it was gone.
+        self._quota_exhausted: TargetQuotaExhausted | None = None
+
+    def _check_quota(self, endpoint_ref: str) -> None:
+        """Fail immediately if this target has already reported it is out of quota.
+
+        No network request, no retry, no wait. Every probe after the first
+        discovery used to spend three more requests learning the same thing —
+        which both burns the allowance the target is already refusing and stalls
+        the phase for the timeout on each one.
+        """
+        with self._cooldown_lock:
+            exhausted = self._quota_exhausted
+        if exhausted is not None:
+            raise exhausted
+
+    def _enter_quota_exhausted(self, exc: TargetQuotaExhausted) -> None:
+        with self._cooldown_lock:
+            if self._quota_exhausted is None:
+                self._quota_exhausted = exc
 
     def _await_cooldown(self, endpoint_ref: str) -> None:
         """Block while this target is cooling off from a rate limit."""
@@ -518,6 +608,10 @@ class GatewayTargetModelClient:
         attempt = 0
         for attempt in range(self._max_retries):
             try:
+                # Cheapest gate first: if another worker already found this
+                # target out of quota, there is nothing to wait for and nothing
+                # to send.
+                self._check_quota(request.endpoint_ref)
                 # Honour any cooldown another worker discovered, before spending
                 # this attempt on a request the target is going to reject — and
                 # before taking a slot, so a cooling-off worker isn't holding one
@@ -574,6 +668,20 @@ class GatewayTargetModelClient:
                         type(exc).__name__,
                     )
                     if _is_rate_limit(exc):
+                        quota = _quota_exhaustion(exc, request.endpoint_ref)
+                        if quota is not None:
+                            # Not a burst to back off from — the allowance is
+                            # spent. Latch it so no worker probes this target
+                            # again, and stop retrying: every further attempt
+                            # spends quota the target is already refusing.
+                            logger.error(
+                                "llm_target_quota_exhausted endpoint=%s retry_after=%.0fs "
+                                "resets_at=%s — no further probes will be sent",
+                                request.endpoint_ref, quota.retry_after, quota.resets_at,
+                            )
+                            self._enter_quota_exhausted(quota)
+                            last_exc = quota
+                            break
                         # Publish it, then let the cooldown gate at the top of the
                         # next attempt do the waiting — for this worker AND every
                         # other one, instead of each colliding with the limit in
@@ -588,11 +696,16 @@ class GatewayTargetModelClient:
                 # Non-retryable failure (e.g. BadRequestError, AuthenticationError) —
                 # log the attempt before re-raising so it still leaves an audit trail,
                 # matching the exhausted-retries path below instead of vanishing silently.
+                # A latched quota failure sent nothing — the gate fired before any
+                # request. Recording attempts=1 would credit this call with an
+                # HTTP request that never happened, in the audit trail whose whole
+                # purpose here is to show the allowance was NOT spent.
+                sent = 0 if isinstance(exc, TargetQuotaExhausted) else attempt + 1
                 _append_log({
                     "task": _probe_name(request.capability_name),
                     "call_type": "target",
                     "endpoint_ref": request.endpoint_ref,
-                    "attempts": attempt + 1,
+                    "attempts": sent,
                     "model": getattr(self._inner, "deployment_name", self.provider),
                     "deployment_name": getattr(self._inner, "deployment_name", None),
                     "client_mode": "live",
@@ -602,7 +715,7 @@ class GatewayTargetModelClient:
                     "total_tokens": None,
                     "estimated_cost_usd": None,
                     "latency_ms": int((time.monotonic() - started) * 1000),
-                    "status": "error",
+                    "status": "rate_limited" if _is_rate_limit(exc) else "error",
                     "error_type": exc.__class__.__name__,
                     "error_detail": error_detail(exc),
                     "request_chars": len(request.prompt),

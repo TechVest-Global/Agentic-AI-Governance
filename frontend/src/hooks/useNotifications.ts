@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { getFindings, getRunVerdict, listEvaluationRuns, listAISystems, type EvaluationRun } from "@/api/governanceApi";
+import { isTerminalRunStatus, isUnsuccessfulRunStatus, runHasVerdict } from "@/lib/runStatus";
 
 type NotificationBase = {
   id: string;
@@ -14,7 +15,6 @@ type NotificationBase = {
 
 export type Notification = NotificationBase & { read: boolean };
 
-const TERMINAL = new Set(["completed", "report_ready", "failed", "cancelled", "canceled"]);
 const REVIEW_TIERS = new Set(["human_review", "supervised"]);
 const HIGH_SEVERITY = new Set(["critical", "high"]);
 const POLL_MS = 15_000;
@@ -77,14 +77,19 @@ export function useNotifications() {
         setRuns(runList);
         setSystemNameById(new Map(systems.map((s) => [s.id, s.name])));
 
-        const terminalRuns = runList.filter((r) => TERMINAL.has(r.status));
+        const terminalRuns = runList.filter((r) => isTerminalRunStatus(r.status));
+        // Findings exist for any finished run — a failed run still emitted
+        // whatever its agents got through. A verdict does NOT: asking for one
+        // on a failed/cancelled run is a guaranteed 404 on every poll, so only
+        // the verdict-bearing subset is queried.
+        const adjudicatedRuns = terminalRuns.filter((r) => runHasVerdict(r.status));
         const [verdicts, findingsLists] = await Promise.all([
-          Promise.all(terminalRuns.map((r) => getRunVerdict(r.id).catch(() => null))),
+          Promise.all(adjudicatedRuns.map((r) => getRunVerdict(r.id).catch(() => null))),
           Promise.all(terminalRuns.map((r) => getFindings(r.id).catch(() => []))),
         ]);
         if (cancelled) return;
 
-        setVerdictByRun(Object.fromEntries(terminalRuns.map((r, i) => [r.id, verdicts[i]])));
+        setVerdictByRun(Object.fromEntries(adjudicatedRuns.map((r, i) => [r.id, verdicts[i]])));
         setFindingsByRun(Object.fromEntries(terminalRuns.map((r, i) => [r.id, findingsLists[i]])));
       } catch {
         // Transient fetch failure — next poll retries.
@@ -102,16 +107,24 @@ export function useNotifications() {
     for (const run of runs) {
       const systemName = systemNameById.get(run.ai_system_id) ?? "AI system";
 
-      if (run.status === "completed" || run.status === "report_ready") {
+      // Covers `degraded` too — it reached a verdict despite the council or
+      // report step failing, so it is a finished, adjudicated run and belongs
+      // in the inbox. Listing only completed/report_ready silently dropped it.
+      if (runHasVerdict(run.status)) {
+        const finishedAt = run.completed_at ? new Date(run.completed_at).toLocaleTimeString() : "an unknown time";
         items.push({
           id: `run-done-${run.id}`,
           kind: "run_completed",
-          title: `Run completed — ${systemName}`,
-          detail: `Governance run finished at ${run.completed_at ? new Date(run.completed_at).toLocaleTimeString() : "an unknown time"}.`,
+          title: run.status === "degraded"
+            ? `Run completed with degradation — ${systemName}`
+            : `Run completed — ${systemName}`,
+          detail: run.status === "degraded"
+            ? `Governance run finished at ${finishedAt}, but part of the pipeline degraded — ${describeRunFailure(run)}`
+            : `Governance run finished at ${finishedAt}.`,
           runId: run.id,
           createdAt: run.completed_at ?? run.updated_at ?? run.created_at,
         });
-      } else if (run.status === "failed" || run.status === "cancelled" || run.status === "canceled") {
+      } else if (isUnsuccessfulRunStatus(run.status)) {
         items.push({
           id: `run-failed-${run.id}`,
           kind: "run_failed",

@@ -43,6 +43,11 @@ def target_max_inflight() -> int:
     return max(1, settings.agent_target_max_inflight or settings.agent_probe_max_workers)
 
 
+def target_quota_exhausted_seconds() -> float:
+    """Retry-After above which a 429 means "out of quota", not "slow down"."""
+    return get_settings().target_quota_exhausted_seconds
+
+
 def metric_execution_max_workers() -> int:
     return max(1, get_settings().metric_execution_max_workers)
 

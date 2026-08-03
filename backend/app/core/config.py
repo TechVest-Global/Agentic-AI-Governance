@@ -110,6 +110,12 @@ class Settings(BaseSettings):
     # AND metric-execution evaluators). 0 means "same as agent_probe_max_workers",
     # which keeps peak load on the target at its pre-parallelism level.
     agent_target_max_inflight: int = Field(default=0, ge=0)
+    # A target asking us to wait longer than this is not throttling a burst, it
+    # is out of quota: no backoff inside one audit can outlast the window, so
+    # the run stops probing it instead of spending the rest of the allowance on
+    # requests that are certain to be refused. Observed on a target answering
+    # 429 with retry_after=62625s (a daily quota, resetting at midnight UTC).
+    target_quota_exhausted_seconds: float = Field(default=300.0, gt=0)
     # Metric evaluation fan-out width and phase budget. See metric_execution.py.
     metric_execution_max_workers: int = Field(default=3, ge=1)
     metric_execution_budget_seconds: float = Field(default=600.0, gt=0)

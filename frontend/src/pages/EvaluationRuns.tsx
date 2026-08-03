@@ -15,10 +15,9 @@ import {
   type EvaluationRun,
 } from "@/api/governanceApi";
 import { AuditScopeField, WHOLE_APP_SCOPE, type AuditScope } from "@/components/execution/AuditScopeField";
+import { isRunActive, isUnsuccessfulRunStatus } from "@/lib/runStatus";
 
 type StatusFilter = "all" | "running" | "completed" | "failed";
-
-const TERMINAL_FAILED = ["failed", "cancelled", "canceled"];
 
 function humanize(text: string): string {
   return text
@@ -39,15 +38,14 @@ function fmtTime(value?: string | null): string {
 function statusTone(status: string): "green" | "red" | "amber" | "blue" | "slate" {
   const s = status.toLowerCase();
   if (s === "completed") return "green";
-  if (TERMINAL_FAILED.includes(s)) return "red";
+  if (isUnsuccessfulRunStatus(s)) return "red";
   if (s === "running") return "amber";
   if (s === "created") return "slate";
   return "blue";
 }
 
 function isActive(status: string): boolean {
-  const s = status.toLowerCase();
-  return s !== "completed" && !TERMINAL_FAILED.includes(s);
+  return isRunActive(status);
 }
 
 function summarize(record: Record<string, unknown> | null | undefined): string {
@@ -127,7 +125,7 @@ export function EvaluationRuns() {
     for (const r of runs) {
       const s = r.status.toLowerCase();
       if (s === "completed") completed += 1;
-      else if (TERMINAL_FAILED.includes(s)) failed += 1;
+      else if (isUnsuccessfulRunStatus(s)) failed += 1;
       else active += 1;
     }
     return { total: runs.length, active, completed, failed };
@@ -139,7 +137,7 @@ export function EvaluationRuns() {
       if (filter === "all") return true;
       if (filter === "running") return isActive(r.status);
       if (filter === "completed") return s === "completed";
-      if (filter === "failed") return TERMINAL_FAILED.includes(s);
+      if (filter === "failed") return isUnsuccessfulRunStatus(s);
       return true;
     });
   }, [runs, filter]);
