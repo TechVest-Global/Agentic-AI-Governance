@@ -37,6 +37,10 @@ export function RunSwitcher({ alwaysVisible = false }: { alwaysVisible?: boolean
         aria-label="Active evaluation run"
         className="max-w-[230px] bg-transparent text-[12px] font-medium text-slate-700 dark:text-slate-200 outline-none"
       >
+        {/* After Reset no run is selected. Without a matching option the browser
+            would render the first run as though it were active, which is exactly
+            the "did Reset do anything?" confusion this state needs to avoid. */}
+        {!runId && <option value="">No run selected — pick one to view</option>}
         {runs.map((run, i) => (
           <option key={run.id} value={run.id}>
             {i === 0 ? "Latest" : run.id.slice(0, 8)} · {systemNameById.get(run.ai_system_id) ?? "system"} ·{" "}

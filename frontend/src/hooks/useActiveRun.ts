@@ -17,6 +17,11 @@ export type ActiveRun = {
   error: string | null;
   /** Select a run (null = follow latest). Shared across every tab. */
   setRunId: (id: string | null) => void;
+  /**
+   * Show no run at all. Distinct from `setRunId(null)`, which follows the
+   * latest run — and therefore cannot clear the latest run from the view.
+   */
+  clearRun: () => void;
   refresh: () => void;
 };
 
@@ -29,6 +34,8 @@ export function useActiveRun(): ActiveRun {
   const selectedRunId = useSelectionStore((s) => s.selectedRunId);
   const setSelectedRunId = useSelectionStore((s) => s.setSelectedRunId);
   const setSelectedSystemId = useSelectionStore((s) => s.setSelectedSystemId);
+  const runSelectionCleared = useSelectionStore((s) => s.runSelectionCleared);
+  const clearRunSelection = useSelectionStore((s) => s.clearRunSelection);
 
   const [runs, setRuns] = useState<EvaluationRun[]>([]);
   const [systems, setSystems] = useState<BackendAISystem[]>([]);
@@ -59,9 +66,14 @@ export function useActiveRun(): ActiveRun {
     };
   }, [token]);
 
-  // If the selected run is gone (or none chosen), fall back to the latest.
-  const effectiveRunId =
-    (selectedRunId && runs.some((r) => r.id === selectedRunId) ? selectedRunId : null) ?? runs[0]?.id ?? null;
+  // If the selected run is gone (or none chosen), fall back to the latest —
+  // unless the user explicitly cleared the selection, in which case falling
+  // back would immediately re-select the run they just cleared.
+  const effectiveRunId = runSelectionCleared
+    ? null
+    : (selectedRunId && runs.some((r) => r.id === selectedRunId) ? selectedRunId : null) ??
+      runs[0]?.id ??
+      null;
   const run = runs.find((r) => r.id === effectiveRunId) ?? null;
 
   const systemNameById = new Map(systems.map((s) => [s.id, s.name]));
@@ -77,5 +89,16 @@ export function useActiveRun(): ActiveRun {
     [runs, setSelectedRunId, setSelectedSystemId],
   );
 
-  return { runs, systems, systemNameById, runId: effectiveRunId, run, loading, error, setRunId, refresh };
+  return {
+    runs,
+    systems,
+    systemNameById,
+    runId: effectiveRunId,
+    run,
+    loading,
+    error,
+    setRunId,
+    clearRun: clearRunSelection,
+    refresh,
+  };
 }

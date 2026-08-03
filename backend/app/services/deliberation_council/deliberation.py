@@ -73,7 +73,10 @@ from app.services.model_clients.gateway import (
     get_log_buffer,
     start_log_capture,
 )
-from app.services.model_clients.mock import MockGovernanceModelClient
+from app.services.model_clients.mock import (
+    MockGovernanceModelClient,
+    is_mock_governance_client,
+)
 from app.services.model_clients.registry import get_governance_model_client
 from app.services.run_validation import get_run_or_raise
 
@@ -554,6 +557,39 @@ def _append_council_iteration_state(
                     "dimensions": memo.dimensions,
                     "sample_sizes": memo.sample_sizes,
                     "conflicts": memo.conflicts,
+                    # Provenance edges back to the findings this synthesis rests
+                    # on, and what it did with each. Recorded here rather than
+                    # only on the Verdict because this is the append-only chain:
+                    # the edges are part of the tamper-evident record of how the
+                    # Council reasoned, not a derived view of its conclusion.
+                    "claims": [
+                        {
+                            "claim_id": c.claim_id,
+                            "statement": c.statement,
+                            "citations": [
+                                {"finding_id": cite.finding_id, "role": cite.role}
+                                for cite in c.citations
+                            ],
+                        }
+                        for c in memo.claims
+                    ],
+                    "unused_findings": [
+                        {"finding_id": u.finding_id, "reason": u.reason}
+                        for u in memo.unused_findings
+                    ],
+                    # Stored even when incomplete — see ProvenanceCoverage.
+                    "coverage": (
+                        {
+                            "total_findings": memo.coverage.total_findings,
+                            "cited": memo.coverage.cited,
+                            "declared_unused": memo.coverage.declared_unused,
+                            "unaccounted": memo.coverage.unaccounted,
+                            "invalid_citations": memo.coverage.invalid_citations,
+                            "is_complete": memo.coverage.is_complete,
+                        }
+                        if memo.coverage is not None
+                        else None
+                    ),
                 },
                 "objections": [
                     {
@@ -563,6 +599,13 @@ def _append_council_iteration_state(
                         "argument": o.argument,
                         "suggested_fix": o.suggested_fix,
                         "remediation_hint": o.remediation_hint,
+                        # Whether this disputes the findings or what was
+                        # concluded from them, and which claim/findings it
+                        # names. See devils_advocate_agent for why the
+                        # evidence/inference split is load-bearing.
+                        "attacks": o.attacks,
+                        "target_claim_id": o.target_claim_id,
+                        "target_finding_ids": o.target_finding_ids,
                     }
                     for o in objections
                 ],
@@ -577,6 +620,30 @@ def _append_council_iteration_state(
                     "objections_addressed": verdict.objections_addressed,
                     "objections_upheld": verdict.objections_upheld,
                     "iteration_penalty": verdict.iteration_penalty,
+                    # Where the confidence number came from, step by step. Every
+                    # value was already computed to produce the score; recording
+                    # it is what makes the number checkable rather than asserted.
+                    "derivation": (
+                        {
+                            "source": verdict.derivation.source,
+                            "raw_score": verdict.derivation.raw_score,
+                            "final_score": verdict.derivation.final_score,
+                            "threshold": verdict.derivation.threshold,
+                            "policy_floor_applied": verdict.derivation.policy_floor_applied,
+                            "sufficiency_reason": verdict.derivation.sufficiency_reason,
+                            "steps": [
+                                {
+                                    "step": st.step,
+                                    "detail": st.detail,
+                                    "score_before": st.score_before,
+                                    "score_after": st.score_after,
+                                }
+                                for st in verdict.derivation.steps
+                            ],
+                        }
+                        if verdict.derivation is not None
+                        else None
+                    ),
                 },
             },
         ),
@@ -609,6 +676,9 @@ def _persist_verdict(
             "argument": o.argument,
             "suggested_fix": o.suggested_fix,
             "remediation_hint": o.remediation_hint,
+            "attacks": o.attacks,
+            "target_claim_id": o.target_claim_id,
+            "target_finding_ids": o.target_finding_ids,
         }
         for o in all_objections
     ]
@@ -887,8 +957,8 @@ def _get_governance_client():
 def _is_mock_governance_client(client) -> bool:
     """Whether the council is deliberating with a mock model rather than a real one.
 
-    Checks past the Gateway wrapper, which every registry-built client is wrapped
-    in, so the mock is still detected once wrapped.
+    Thin alias: the predicate moved next to the mock client itself so the
+    council agents can consult it without importing this module (which imports
+    them). Kept as a name here because callers and tests already use it.
     """
-    inner = getattr(client, "_inner", client)
-    return isinstance(inner, MockGovernanceModelClient) or "Mock" in type(inner).__name__
+    return is_mock_governance_client(client)

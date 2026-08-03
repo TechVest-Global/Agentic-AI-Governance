@@ -3,7 +3,7 @@ from uuid import UUID
 
 from sqlmodel import Session, select
 
-from app.core.exceptions import ResourceConflictError
+from app.core.exceptions import ApplicationError, ResourceConflictError
 from app.db import session as db_session
 from app.models.ai_system import AISystem
 from app.models.base import utc_now
@@ -31,6 +31,7 @@ from app.services import (
     context_assembly,
     governance_state,
 )
+from app.services import verdicts as verdict_service
 from app.services.action_reporting import reports
 from app.services.context_assembly.log_synthesizer import synthesize_logs_for_system
 from app.services.deliberation_council import deliberation as council
@@ -109,28 +110,47 @@ def _finalize_run(
     prevent the run from reaching a terminal status (the frontend polls until
     it sees one). No-ops when the run is already terminal.
 
-    ``degraded`` counts as terminal here too: the pipeline itself decides when
-    a run is degraded (one or more specialist agents failed) and that decision
-    must not be silently overwritten back to ``completed`` by the job's
-    unconditional success finalize below.
+    ``degraded`` is a HALF-terminal state and needs care in both directions.
+    ``run_metrics``/``run_agents`` set it mid-pipeline, before the council and
+    report steps have run, so it is not proof the run finished:
+
+      * a success finalize must NOT overwrite it back to ``completed`` — the
+        pipeline decided the run was degraded and that decision stands;
+      * a FAILURE finalize must be able to overwrite it. Treating degraded as
+        fully terminal meant a run that degraded during the agent phase and
+        then genuinely crashed in the council was left sitting at ``degraded``
+        with no ``error_summary`` and no ``completed_at`` — the crash surfaced
+        only in the logs, and the run read as "finished, some agents failed".
+        Since ``degraded`` is also not in ``_INTERRUPTED_STATUSES``, startup
+        reconciliation never revisited it either, so the misreport was
+        permanent.
     """
     terminal = {
         RunStatus.completed,
         RunStatus.failed,
         RunStatus.cancelled,
-        RunStatus.degraded,
     }
     try:
         with Session(db_session.engine) as session:
             run = get_run_or_raise(session, run_id)
             if run.status in terminal:
                 return
+            if run.status == RunStatus.degraded and status != RunStatus.failed:
+                return
             run.status = status
             if status == RunStatus.completed:
                 run.current_phase = RunPhase.completed
             if error is not None:
+                # Merged, not replaced: a degraded run already carries
+                # `degraded_reason` and the list of failed agents, and that
+                # context is exactly what makes the later crash diagnosable.
                 run.error_summary = {
+                    **(run.error_summary or {}),
                     "error_type": error.__class__.__name__,
+                    # ApplicationError carries a stable machine-readable code;
+                    # without it the only thing recorded is prose, which callers
+                    # end up string-matching on.
+                    "error_code": getattr(error, "code", None),
                     "message": str(error),
                 }
             run.completed_at = run.completed_at or utc_now()
@@ -386,12 +406,32 @@ def _execute_and_report(
             ),
         )
     except ResourceConflictError:
-        # Resuming an interrupted run whose council phase already produced a
-        # Verdict before the crash — a run can only ever have one Verdict, so
-        # this is not a failure to retry, it's the outcome already reached.
-        # Ordered before the broad handler below: recovering a verdict that
-        # already exists is a success path, and must not be degraded as if the
-        # council had failed.
+        # A Verdict already exists. The legitimate case is resuming an
+        # interrupted run whose council phase completed before the crash — a run
+        # can only ever have one Verdict, so that is not a failure to retry,
+        # it's the outcome already reached. Ordered before the broad handler
+        # below: recovering a verdict that already exists is a success path, and
+        # must not be degraded as if the council had failed.
+        #
+        # But this branch used to adopt ANY pre-existing verdict as the council's
+        # outcome. Since a verdict could be written through the public route
+        # before the run ever reached the council, that turned a planted row into
+        # the run's official council decision — reported and exported as though
+        # the council had reasoned its way to it. Confirm the council actually
+        # produced this verdict (the ledger is the provenance record; the Verdict
+        # table has no such column) and fail loudly if it did not, rather than
+        # laundering an unverified verdict through the pipeline.
+        if not verdict_service.council_produced_verdict(session, run_id=run_id):
+            raise ApplicationError(
+                status_code=409,
+                code="VERDICT_NOT_COUNCIL_PRODUCED",
+                message=(
+                    "This run already holds a verdict that the Deliberation Council did not "
+                    "produce, so the council cannot record its own. The run cannot be "
+                    "completed until that verdict is removed."
+                ),
+                details={"run_id": str(run_id)},
+            ) from None
         council_result = council.get_existing_deliberation(session, run_id=run_id)
     except Exception as exc:  # noqa: BLE001 — a lost verdict must not lose the evidence
         logger.exception("Council deliberation failed for run %s", run_id)
@@ -574,6 +614,20 @@ _INTERRUPTED_STATUSES = (
 )
 
 
+def _is_interrupted_degraded(run: EvaluationRun) -> bool:
+    """Whether a ``degraded`` run was actually abandoned mid-pipeline.
+
+    ``degraded`` is set in two very different places. ``run_metrics`` and
+    ``run_agents`` set it the moment something fails, while the run still has
+    the council and report phases ahead of it; ``_execute_and_report`` sets it
+    at the very end, together with ``current_phase = completed``. Only the first
+    kind is interrupted work, so the phase is what distinguishes them — without
+    this, a worker restart during the council left a degraded run permanently
+    unreconciled, because ``degraded`` is absent from _INTERRUPTED_STATUSES.
+    """
+    return run.status == RunStatus.degraded and run.current_phase != RunPhase.completed
+
+
 def reconcile_interrupted_runs(session: Session) -> int:
     """Resume or finalize runs orphaned by a worker restart mid-pipeline.
 
@@ -597,10 +651,16 @@ def reconcile_interrupted_runs(session: Session) -> int:
     from app.services.evaluation_runs import is_awaiting_plan_approval
 
     stuck = session.exec(
-        select(EvaluationRun).where(EvaluationRun.status.in_(_INTERRUPTED_STATUSES))
+        select(EvaluationRun).where(
+            EvaluationRun.status.in_((*_INTERRUPTED_STATUSES, RunStatus.degraded))
+        )
     ).all()
     reconciled = 0
     for run in stuck:
+        # A degraded run that reached the report phase is genuinely finished;
+        # only one abandoned mid-pipeline needs reconciling.
+        if run.status == RunStatus.degraded and not _is_interrupted_degraded(run):
+            continue
         if is_awaiting_plan_approval(run):
             continue
 
@@ -609,7 +669,12 @@ def reconcile_interrupted_runs(session: Session) -> int:
             is not None
         )
         if has_verdict:
-            run.status = RunStatus.completed
+            # Preserve degraded: the run reached a verdict, but some of the
+            # evidence behind it is missing and finalizing it as a clean
+            # `completed` would erase that on restart.
+            run.status = (
+                RunStatus.degraded if run.status == RunStatus.degraded else RunStatus.completed
+            )
             run.current_phase = RunPhase.completed
             run.result_summary = {
                 **(run.result_summary or {}),

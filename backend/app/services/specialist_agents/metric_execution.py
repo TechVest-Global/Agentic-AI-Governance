@@ -1,6 +1,5 @@
 import functools
 import logging
-import os
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeout
 from uuid import UUID
@@ -19,6 +18,10 @@ from app.schemas.governance import (
     MetricExecutionRead,
 )
 from app.services import audit_ledger
+from app.services.concurrency_settings import (
+    metric_execution_budget_seconds,
+    metric_execution_max_workers,
+)
 from app.services.evaluators.base import (
     MetricEvaluationInput,
     MetricEvaluationResult,
@@ -45,8 +48,12 @@ logger = logging.getLogger(__name__)
 # so the retry/backoff inflated a run past 10 minutes. 3 keeps enough
 # parallelism to overlap the slow target probes without tripping the judge's
 # rate limit. Override with METRIC_EXECUTION_MAX_WORKERS.
-_MAX_METRIC_WORKERS = int(os.getenv("METRIC_EXECUTION_MAX_WORKERS", "3"))
-
+#
+# Both knobs resolve through concurrency_settings at call time rather than being
+# read from os.getenv at import: the app's config is pydantic-settings reading
+# <repo>/.env, which never populates os.environ, so the documented .env override
+# silently did nothing. See app/services/concurrency_settings.py.
+#
 # Hard wall-clock budget for the whole metric-execution phase. A single evaluator
 # that blocks on an unbounded network call (e.g. ragas' langchain judge, which
 # doesn't go through the gateway's per-call timeout, or a garak detector loading
@@ -55,7 +62,6 @@ _MAX_METRIC_WORKERS = int(os.getenv("METRIC_EXECUTION_MAX_WORKERS", "3"))
 # When the budget is hit, any metric still in flight is recorded as SKIPPED so
 # the run always advances to a terminal state. Override with
 # METRIC_EXECUTION_BUDGET_SECONDS.
-_METRIC_PHASE_BUDGET_SECONDS = float(os.getenv("METRIC_EXECUTION_BUDGET_SECONDS", "600"))
 
 
 def _record_orphaned_completion(run_id: UUID, metric_id: str, future: Future) -> None:
@@ -265,7 +271,8 @@ def run_metrics(
             session.commit()
 
     if metrics:
-        worker_count = max(1, min(_MAX_METRIC_WORKERS, len(metrics)))
+        phase_budget_seconds = metric_execution_budget_seconds()
+        worker_count = max(1, min(metric_execution_max_workers(), len(metrics)))
         # Bound the whole phase: collect results as they complete, up to a hard
         # budget. Any metric still running when the budget expires is recorded as
         # skipped so a single hung evaluator can never park the run forever.
@@ -274,7 +281,7 @@ def run_metrics(
         future_to_metric = {pool.submit(_evaluate, m): m for m in metrics}
         results_by_id: dict[str, MetricEvaluationResult] = {}
         try:
-            for future in as_completed(future_to_metric, timeout=_METRIC_PHASE_BUDGET_SECONDS):
+            for future in as_completed(future_to_metric, timeout=phase_budget_seconds):
                 metric = future_to_metric[future]
                 try:
                     results_by_id[metric.metric_id] = future.result()
@@ -287,7 +294,7 @@ def run_metrics(
             pending = {f: m for f, m in future_to_metric.items() if not f.done()}
             logger.warning(
                 "Metric execution hit the %.0fs budget; skipping %d unfinished metric(s): %s",
-                _METRIC_PHASE_BUDGET_SECONDS, len(pending), [m.metric_id for m in pending.values()],
+                phase_budget_seconds, len(pending), [m.metric_id for m in pending.values()],
             )
             for pending_future, pending_metric in pending.items():
                 pending_future.add_done_callback(

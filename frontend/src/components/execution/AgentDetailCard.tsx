@@ -1,21 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  AlertTriangle,
-  BarChart3,
-  ChevronDown,
-  ChevronRight,
-  Clock,
-  ClipboardCheck,
-  ExternalLink,
-  FileText,
-  FlaskConical,
-  Layers,
-  Loader2,
-  MessageSquare,
-  SearchCheck,
-  Terminal,
-  Wrench,
-} from "lucide-react";
+import { AlertTriangle, BarChart3, ChevronDown, ChevronRight, ClipboardCheck, Clock, ExternalLink, FileText, FlaskConical, Layers, Loader2, MessageSquare, SearchCheck, Server, Terminal, Wrench } from "lucide-react";
 import clsx from "clsx";
 import { useAppStore } from "@/store/useAppStore";
 import {
@@ -28,6 +12,7 @@ import {
   type LlmCall,
 } from "@/api/governanceApi";
 import { metricBlurb, metricName } from "@/data/metricCatalog";
+import { mediaFromResponseText } from "@/lib/probeMedia";
 import {
   experimentFor,
   parseRankingScores,
@@ -58,22 +43,6 @@ export type IntelligenceAgent = {
 };
 
 export const AGENT_TABS: AgentTab[] = ["Overview", "Probes", "Evidence", "Frameworks", "Remediation", "Runtime"];
-
-// Image/video-generation targets return the generated media as a base64 data
-// URL in the same text field a chat target would use for its reply — there's
-// no separate media channel on LlmCall. Detect that shape here so it renders
-// as actual media instead of dumping the raw base64 into a <pre> block.
-const DATA_URL_MEDIA_RE = /^data:(image|video|audio)\/[a-zA-Z0-9.+-]+;base64,/;
-
-function mediaFromResponseText(
-  text: string | null | undefined,
-): { kind: "image" | "video" | "audio"; url: string } | null {
-  if (!text) return null;
-  const trimmed = text.trim();
-  const match = trimmed.match(DATA_URL_MEDIA_RE);
-  if (!match) return null;
-  return { kind: match[1] as "image" | "video" | "audio", url: trimmed };
-}
 
 /**
  * Turn a raw probe identifier into a readable title, keeping the pass number as
@@ -537,6 +506,45 @@ function ProbesTab({ agent, runId }: { agent: IntelligenceAgent; runId: string |
     return order.map((id) => byId.get(id)!);
   }, [targetCalls]);
 
+  // On a multi-endpoint system the experiment grouping alone leaves the
+  // transcript looking scattered: probes for different audited surfaces sit
+  // interleaved with nothing saying which surface each one hit. Endpoint is the
+  // outer axis in that case. A single-endpoint system renders exactly as before
+  // — one section, no extra chrome for a distinction that doesn't exist.
+  const endpointSections = useMemo(() => {
+    const order: string[] = [];
+    const byEndpoint = new Map<string, { call: LlmCall; number: number }[]>();
+    targetCalls.forEach((call, i) => {
+      const key = call.endpoint_ref ?? "";
+      if (!byEndpoint.has(key)) {
+        byEndpoint.set(key, []);
+        order.push(key);
+      }
+      byEndpoint.get(key)!.push({ call, number: i + 1 });
+    });
+    return order.map((endpoint) => {
+      const entries = byEndpoint.get(endpoint)!;
+      const groupOrder: string[] = [];
+      const groups = new Map<string, { experiment: ProbeExperiment; calls: { call: LlmCall; number: number }[] }>();
+      entries.forEach((entry) => {
+        const experiment = experimentFor(entry.call.task);
+        if (!groups.has(experiment.id)) {
+          groups.set(experiment.id, { experiment, calls: [] });
+          groupOrder.push(experiment.id);
+        }
+        groups.get(experiment.id)!.calls.push(entry);
+      });
+      return {
+        endpoint,
+        total: entries.length,
+        errors: entries.filter((e) => e.call.status !== "success").length,
+        groups: groupOrder.map((id) => groups.get(id)!),
+      };
+    });
+  }, [targetCalls]);
+
+  const multiEndpoint = endpointSections.length > 1;
+
   return (
     <div className="space-y-5">
       {/* Probe methods header */}
@@ -587,7 +595,39 @@ function ProbesTab({ agent, runId }: { agent: IntelligenceAgent; runId: string |
             </p>
           </div>
         )}
-        {!loading && targetCalls.length > 0 && (
+        {!loading && targetCalls.length > 0 && multiEndpoint && (
+          <div className="space-y-5">
+            {endpointSections.map((section) => (
+              <div key={section.endpoint || "unattributed"} className="space-y-2">
+                {/* Which audited surface the probes below were sent to. */}
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900">
+                  <Server className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                  {/* Monospaced and lowercase — a URL, not a title. */}
+                  <span className="break-all font-mono text-[11.5px] lowercase text-slate-700 dark:text-slate-200">
+                    {section.endpoint || "no endpoint recorded"}
+                  </span>
+                  <span className="ml-auto shrink-0 text-[10px] text-slate-400 dark:text-slate-500">
+                    {section.total} probe{section.total === 1 ? "" : "s"}
+                    {section.errors > 0 && (
+                      <span className="text-red-500 dark:text-red-400"> · {section.errors} error{section.errors === 1 ? "" : "s"}</span>
+                    )}
+                  </span>
+                </div>
+                <div className="space-y-4 border-l-2 border-slate-200 pl-3 dark:border-slate-700">
+                  {section.groups.map((group) => (
+                    <ProbeExperimentGroup
+                      key={group.experiment.id}
+                      group={group}
+                      expanded={expanded}
+                      onToggle={(id) => setExpanded(expanded === id ? null : id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {!loading && targetCalls.length > 0 && !multiEndpoint && (
           <div className="space-y-5">
             {probeGroups.map((group) => (
               <div key={group.experiment.id} className="space-y-2">
@@ -620,6 +660,47 @@ function ProbesTab({ agent, runId }: { agent: IntelligenceAgent; runId: string |
             ))}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** One experiment's header plus its probes. Shared by the flat (single-endpoint)
+ *  transcript and the endpoint-grouped one, so the two cannot drift apart. */
+function ProbeExperimentGroup({
+  group,
+  expanded,
+  onToggle,
+}: {
+  group: { experiment: ProbeExperiment; calls: { call: LlmCall; number: number }[] };
+  expanded: string | null;
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <FlaskConical className="h-4 w-4 text-brand-600 dark:text-brand-400" />
+          <p className="text-[12px] font-semibold text-slate-900 dark:text-white">{group.experiment.title}</p>
+          <span className="rounded bg-brand-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-brand-700 dark:bg-brand-900/30 dark:text-brand-300">
+            {group.experiment.method}
+          </span>
+          <span className="ml-auto text-[10px] text-slate-400 dark:text-slate-500">
+            {group.calls.length} probe{group.calls.length === 1 ? "" : "s"}
+          </span>
+        </div>
+        <p className="mt-1 text-[11px] leading-5 text-slate-500 dark:text-slate-400">{group.experiment.description}</p>
+      </div>
+      <div className="space-y-2">
+        {group.calls.map(({ call, number }) => (
+          <CallTranscriptRow
+            key={call.id}
+            call={call}
+            number={number}
+            open={expanded === call.id}
+            onToggle={() => onToggle(call.id)}
+          />
+        ))}
       </div>
     </div>
   );
@@ -693,7 +774,22 @@ export function CallTranscriptRow({
             )}
             {call.request_chars != null && <span>{call.request_chars} req chars</span>}
             {call.response_chars != null && <span>{call.response_chars} resp chars</span>}
+            {/* Retries are otherwise invisible: a throttled probe can be three
+                real requests into the audited system shown as one row. */}
+            {call.attempts != null && call.attempts > 1 && (
+              <span>{call.attempts} attempts</span>
+            )}
           </div>
+          {/* Why it failed, in the target's own words. Without this the row was
+              a bare red ERROR badge and the reason lived only in a server log —
+              a 502 from the audited app, an expired key and a refused
+              connection all looked identical. */}
+          {call.status !== "success" && (call.error_detail || call.error_type) && (
+            <p className="mt-1 break-words text-[11px] leading-4 text-red-600 dark:text-red-400">
+              {call.error_type && <span className="font-semibold">{call.error_type}: </span>}
+              {call.error_detail}
+            </p>
+          )}
         </div>
         {hasText
           ? open ? <ChevronDown className="mt-0.5 h-4 w-4 text-slate-400 shrink-0" /> : <ChevronRight className="mt-0.5 h-4 w-4 text-slate-400 shrink-0" />

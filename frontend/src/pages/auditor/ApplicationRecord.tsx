@@ -53,8 +53,7 @@ import {
  * All values come from the selected app's real run via useAuditorApplication.
  */
 
-const TAB_IDS = ["summary", "compliance", "metrics", "history"] as const;
-type TabId = (typeof TAB_IDS)[number];
+type TabId = "summary" | "compliance" | "metrics" | "history";
 
 const IN_FLIGHT_STATUSES = new Set([
   "created", "context_assembly", "planned", "metrics_running", "agents_running", "council_running",

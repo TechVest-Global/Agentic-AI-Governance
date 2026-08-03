@@ -1,6 +1,7 @@
 import { ScanSearch } from "lucide-react";
-import type { BackendFinding, GovernanceReport } from "@/api/governanceApi";
+import type { BackendFinding, CouncilIteration, GovernanceReport } from "@/api/governanceApi";
 import type { CouncilMemberId } from "@/components/execution/LiveRunSidebar";
+import { ConfidenceDerivationPanel, CouncilObjections, CouncilProvenance } from "@/components/execution/CouncilProvenance";
 import { BarRow, DrawerHeader, DrawerNote, DrawerSection, ReceivesList, StatGrid } from "@/components/execution/DrawerPrimitives";
 
 const SEVERITY_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
@@ -37,9 +38,15 @@ const TIER_COLOR: Record<string, string> = {
 export function DeliberationCouncilPanel({
   report,
   selectedMemberId,
+  councilIterations = [],
+  onSelectFinding,
 }: {
   report: GovernanceReport | null;
   selectedMemberId: CouncilMemberId | null;
+  /** Replayed from the append-only state log — the only source carrying the
+   *  provenance edges. Empty for runs recorded before v5 synthesis. */
+  councilIterations?: CouncilIteration[];
+  onSelectFinding?: (findingId: string) => void;
 }) {
   const verdict = report?.verdict;
 
@@ -59,6 +66,13 @@ export function DeliberationCouncilPanel({
   const tierColor = TIER_COLOR[verdict.action_tier] ?? "#64748b";
   const tierLabel = TIER_LABEL[verdict.action_tier] ?? verdict.action_tier;
   const findings = report?.findings ?? [];
+  // Last iteration is the one whose synthesis the verdict was reached on.
+  const latestCouncilIteration = councilIterations.length
+    ? councilIterations[councilIterations.length - 1]
+    : null;
+  // State log first, verdict record as the fallback for pre-provenance runs.
+  const objectionCount =
+    latestCouncilIteration?.objections?.length || verdict.objections.length;
 
   if (selectedMemberId === "synthesis") {
     return (
@@ -75,8 +89,18 @@ export function DeliberationCouncilPanel({
           <DrawerSection label="Receives">
             <ReceivesList items={summarizeFindingsByAgent(findings)} />
           </DrawerSection>
+          {/* Provenance first, narrative second. The narrative is the claim; the
+              edges are what makes it checkable, and a reader who only skims the
+              top of the pane should see the evidence, not the prose about it. */}
+          <CouncilProvenance
+            iteration={latestCouncilIteration}
+            findings={findings}
+            onSelectFinding={onSelectFinding}
+          />
           <DrawerSection label="Synthesis narrative">
-            <DrawerNote>{verdict.synthesis ?? "No synthesis text recorded."}</DrawerNote>
+            <DrawerNote>
+              {latestCouncilIteration?.narrative || verdict.synthesis || "No synthesis text recorded."}
+            </DrawerNote>
           </DrawerSection>
         </div>
       </div>
@@ -95,21 +119,16 @@ export function DeliberationCouncilPanel({
           method="Adversarial review of the synthesis · must produce at least one objection or the system retries"
         />
         <div className="p-4">
-          <DrawerSection label={`Objections on record (${verdict.objections.length})`}>
-            {verdict.objections.length === 0 ? (
+          <DrawerSection label={`Objections on record (${objectionCount})`}>
+            {objectionCount === 0 ? (
               <p className="text-[12.5px] text-slate-500 dark:text-slate-400">No objections recorded.</p>
             ) : (
-              <div className="flex flex-col gap-2.5">
-                {verdict.objections.map((obj, i) => (
-                  <DrawerNote
-                    key={obj.objection_id + i}
-                    footer={obj.suggested_fix}
-                  >
-                    <p className="mb-1 text-[10.5px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-400">{obj.category.replace(/_/g, " ")}</p>
-                    {obj.argument}
-                  </DrawerNote>
-                ))}
-              </div>
+              <CouncilObjections
+                iteration={latestCouncilIteration}
+                findings={findings}
+                fallbackObjections={verdict.objections}
+                onSelectFinding={onSelectFinding}
+              />
             )}
           </DrawerSection>
         </div>
@@ -137,6 +156,14 @@ export function DeliberationCouncilPanel({
               ["Label", verdict.label],
               ["Objections", `${verdict.objections.length}`],
             ]}
+          />
+        </DrawerSection>
+        {/* Before the threshold bars: which band the score lands in matters
+            less than whether the score was assessed or computed, and whether
+            the label is the model's or a policy override of it. */}
+        <DrawerSection label="How this confidence was reached">
+          <ConfidenceDerivationPanel
+            derivation={latestCouncilIteration?.verdict?.derivation ?? null}
           />
         </DrawerSection>
         <DrawerSection label="Threshold routing">

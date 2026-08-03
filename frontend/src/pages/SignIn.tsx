@@ -29,7 +29,8 @@ function clearRateLimit() {
 }
 
 function sanitizeInput(value: string): string {
-  // Strip control characters and excessively long strings
+  // Strip control characters and excessively long strings.
+  // eslint-disable-next-line no-control-regex -- matching control characters is this function's entire purpose
   return value.replace(/[\x00-\x1F\x7F]/g, "").slice(0, 256);
 }
 

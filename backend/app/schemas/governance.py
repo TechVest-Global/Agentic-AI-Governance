@@ -509,6 +509,39 @@ class CouncilDeliberationRead(APIModel):
     created_verdict: bool = True
 
 
+class EndpointCoverageRead(APIModel):
+    """What one audited endpoint actually received during a run.
+
+    `probes_sent` counts logical probes that succeeded; `requests_made` counts
+    HTTP round trips, which is larger whenever the Gateway retried. Reporting
+    one number for both would either understate load on the audited system or
+    inflate the probe count — see services/action_reporting/endpoint_coverage.py.
+    """
+
+    endpoint_ref: str | None = None
+    capability_name: str | None = None
+    modality: str | None = None
+    # False for an endpoint that was probed but is not a registered capability
+    # of this system — worth seeing rather than quietly folding in.
+    registered: bool = True
+    probes_sent: int = 0
+    probes_failed: int = 0
+    # Never sent, because the probe was incompatible with the capability. A
+    # different claim from `probes_failed`, which means the target was asked.
+    probes_skipped: int = 0
+    requests_made: int = 0
+    agents: list[str] = Field(default_factory=list)
+    error_types: dict[str, int] = Field(default_factory=dict)
+    sample_error: str | None = None
+
+
+class EndpointCoverageSummary(APIModel):
+    run_id: UUID
+    endpoints: list[EndpointCoverageRead] = Field(default_factory=list)
+    registered_endpoint_count: int = 0
+    unprobed_endpoint_count: int = 0
+
+
 class GovernanceReportRead(APIModel):
     run: EvaluationRunRead
     ai_system: AISystemRead
@@ -526,6 +559,9 @@ class GovernanceReportRead(APIModel):
     # a report that attests to chain integrity would reasonably assume the audit
     # trail was covered; it was not. Both are verified and reported now.
     ledger_chain: AuditLedgerChainVerification
+    # Probes broken down by audited endpoint, so a report can state which
+    # surfaces it actually exercised instead of implying it covered them all.
+    endpoint_coverage: EndpointCoverageSummary | None = None
     counts: dict[str, int] = Field(default_factory=dict)
 
 
@@ -819,6 +855,12 @@ class LLMCallLogRead(APIModel):
     created_at: datetime
     prompt_text: str | None = None
     response_text: str | None = None
+    # Which audited surface this call hit (target calls only), and — when it
+    # failed — why, in the target's own words. See models/llm_call_log.py.
+    endpoint_ref: str | None = None
+    error_type: str | None = None
+    error_detail: str | None = None
+    attempts: int = 1
     error_text: str | None = None
 
 

@@ -30,6 +30,7 @@ import urllib.request
 from uuid import uuid4
 
 from app.services.model_clients.base import MediaAsset, TargetModelRequest, TargetModelResponse
+from app.services.model_clients.http_errors import enrich_http_error
 from app.services.model_clients.sanitization import sanitize_target_output
 
 logger = logging.getLogger(__name__)
@@ -199,8 +200,15 @@ class GenericHTTPTargetModelClient:
             with urllib.request.urlopen(req, timeout=self._timeout) as resp:
                 raw_body = resp.read().decode()
         except Exception as exc:
-            logger.error("GenericHTTPTargetModelClient: request to %s failed: %s", url, exc)
-            raise
+            # Re-raise carrying the target's own response body, so the reason
+            # (e.g. a 502's {"detail": "GPT-4o call failed: ..."}) survives into
+            # FailedProbe and the call log instead of dying here as a bare
+            # status line. See model_clients/http_errors.py.
+            enriched = enrich_http_error(exc)
+            logger.error(
+                "GenericHTTPTargetModelClient: request to %s failed: %s", url, enriched
+            )
+            raise enriched from exc
 
         raw_output = raw_body
         response_media: list[MediaAsset] = []

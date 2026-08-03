@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSelectionStore } from "@/store/useSelectionStore";
+import { isTerminalRunStatus } from "@/lib/runStatus";
 import {
   getAgentExecutions,
   getAuditLedger,
@@ -10,8 +11,10 @@ import {
   getFindings,
   getFrameworkMap,
   getGovernanceReport,
+  councilIterationsFromState,
   getLatestEvaluationRun,
   getLlmCalls,
+  listGovernanceState,
   runCouncilDeliberation,
   verifyAuditLedger,
   type AgentExecution,
@@ -20,6 +23,7 @@ import {
   type BackendFinding,
   type ContextAssemblyRead,
   type CouncilDeliberation,
+  type CouncilIteration,
   type EvaluationPlanRead,
   type EvaluationRun,
   type ExecutionArtifact,
@@ -43,6 +47,9 @@ type BackendState = {
   contextAssembly: ContextAssemblyRead | null;
   llmCalls: LlmCall[];
   executionArtifacts: ExecutionArtifact[];
+  /** Council iterations replayed from the append-only state log — the only
+   *  source carrying the synthesis' provenance edges back to findings. */
+  councilIterations: CouncilIteration[];
 };
 
 const initialState: BackendState = {
@@ -60,17 +67,9 @@ const initialState: BackendState = {
   contextAssembly: null,
   llmCalls: [],
   executionArtifacts: [],
+  councilIterations: [],
 };
 
-// A run that has reached one of these states will not change again, so we stop
-// polling it. Keep US/UK spellings and the report_ready interim state.
-const TERMINAL_RUN_STATUSES = new Set([
-  "completed",
-  "report_ready",
-  "failed",
-  "cancelled",
-  "canceled",
-]);
 
 // While a run is in flight, refresh the REST snapshot on this cadence so tiles
 // (findings, agent executions, counts) update even when the SSE stream is
@@ -82,6 +81,10 @@ export function useGovernanceBackend() {
   const [refreshToken, setRefreshToken] = useState(0);
   // Honor the workspace-wide selected run so every tab stays in sync.
   const selectedRunId = useSelectionStore((s) => s.selectedRunId);
+  // An explicit Reset means "show no run", which has to suppress the
+  // fall-back-to-latest below — otherwise Reset re-loads the run it just
+  // cleared and looks like a dead button.
+  const runSelectionCleared = useSelectionStore((s) => s.runSelectionCleared);
 
   const refresh = useCallback(() => setRefreshToken((value) => value + 1), []);
 
@@ -89,6 +92,12 @@ export function useGovernanceBackend() {
     let cancelled = false;
 
     async function load() {
+      if (runSelectionCleared) {
+        // Nothing to load, and nothing to report as an error — this is the
+        // deliberate "no run selected" state, not a failure to find one.
+        if (!cancelled) setState({ ...initialState, loading: false, error: null });
+        return;
+      }
       setState((current) => ({ ...current, loading: true, error: null }));
       try {
         let latestRun = null;
@@ -116,6 +125,7 @@ export function useGovernanceBackend() {
           contextAssembly,
           llmCallLog,
           executionArtifacts,
+          stateEntries,
         ] = await Promise.all([
           getGovernanceReport(latestRun.id),
           getFrameworkMap(latestRun.id),
@@ -127,6 +137,7 @@ export function useGovernanceBackend() {
           getContextAssembly(latestRun.id),
           getLlmCalls(latestRun.id).catch(() => null),
           getExecutionArtifacts(latestRun.id).catch(() => []),
+          listGovernanceState(latestRun.id).catch(() => []),
         ]);
 
         if (!cancelled) {
@@ -145,6 +156,7 @@ export function useGovernanceBackend() {
             contextAssembly,
             llmCalls: llmCallLog?.calls ?? [],
             executionArtifacts,
+            councilIterations: councilIterationsFromState(stateEntries),
           });
         }
       } catch (error) {
@@ -163,14 +175,14 @@ export function useGovernanceBackend() {
     return () => {
       cancelled = true;
     };
-  }, [refreshToken, selectedRunId]);
+  }, [refreshToken, selectedRunId, runSelectionCleared]);
 
   // Poll while the run is in flight so counts stay live even without SSE.
   // Stops automatically once the run reaches a terminal state or errors.
   const runStatus = state.latestRun?.status;
   useEffect(() => {
     if (state.error) return;
-    if (runStatus && TERMINAL_RUN_STATUSES.has(runStatus)) return;
+    if (runStatus && isTerminalRunStatus(runStatus)) return;
     const timer = setInterval(refresh, POLL_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [runStatus, state.error, refresh]);

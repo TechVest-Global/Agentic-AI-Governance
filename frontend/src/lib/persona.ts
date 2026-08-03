@@ -25,7 +25,7 @@ export function personaForRole(role: string | undefined | null): Persona {
 /**
  * Pages each persona may open, derived from the single navigation config so
  * the route guard can never drift from the sidebar. Auditors are excluded from
- * deep engine-internal pages: How It Works, Agent Intelligence, Metric Plan,
+ * deep engine-internal pages: Agent Intelligence, Metric Plan,
  * Council, and all Configure/Operate pages.
  */
 export const PERSONA_PAGES: Record<Persona, PageId[]> = {

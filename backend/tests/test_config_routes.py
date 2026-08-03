@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+from app.configs.config_loader import load_metric_configs_from_dir
 from fastapi.testclient import TestClient
 
 
@@ -53,7 +54,11 @@ def test_default_governance_configs_can_be_bootstrapped_idempotently(
 
     assert first_response.status_code == 200
     first_result = first_response.json()
-    assert first_result["metrics_created"] == 44
+    # Counted from the catalog on disk rather than hardcoded: the invariant is
+    # "bootstrap creates every metric config there is", and a literal turns
+    # adding one metric into an unrelated test failure that says only 45 != 44.
+    expected_metrics = len(load_metric_configs_from_dir())
+    assert first_result["metrics_created"] == expected_metrics
     assert first_result["metrics_skipped"] == 0
     # 11 from the original 4 frameworks + 14 from owasp_agentic_ai/mitre_atlas
     # (added by "Add agentic AI governance frameworks + NIST/ISO agentic
@@ -73,7 +78,7 @@ def test_default_governance_configs_can_be_bootstrapped_idempotently(
     assert second_response.status_code == 200
     second_result = second_response.json()
     assert second_result["metrics_created"] == 0
-    assert second_result["metrics_skipped"] == 44
+    assert second_result["metrics_skipped"] == expected_metrics
     assert second_result["framework_mappings_created"] == 0
     assert second_result["framework_mappings_skipped"] == 25
 

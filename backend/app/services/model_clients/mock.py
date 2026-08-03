@@ -72,3 +72,18 @@ class MockGovernanceModelClient:
             },
         )
 
+
+
+def is_mock_governance_client(client: object) -> bool:
+    """Whether this client is a mock rather than a real governance model.
+
+    Checks past the Gateway wrapper, which every registry-built client is
+    wrapped in, so the mock is still detected once wrapped.
+
+    Callers use this for two different things: recording that a verdict is
+    non-evidential, and deciding whether re-asking the model could plausibly
+    change its answer. A mock returns the same canned response every time, so
+    a retry against one only burns a call.
+    """
+    inner = getattr(client, "_inner", client)
+    return isinstance(inner, MockGovernanceModelClient) or "Mock" in type(inner).__name__

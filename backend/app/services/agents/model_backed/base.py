@@ -14,8 +14,6 @@ evidence before it enters a governance prompt.
 
 import json
 import logging
-import os
-import threading
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -31,6 +29,8 @@ from app.services.agents.probe_library import (
     ProbeSet,
     SystemProfile,
     classify_system,
+    endpoint_answers_freeform_questions,
+    expand_counterfactual_probes,
     has_tailored_probes,
     payload_for_probe,
     probes_for,
@@ -39,6 +39,7 @@ from app.services.agents.probe_library import (
     validate_dynamic_structured_probes,
     validate_dynamic_text_probes,
 )
+from app.services.concurrency_settings import agent_probe_max_workers
 from app.services.execution_artifacts import record_execution_artifacts
 from app.services.model_clients.base import (
     GovernanceModelClient,
@@ -61,24 +62,15 @@ logger = logging.getLogger(__name__)
 # network latency (seconds per call, dozens per agent once the plan's probe
 # budget scales the set up). Running them sequentially made the specialist
 # agent phase the longest part of an audit. Bounded so the target isn't
-# hammered.
-_MAX_PROBE_WORKERS = int(os.getenv("AGENT_PROBE_MAX_WORKERS", "6"))
-
-# Global ceiling on target probes in flight across the WHOLE process, not per
-# agent. _MAX_PROBE_WORKERS alone was a sufficient bound only while agents ran
-# one at a time: once agent_execution.py fans agents out concurrently, the
-# per-agent pools multiply (3 agents x 6 probes = 18 concurrent requests), and
-# the audited system starts returning HTTP 429 — observed as agents failing with
-# zero findings the moment the fan-out widened.
+# hammered; the fan-out width comes from settings (AGENT_PROBE_MAX_WORKERS)
+# via concurrency_settings so .env can actually override it.
 #
-# The audited endpoint's capacity is a shared resource, so it needs a shared
-# bound. Defaulting to _MAX_PROBE_WORKERS keeps PEAK load on the target exactly
-# what it was before Layer 3 became parallel; the speedup instead comes from
-# agents overlapping their governance-LLM reasoning with each other's probing,
-# rather than leaving the target idle between one agent's probe burst and the
-# next. Override with AGENT_TARGET_MAX_INFLIGHT.
-_MAX_TARGET_INFLIGHT = int(os.getenv("AGENT_TARGET_MAX_INFLIGHT", str(_MAX_PROBE_WORKERS)))
-_TARGET_INFLIGHT = threading.BoundedSemaphore(max(1, _MAX_TARGET_INFLIGHT))
+# The process-wide ceiling on concurrent target requests that used to live here
+# now lives in model_clients/target_throttle.py and is applied inside the
+# Gateway. Two reasons it moved: applied here it covered only specialist-agent
+# probes and not metric-execution's evaluator calls, so the "process-wide" cap
+# was not process-wide; and it wrapped the Gateway's whole retry loop, so a
+# throttled probe held a scarce slot through its own backoff sleep.
 
 # Shared, framework-agnostic probe-design template — used by every specialist
 # agent when neither the endpoint- nor category-level static catalog has
@@ -87,7 +79,7 @@ _TARGET_INFLIGHT = threading.BoundedSemaphore(max(1, _MAX_TARGET_INFLIGHT))
 # splicing — the framework-specific reasoning still happens later, unchanged,
 # in each agent's own governance call over the collected evidence.
 _PROBE_DESIGN_TEMPLATE_ID = "orchestrator.probe_design"
-_PROBE_DESIGN_HASH = "b7ac30a0690ff5e50514fc2bb43cbfaea37acefb66452da5d07d250208588631"
+_PROBE_DESIGN_HASH = "48dca1304eb4daf11873601961fc1e1f299abb52e806e42a84a35ef9bbb075ba"
 _MIN_DYNAMIC_PROBE_COUNT = 1
 
 
@@ -145,9 +137,42 @@ class SkippedProbe:
 
 
 @dataclass(frozen=True)
+class FailedProbe:
+    """A probe that WAS sent to the target but errored — timeout, connection
+    reset, HTTP error — after the Gateway exhausted its retries.
+
+    Deliberately NOT a ``SkippedProbe``. A skip means the probe was never sent
+    (its payload was incompatible with the capability); a failure means the
+    target was asked and returned nothing. Folding the two together would let a
+    dead endpoint read as a modality gap in the audit record.
+
+    Recording these instead of raising is what keeps one bad endpoint from
+    discarding the sibling probes that DID succeed — see ``_execute_probe_plan``.
+    """
+
+    endpoint_ref: str
+    probe_name: str
+    dimension: str | None
+    error_type: str
+    message: str
+
+
+class AllProbesFailedError(RuntimeError):
+    """Every probe in the plan was sent and every one errored.
+
+    Raised so the agent is still marked ``failed`` and the run still lands on
+    ``RunStatus.degraded``. Partial failure is recoverable — the surviving
+    probes are real evidence — but zero successful probes must never be allowed
+    to look like a clean evaluation. An unreachable target has to fail loudly,
+    not return "no issues found".
+    """
+
+
+@dataclass(frozen=True)
 class ProbeExecutionOutcome:
     sent: list[TargetProbeResult]
     skipped: list[SkippedProbe]
+    failed: list[FailedProbe] = field(default_factory=list)
 
 
 class ModelBackedAgent:
@@ -333,6 +358,13 @@ class ModelBackedAgent:
                     ),
                     "capability_modality": str(modality),
                     "capability_input_schema_json": json.dumps(schema),
+                    # Stated explicitly rather than left for the model to
+                    # infer from the schema — it decides whether the probe
+                    # comes back as a question or as domain content, and
+                    # the same predicate gates whether it can be sent.
+                    "capability_accepts_freeform": (
+                        "yes" if endpoint_answers_freeform_questions(schema) else "no"
+                    ),
                     "min_probe_count": str(_MIN_DYNAMIC_PROBE_COUNT),
                 },
             )
@@ -354,13 +386,34 @@ class ModelBackedAgent:
         if parsed is None:
             return None
 
-        if modality is Modality.text:
-            return validate_dynamic_text_probes(parsed, min_count=_MIN_DYNAMIC_PROBE_COUNT)
-        if not schema:
-            return None
-        return validate_dynamic_structured_probes(
-            schema, parsed, min_count=_MIN_DYNAMIC_PROBE_COUNT
-        )
+        # Which FORM a designed probe takes depends on the input the capability
+        # accepts. Modality alone cannot answer that: a capability can be
+        # text-modality and still consume a domain document rather than a
+        # question, and this branch used to treat "modality is text" as "takes a
+        # free-form question". Every text-modality endpoint whose schema names
+        # domain fields therefore got free-text probes designed for it, which
+        # _execute_probe_plan's fail-closed intent gate then correctly refused to
+        # send — so those endpoints were structurally guaranteed zero probe
+        # coverage no matter how large a probe budget the plan allocated.
+        #
+        # Non-text modality still goes structured unconditionally, first: an
+        # image or video capability needs field values whatever its schema looks
+        # like, and some of them do declare a generic "prompt" field that the
+        # free-form check below would otherwise read as "send it text".
+        if modality is not Modality.text:
+            if not schema:
+                return None
+            return validate_dynamic_structured_probes(
+                schema, parsed, min_count=_MIN_DYNAMIC_PROBE_COUNT
+            )
+        # Text modality: the same predicate the intent gate uses decides the
+        # form, so the designer and the gate can no longer disagree about what
+        # this endpoint will accept.
+        if schema and not endpoint_answers_freeform_questions(schema):
+            return validate_dynamic_structured_probes(
+                schema, parsed, min_count=_MIN_DYNAMIC_PROBE_COUNT
+            )
+        return validate_dynamic_text_probes(parsed, min_count=_MIN_DYNAMIC_PROBE_COUNT)
 
     def _run_probes(
         self,
@@ -403,9 +456,90 @@ class ModelBackedAgent:
         probe_plan: list[tuple[str, str, str]] = []  # (endpoint_ref, capability_name, prompt)
         dynamic_payloads: dict[str, ProbePayload] = {}
 
+        def _is_sendable(plan_or_fields, endpoint_ref: str) -> bool:
+            """Whether these probes can actually reach this endpoint.
+
+            Having a tailored static probe for a capability is not the same as
+            being able to send it. The static catalog is text; a capability that
+            consumes domain content through its declared fields only accepts a
+            text probe when a curated structured body is registered for that
+            probe name. Without one, ``_execute_probe_plan``'s intent gate
+            refuses it — correctly, since the target would parse the question as
+            the document rather than answer it.
+
+            So "tailored probes exist" was the wrong question to gate dynamic
+            design on: every such endpoint got a text plan that was then thrown
+            away, and never got the structured probes that would have worked.
+            Observed as whole capability surfaces reporting 14 skips and 0
+            probes on every run.
+
+            Two independent things can make a text probe undeliverable, and a
+            mixed-modality system hits both on different endpoints of the SAME
+            audit:
+
+              * modality — an image or video capability cannot receive a text
+                probe at all, whatever its schema looks like. This is checked
+                first because such a schema often declares a generic ``prompt``
+                field, which the free-form check below reads as "text is fine";
+                that is how an image endpoint kept its text plan and was then
+                skipped at send time for being text-only.
+              * input shape — a text capability that consumes a domain document
+                rather than a question (see the intent gate).
+            """
+            items = list(plan_or_fields or [])
+            if not items:
+                return True
+            # Already-structured probes carry their own body and are fine anywhere.
+            if all(isinstance(value, dict) for _, value in items):
+                return True
+            capability = capability_by_endpoint.get(endpoint_ref)
+            schema = capability.input_schema if capability is not None else None
+            modality = capability.modality if capability is not None else Modality.text
+            # `any`, not `all`: an endpoint where SOME probes have curated bodies
+            # keeps its plan, so hand-written probes are never replaced wholesale
+            # by generated ones. Only an endpoint that can deliver none of them
+            # falls through to dynamic design.
+            has_curated_body = any(payload_for_probe(name) is not None for name, _ in items)
+            if modality is not Modality.text:
+                return has_curated_body
+            if endpoint_answers_freeform_questions(schema):
+                return True
+            return has_curated_body
+
+        def _with_structured_fallback(plan, endpoint_ref: str, dimension: str | None):
+            """Use `plan` when it can be sent; otherwise design a structured one.
+
+            Deliberately ordered curated-first: an endpoint that already has a
+            registered payload keeps its hand-written, human-reviewed probe. Only
+            an endpoint whose plan cannot physically be delivered falls through
+            to dynamic design, and if that fails too the original plan is
+            returned so the intent gate still records an honest skip rather than
+            this silently inventing something.
+            """
+            if _is_sendable(plan, endpoint_ref) or not dimension or profile is None:
+                return plan
+            if not profile.label or profile.label == "unspecified":
+                return plan
+            designed = self._design_probes_dynamically(
+                context=context,
+                capability=capability_by_endpoint.get(endpoint_ref),
+                endpoint_ref=endpoint_ref,
+                dimension=dimension,
+                profile=profile,
+            )
+            return self._scale_to_budget(designed, context=context) if designed else plan
+
         def _extend(
             endpoint_ref: str, plan_or_fields: ProbeSet | list[tuple[str, dict]], *, tag: bool
         ) -> None:
+            # A fairness probe is only evidence if something can be compared, so
+            # a counterfactual probe becomes a matched set here: a control plus
+            # one variant per protected-attribute signal, identical in every
+            # other respect. Expanded at plan-build time (not inside _send) so
+            # the variants are real, separately-recorded probes a reviewer can
+            # line up against each other. Non-counterfactual probes and payloads
+            # with no identity field to vary pass through untouched.
+            plan_or_fields = expand_counterfactual_probes(plan_or_fields)
             for probe_name, value in plan_or_fields:
                 name = f"{probe_name}@{endpoint_ref}" if tag else probe_name
                 if isinstance(value, dict):
@@ -441,6 +575,10 @@ class ModelBackedAgent:
                     plan = self._scale_to_budget(dynamic, context=context) if dynamic else fallback
                 else:
                     plan = self._select_probes(fallback, context=context)
+                # A tailored/static plan is text; if this endpoint consumes
+                # domain content and no curated body backs these probes, they
+                # cannot be delivered — design structured ones instead.
+                plan = _with_structured_fallback(plan, endpoint_ref, dimension)
                 _extend(endpoint_ref, plan, tag=tag_names)
         else:
             # Scoped: probe each selected function with probes relevant to THAT
@@ -450,6 +588,7 @@ class ModelBackedAgent:
                 if dimension and profile is not None:
                     if has_tailored_probes(dimension, endpoint_ref, profile):
                         plan = probes_for_endpoint(dimension, endpoint_ref, profile, fallback)
+                        plan = _with_structured_fallback(plan, endpoint_ref, dimension)
                         _extend(endpoint_ref, plan, tag=True)
                         continue
                     capability = capability_by_endpoint.get(endpoint_ref)
@@ -464,9 +603,19 @@ class ModelBackedAgent:
                         if profile.label and profile.label != "unspecified"
                         else None
                     )
-                    _extend(endpoint_ref, dynamic if dynamic else fallback, tag=True)
+                    _extend(
+                        endpoint_ref,
+                        dynamic
+                        if dynamic
+                        else _with_structured_fallback(fallback, endpoint_ref, dimension),
+                        tag=True,
+                    )
                 else:
-                    _extend(endpoint_ref, fallback, tag=True)
+                    _extend(
+                        endpoint_ref,
+                        _with_structured_fallback(fallback, endpoint_ref, self.probe_dimension),
+                        tag=True,
+                    )
 
         outcome = self._execute_probe_plan(
             probe_plan,
@@ -485,6 +634,17 @@ class ModelBackedAgent:
                     "reason": s.reason,
                 }
                 for s in outcome.skipped
+            ]
+        if outcome.failed:
+            context.probe_failures[self.name] = [
+                {
+                    "endpoint_ref": f.endpoint_ref,
+                    "probe_name": f.probe_name,
+                    "dimension": f.dimension,
+                    "error_type": f.error_type,
+                    "message": f.message,
+                }
+                for f in outcome.failed
             ]
         if context.session is not None and context.run_id is not None:
             for result in outcome.sent:
@@ -540,7 +700,7 @@ class ModelBackedAgent:
         }
         modality_by_endpoint = {c.endpoint_ref: c.modality for c in capabilities}
 
-        def _send(item: tuple[str, str, str]) -> TargetProbeResult | SkippedProbe:
+        def _send(item: tuple[str, str, str]) -> TargetProbeResult | SkippedProbe | FailedProbe:
             endpoint_ref, capability_name, prompt = item
             # A dynamically-designed probe already validated against this
             # capability's real modality/schema (see validate_dynamic_*
@@ -572,31 +732,140 @@ class ModelBackedAgent:
             payload = payload_for_probe(capability_name or "") or dynamic_payload
             if payload is None:
                 schema = schema_by_endpoint.get(endpoint_ref)
+                # Fail-closed intent gate. This probe is a behavioral question
+                # (no curated or validated domain payload backs it). If the
+                # endpoint consumes a domain document rather than answering
+                # questions, sending it here produces a parse OF THE QUESTION —
+                # a 200 response with null fields whose only content echoes the
+                # probe. That is not weak evidence, it is non-evidence, and
+                # agents cannot tell the difference. Record the gap instead.
+                if not endpoint_answers_freeform_questions(schema):
+                    fields = ", ".join(list(schema)[:4]) if isinstance(schema, dict) else "?"
+                    return SkippedProbe(
+                        endpoint_ref=endpoint_ref,
+                        probe_name=capability_name,
+                        dimension=dimension,
+                        reason=(
+                            "behavioral probe not sent: endpoint consumes domain content "
+                            f"({fields}) rather than answering questions, so the probe would "
+                            "be parsed as that content instead of answered"
+                        ),
+                    )
                 if schema:
                     synthesized = synthesize_structured_body(schema, prompt)
                     if synthesized is not None:
                         payload = ProbePayload(endpoint_ref, synthesized)
-            if payload is not None:
+            # A probe error is captured, never propagated. pool.map() re-raises
+            # the first exception when its results are iterated, so letting one
+            # timed-out probe escape here used to discard every sibling probe
+            # that had already succeeded — including their evidence — and fail
+            # the whole agent. The plan is best-effort per probe; the
+            # all-probes-failed case is handled by the caller.
+            try:
+                if payload is not None:
+                    return self._probe_target(
+                        endpoint_ref=payload.endpoint,
+                        prompt=prompt,
+                        capability_name=capability_name,
+                        payload=payload.body,
+                    )
                 return self._probe_target(
-                    endpoint_ref=payload.endpoint,
-                    prompt=prompt,
-                    capability_name=capability_name,
-                    payload=payload.body,
+                    endpoint_ref=endpoint_ref, prompt=prompt, capability_name=capability_name
                 )
-            return self._probe_target(
-                endpoint_ref=endpoint_ref, prompt=prompt, capability_name=capability_name
+            except Exception as exc:  # noqa: BLE001 - one probe must not sink the plan
+                logger.warning(
+                    "%s: probe %r to %s failed (%s): %s",
+                    self.__class__.__name__,
+                    capability_name,
+                    endpoint_ref,
+                    exc.__class__.__name__,
+                    exc,
+                )
+                return FailedProbe(
+                    endpoint_ref=endpoint_ref,
+                    probe_name=capability_name,
+                    dimension=dimension,
+                    error_type=exc.__class__.__name__,
+                    message=str(exc)[:500],
+                )
+
+        # Collapse probes that would issue a byte-identical call.
+        #
+        # A probe carrying a curated payload is pinned to that payload's OWN
+        # endpoint, so fanning it across every registered capability sent the
+        # same body to the same endpoint once per capability — 13 identical
+        # calls for one test on the HR gateway. Budget scaling then repeated the
+        # curated set round-robin on top, producing runs where 221 "probes" were
+        # 2 distinct questions asked ~110 times each. Duplicate calls cost the
+        # target's rate limit (a real 429 source) and inflate every probe count
+        # the council reads as sample size, without adding one bit of evidence.
+        #
+        # Deduped on the tuple that actually determines the request. Probes
+        # differing only by a `_passN` budget-repeat suffix collapse together;
+        # anything with a genuinely different prompt, endpoint, or payload does
+        # not. Sends stay in plan order so the audit record is reproducible.
+        deduped: list[tuple[str, str, str]] = []
+        seen_calls: set[tuple[str, str]] = set()
+        duplicates_collapsed = 0
+        for item in probe_plan:
+            endpoint_ref, capability_name, prompt = item
+            payload = payload_for_probe(capability_name or "")
+            if payload is None and dynamic_payloads:
+                payload = dynamic_payloads.get(capability_name or "")
+            # The endpoint actually called, and the body actually sent.
+            call_endpoint = payload.endpoint if payload is not None else endpoint_ref
+            call_body = json.dumps(payload.body, sort_keys=True) if payload is not None else prompt
+            key = (call_endpoint, call_body)
+            if key in seen_calls:
+                duplicates_collapsed += 1
+                continue
+            seen_calls.add(key)
+            deduped.append(item)
+        if duplicates_collapsed:
+            logger.info(
+                "%s: collapsed %d duplicate probe call(s); sending %d distinct of %d planned",
+                agent_name,
+                duplicates_collapsed,
+                len(deduped),
+                len(probe_plan),
             )
+        probe_plan = deduped
 
         if len(probe_plan) == 1:
             results = [_send(probe_plan[0])]
+        elif not probe_plan:
+            results = []
         else:
-            worker_count = max(1, min(_MAX_PROBE_WORKERS, len(probe_plan)))
+            worker_count = max(1, min(agent_probe_max_workers(), len(probe_plan)))
             with ThreadPoolExecutor(max_workers=worker_count) as pool:
                 results = list(pool.map(_send, probe_plan))
 
         sent = [r for r in results if isinstance(r, TargetProbeResult)]
         skipped = [r for r in results if isinstance(r, SkippedProbe)]
-        return ProbeExecutionOutcome(sent=sent, skipped=skipped)
+        failed = [r for r in results if isinstance(r, FailedProbe)]
+
+        # Partial failure is survivable: the probes that came back are real
+        # evidence and the agent reasons over them, with the failures recorded.
+        # Zero successes with at least one failure is NOT survivable — it would
+        # otherwise present an unreachable target as a clean evaluation, so fail
+        # the agent exactly as before this became per-probe tolerant.
+        if failed and not sent:
+            summary = ", ".join(
+                f"{f.probe_name or f.endpoint_ref}: {f.error_type}" for f in failed[:5]
+            )
+            raise AllProbesFailedError(
+                f"all {len(failed)} probe(s) failed for agent {agent_name} "
+                f"(dimension={dimension or 'unspecified'}) — {summary}"
+            )
+        if failed:
+            logger.warning(
+                "%s: %d of %d probes failed; continuing with %d successful probe(s)",
+                agent_name,
+                len(failed),
+                len(failed) + len(sent),
+                len(sent),
+            )
+        return ProbeExecutionOutcome(sent=sent, skipped=skipped, failed=failed)
 
     def _probe_plan(
         self,
@@ -672,6 +941,24 @@ class ModelBackedAgent:
         else:
             endpoint_ref = resolve_evaluator_endpoint(context.ai_system, context.capabilities)
 
+        # Evidence-tool calls are REAL probes against the audited system — garak
+        # and deepeval each send several prompts through the same Gateway as an
+        # agent's own probes. They were not counted, so an agent whose evidence
+        # came entirely from a tool recorded probe_count=0 while genuinely having
+        # probed the target (misuse_agent: 6 live garak calls, recorded as 0).
+        # That number is what the Council reads as `sample_sizes`, so the Devil's
+        # Advocate objected that a high-severity finding rested on no probes at
+        # all, and the verdict's confidence was docked for an evidence deficit
+        # that did not exist.
+        #
+        # Counted from the Gateway's own capture buffer rather than from the
+        # number of tool calls: one evaluator invocation fans out into an
+        # unknown number of target requests, so len(results) would understate it
+        # just as badly in the other direction. The buffer is the ground truth
+        # of what actually reached the target.
+        buffer = get_log_buffer()
+        target_calls_before = self._count_target_calls(buffer)
+
         results: list[ToolCallResult] = []
         for plan_item in context.metric_plan_items:
             if plan_item.metric_id not in metric_ids:
@@ -712,7 +999,41 @@ class ModelBackedAgent:
                     payload=evaluation.payload,
                 )
             )
+
+        tool_probes = self._count_target_calls(buffer) - target_calls_before
+        if tool_probes > 0:
+            # Accumulated in its OWN key, not probe_counts: _run_probes assigns
+            # probe_counts (overwriting _select_probes' planned figure with the
+            # actually-sent one), so anything added there would be erased
+            # depending on which ran last. Summed at the execution row.
+            context.tool_probe_counts[self.name] = (
+                context.tool_probe_counts.get(self.name, 0) + tool_probes
+            )
+            logger.info(
+                "%s: %s tool calls sent %d probe(s) to the target (tool total %d)",
+                self.name, tool_name, tool_probes, context.tool_probe_counts[self.name],
+            )
         return results
+
+    def _count_target_calls(self, buffer: list[dict] | None) -> int:
+        """THIS agent's target-bound calls in the Gateway's capture buffer.
+
+        Filtering by agent_name is essential, not defensive: specialist agents
+        run concurrently and share ONE per-run capture buffer, so a plain
+        before/after delta also swept up every probe the other agents happened
+        to send while this one was working. Measured against ground truth that
+        inflated misuse_agent to 53 target calls when it had made 27.
+
+        Read under no lock: the buffer is a plain list appended to by worker
+        threads, and a slightly stale count can only undercount a probe still in
+        flight, never invent one.
+        """
+        if not buffer:
+            return 0
+        return sum(
+            1 for entry in buffer
+            if entry.get("call_type") == "target" and entry.get("agent_name") == self.name
+        )
 
     def _probe_target(
         self,
@@ -726,19 +1047,19 @@ class ModelBackedAgent:
         # clients that support it read ``metadata["payload"]``); the ``prompt``
         # is still carried for provenance and for clients that ignore payloads.
         metadata = {"payload": payload} if payload else {}
-        # Hold a slot for the duration of the call only, so concurrent agents
-        # queue here instead of overloading the audited system (see
-        # _TARGET_INFLIGHT). Wrapping the invoke alone — not the sanitize/fence
-        # work below — keeps the scarce resource held for as short as possible.
-        with _TARGET_INFLIGHT:
-            response = self._target.invoke(
-                TargetModelRequest(
-                    endpoint_ref=endpoint_ref,
-                    prompt=prompt,
-                    capability_name=capability_name,
-                    metadata=metadata,
-                )
+        # No throttle acquisition here: self._target is always the Gateway
+        # wrapper (every branch of get_target_model_client_for_system returns
+        # one), which takes a process-wide slot per network attempt inside its
+        # own retry loop. Acquiring at this level instead meant holding the slot
+        # across the Gateway's backoff sleeps as well as the request.
+        response = self._target.invoke(
+            TargetModelRequest(
+                endpoint_ref=endpoint_ref,
+                prompt=prompt,
+                capability_name=capability_name,
+                metadata=metadata,
             )
+        )
         sanitized = sanitize_target_output(response.raw_output)
         return TargetProbeResult(
             probe_prompt=prompt,

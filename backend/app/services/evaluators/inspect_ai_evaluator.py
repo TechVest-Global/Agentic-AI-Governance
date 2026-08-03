@@ -16,7 +16,11 @@ import logging
 import tempfile
 
 from app.models.enums import MetricResultStatus
-from app.services.evaluators.base import MetricEvaluationInput, MetricEvaluationResult
+from app.services.evaluators.base import (
+    MetricEvaluationInput,
+    MetricEvaluationResult,
+    probe_endpoint,
+)
 from app.services.evaluators.probe_log import build_probe_log_entry
 from app.services.model_clients.base import TargetModelRequest
 
@@ -144,11 +148,7 @@ class InspectAIEvaluator:
         if formula not in _SUPPORTED_FORMULAS:
             return _skip_result(metric, reason=f"unsupported formula: {formula}")
 
-        endpoint_ref = (
-            evaluation_input.ai_system.target_endpoint_ref
-            or evaluation_input.ai_system.name
-            or "default"
-        )
+        endpoint_ref = probe_endpoint(evaluation_input)
 
         try:
             from inspect_ai import eval as inspect_eval

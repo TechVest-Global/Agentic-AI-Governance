@@ -13,12 +13,12 @@ import {
   type FrameworkComplianceMap,
   type GovernanceReport,
 } from "@/api/governanceApi";
+import { isRunActive } from "@/lib/runStatus";
 
 // How many of the most recent runs we pull full reports for (verdict trend,
 // outcome mix, average confidence). Bounded so the dashboard stays snappy.
 const REPORT_SAMPLE_SIZE = 10;
 
-const TERMINAL_STATUSES = new Set(["completed", "report_ready", "degraded", "failed", "cancelled", "canceled"]);
 
 export type RiskSlice = { name: string; value: number; color: string };
 export type ConfidencePoint = { label: string; score: number; runId: string };
@@ -205,7 +205,7 @@ export function useDashboardData(): DashboardData {
         if (cancelled) return;
 
         // --- KPIs -------------------------------------------------------------
-        const activeRuns = runs.filter((r) => !TERMINAL_STATUSES.has(r.status)).length;
+        const activeRuns = runs.filter((r) => isRunActive(r.status)).length;
         const openFindings = findings.filter((f) => f.status === "open").length;
         const confidences = runs
           .map((r) => reportByRunId.get(r.id)?.verdict?.confidence_score)
