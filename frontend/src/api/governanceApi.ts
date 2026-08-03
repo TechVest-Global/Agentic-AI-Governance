@@ -392,6 +392,11 @@ export type VerdictObjection = {
   argument: string;
   suggested_fix: string;
   remediation_hint?: string | null;
+  /** What the objection is aimed at. Absent on runs recorded before the v6
+   *  objection template — see ObjectionAttacks. */
+  attacks?: ObjectionAttacks | null;
+  target_claim_id?: string | null;
+  target_finding_ids?: string[] | null;
 };
 
 export type VerdictRequiredAction = {
@@ -1125,6 +1130,17 @@ export type ProvenanceCoverage = {
   is_complete: boolean;
 };
 
+/** What an objection is aimed at.
+ *  "evidence"  — disputes the findings themselves (measurement, sample, severity).
+ *  "inference" — accepts the findings, disputes what the synthesis concluded from them.
+ *  Mirrors _ALLOWED_ATTACKS in devils_advocate_agent.py. */
+export type ObjectionAttacks = "evidence" | "inference";
+
+/** The same objection record, whether read from the verdicts row or replayed
+ *  from the state log. Aliased rather than redeclared so the two readers cannot
+ *  drift apart as the objection contract grows. */
+export type CouncilObjection = VerdictObjection;
+
 export type CouncilIteration = {
   iteration: number;
   sequence_number: number;
@@ -1134,6 +1150,7 @@ export type CouncilIteration = {
   claims: SynthesisClaim[];
   unused_findings: UnusedFinding[];
   coverage: ProvenanceCoverage | null;
+  objections: CouncilObjection[];
 };
 
 /** Replay the council's iterations out of the append-only state log.
@@ -1162,6 +1179,7 @@ export function councilIterationsFromState(entries: GovernanceStateEntry[]): Cou
         claims: (synthesis.claims as SynthesisClaim[] | undefined) ?? [],
         unused_findings: (synthesis.unused_findings as UnusedFinding[] | undefined) ?? [],
         coverage: (synthesis.coverage as ProvenanceCoverage | null | undefined) ?? null,
+        objections: (payload.objections as CouncilObjection[] | undefined) ?? [],
       };
     })
     .sort((a, b) => a.sequence_number - b.sequence_number);

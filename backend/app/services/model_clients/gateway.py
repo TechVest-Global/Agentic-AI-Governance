@@ -502,13 +502,13 @@ class GatewayTargetModelClient:
             len(request.prompt),
         )
 
-        # LLMCallLog.task is NOT NULL, but capability_name is None for any probe
-        # sent at a system's base endpoint rather than a named capability. That
-        # produced a log entry the database rejects — previously only at the
-        # phase-end commit, which is the SAME commit that writes the run's
-        # result_summary, so one unnamed probe could take down a whole phase's
-        # bookkeeping. Coalesce to a stable label instead.
-        task = request.capability_name or "target_probe"
+        # The task label for this probe comes from _probe_name(), which strips
+        # the "@endpoint" tag and coalesces an unnamed probe to "target_probe".
+        # LLMCallLog.task is NOT NULL and capability_name is None for any probe
+        # sent at a system's base endpoint, so that coalescing is load-bearing:
+        # without it the row is rejected at the phase-end commit — the SAME
+        # commit that writes the run's result_summary, so one unnamed probe
+        # could take down a whole phase's bookkeeping.
 
         last_exc: Exception | None = None
         # Measured, not assumed. Both failure paths below used to hardcode

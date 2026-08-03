@@ -79,12 +79,21 @@ def _format_objections(objections: list[Objection]) -> str:
     lines = []
     for obj in objections:
         target = obj.target_agent or "general"
+        # `attacks` is rendered into the existing {objections_text} slot rather
+        # than added as a template variable, so the verdict can weigh a disputed
+        # inference differently from disputed evidence without a new template
+        # version. What the model is asked to produce is unchanged.
         lines.append(
-            f"  [{obj.objection_id} | {obj.category} | target={target}]\n"
+            f"  [{obj.objection_id} | {obj.category} | target={target} | "
+            f"attacks={obj.attacks}]\n"
             f"    {obj.argument}\n"
             f"    → Fix: {obj.suggested_fix}\n"
             f"    → Hint: {obj.remediation_hint}"
         )
+        if obj.target_claim_id:
+            lines.append(f"    → Challenges claim: {obj.target_claim_id}")
+        if obj.target_finding_ids:
+            lines.append(f"    → Disputes findings: {', '.join(obj.target_finding_ids)}")
     return "\n".join(lines)
 
 

@@ -47,6 +47,19 @@ class _StubClient:
         return type("R", (), {"content": self._content})()
 
 
+class _FlakyClient:
+    """Returns each queued response in turn — models an intermittent bad parse."""
+
+    def __init__(self, responses: list[str]) -> None:
+        self._responses = list(responses)
+        self.calls = 0
+
+    def complete(self, request):  # noqa: ANN001 - test double
+        content = self._responses[min(self.calls, len(self._responses) - 1)]
+        self.calls += 1
+        return type("R", (), {"content": content})()
+
+
 def _memo_json(claims: list[dict], unused: list[dict] | None = None) -> str:
     return json.dumps(
         {
@@ -210,6 +223,47 @@ def test_a_degraded_memo_still_carries_a_coverage_record() -> None:
     assert memo.coverage is not None
     assert memo.coverage.total_findings == 1
     assert memo.coverage.unaccounted == [str(finding.id)]
+
+
+def test_an_unparseable_response_is_retried_before_giving_up() -> None:
+    """One malformed response must not cost the run its whole provenance.
+
+    Observed live: the same 34-finding input parsed cleanly on one call and
+    came back malformed on another, so the failure is intermittent rather than
+    systematic — exactly what a single retry is for.
+    """
+    finding = _finding()
+    good = _memo_json(
+        [
+            {
+                "claim_id": "c1",
+                "statement": "Disclosure fails.",
+                "citations": [{"finding_id": str(finding.id), "role": "primary_evidence"}],
+            }
+        ]
+    )
+    client = _FlakyClient(["{ this is not valid json", good])
+
+    memo = SynthesisAgent(client).synthesize(
+        findings=[finding], metric_results=[], iteration=1
+    )
+
+    assert client.calls == 2
+    assert len(memo.claims) == 1
+    assert memo.coverage.is_complete
+
+
+def test_two_bad_responses_degrade_rather_than_raise() -> None:
+    finding = _finding()
+    client = _FlakyClient(["nope", "still nope"])
+
+    memo = SynthesisAgent(client).synthesize(
+        findings=[finding], metric_results=[], iteration=1
+    )
+
+    assert client.calls == 2
+    assert memo.claims == []
+    assert memo.coverage.total_findings == 1
 
 
 def _build_memo(claims: list[dict]):

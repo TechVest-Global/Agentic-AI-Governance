@@ -11,8 +11,8 @@ from collections.abc import Generator
 from uuid import uuid4
 
 import pytest
-from app.models.ai_system import AISystem
 from app.models.agent import AgentExecution
+from app.models.ai_system import AISystem
 from app.models.enums import AgentExecutionStatus, RunStatus
 from app.models.evaluation import EvaluationRun
 from app.models.evidence import EvidenceRecord, MetricResult

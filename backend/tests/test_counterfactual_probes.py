@@ -13,7 +13,6 @@ entity, so any output difference is attributable to that signal alone.
 
 import json
 
-import pytest
 from app.services.agents.probe_library import (
     apply_identity_variant,
     expand_counterfactual_probes,

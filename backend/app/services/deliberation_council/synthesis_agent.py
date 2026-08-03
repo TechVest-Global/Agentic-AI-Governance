@@ -48,6 +48,7 @@ from app.services.model_clients.base import (
     GovernanceModelClient,
     GovernanceModelRequest,
 )
+from app.services.model_clients.mock import is_mock_governance_client
 
 logger = logging.getLogger(__name__)
 
@@ -242,8 +243,14 @@ def _parse_unused(raw: object) -> list[UnusedFinding]:
     return unused
 
 
-def _parse_memo(content: str, iteration: int) -> SynthesisMemo:
-    """Extract structured memo from governance model response."""
+def _try_parse_memo(content: str, iteration: int) -> SynthesisMemo | None:
+    """Parse the memo, or return None if the response was not usable JSON.
+
+    Split out from ``_parse_memo`` so the caller can tell "the model returned
+    something unparseable" from "the model returned a degraded memo" and retry
+    the former. The v5 contract asks for a much longer nested object than v4
+    did, and a longer object is a likelier one to come back malformed.
+    """
     try:
         start = content.find("{")
         end = content.rfind("}") + 1
@@ -263,7 +270,12 @@ def _parse_memo(content: str, iteration: int) -> SynthesisMemo:
         )
     except (json.JSONDecodeError, ValueError, TypeError) as exc:
         logger.warning("SynthesisAgent: could not parse governance response: %s", exc)
-        return _fallback_memo(iteration, content)
+        return None
+
+
+def _parse_memo(content: str, iteration: int) -> SynthesisMemo:
+    """Parse the memo, degrading to a fallback rather than raising."""
+    return _try_parse_memo(content, iteration) or _fallback_memo(iteration, content)
 
 
 def _validate_provenance(memo: SynthesisMemo, findings: list[Finding]) -> SynthesisMemo:
@@ -392,20 +404,38 @@ class SynthesisAgent:
             "real_probe_counts": probe_counts_text,
         })
 
+        request = GovernanceModelRequest(
+            task="council_synthesis",
+            prompt=prompt,
+            context={
+                "iteration": iteration,
+                "finding_count": len(findings),
+                "metric_count": len(metric_results),
+                "agents": list({f.agent_name for f in findings if f.agent_name}),
+            },
+        )
+
+        memo: SynthesisMemo | None = None
         try:
-            response = self._governance.complete(
-                GovernanceModelRequest(
-                    task="council_synthesis",
-                    prompt=prompt,
-                    context={
-                        "iteration": iteration,
-                        "finding_count": len(findings),
-                        "metric_count": len(metric_results),
-                        "agents": list({f.agent_name for f in findings if f.agent_name}),
-                    },
-                )
-            )
-            memo = _parse_memo(response.content, iteration)
+            # Retry once on an unparseable response, matching the Devil's
+            # Advocate. Synthesis had no retry at all, which mattered little
+            # when the memo was a handful of prose fields; under the v5 claims
+            # contract one malformed response costs the whole run its
+            # provenance, and the failure is intermittent rather than
+            # systematic — observed parsing cleanly and failing on the same
+            # 34-finding input.
+            response = self._governance.complete(request)
+            memo = _try_parse_memo(response.content, iteration)
+            if memo is None and not is_mock_governance_client(self._governance):
+                # Not retried against a mock: it returns the same canned
+                # response every time, so a second call cannot parse where the
+                # first did not — it would only double the council's call count
+                # on every mock-mode iteration.
+                logger.info("SynthesisAgent: response was not parseable, retrying once")
+                response = self._governance.complete(request)
+                memo = _try_parse_memo(response.content, iteration)
+            if memo is None:
+                memo = _fallback_memo(iteration, response.content)
         except Exception as exc:
             logger.error("SynthesisAgent: governance call failed: %s", exc)
             memo = _fallback_memo(iteration, str(exc))

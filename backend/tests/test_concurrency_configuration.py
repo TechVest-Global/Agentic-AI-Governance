@@ -20,13 +20,12 @@ import threading
 import time
 
 import pytest
-from openai import APITimeoutError
-
 from app.core.config import get_settings
 from app.services import concurrency_settings
 from app.services.model_clients import target_throttle
 from app.services.model_clients.base import TargetModelRequest, TargetModelResponse
 from app.services.model_clients.gateway import GatewayTargetModelClient
+from openai import APITimeoutError
 
 
 @pytest.fixture(autouse=True)

@@ -265,7 +265,12 @@ ALL_CHECKS = (
 )
 
 
-def check_run(session: Session, run_id: UUID, *, exclude: frozenset[str] = frozenset()) -> list[Violation]:
+def check_run(
+    session: Session,
+    run_id: UUID,
+    *,
+    exclude: frozenset[str] = frozenset(),
+) -> list[Violation]:
     """Run every invariant against one run.
 
     ``exclude`` names invariants to skip by function name — use it to adopt the

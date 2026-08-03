@@ -10,9 +10,9 @@ objected that a high-severity finding rested on no probes at all, and the
 verdict's confidence was docked for an evidence deficit that did not exist.
 """
 
+from app.models.ai_system import AISystem
 from app.services.agents.base import AgentContext
 from app.services.agents.model_backed.base import ModelBackedAgent
-from app.models.ai_system import AISystem
 
 
 def _context(**kw) -> AgentContext:

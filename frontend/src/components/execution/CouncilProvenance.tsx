@@ -4,6 +4,8 @@ import type {
   BackendFinding,
   CitationRole,
   CouncilIteration,
+  CouncilObjection,
+  ObjectionAttacks,
   SynthesisClaim,
   UnusedFinding,
 } from "@/api/governanceApi";
@@ -221,6 +223,151 @@ function UnusedList({ items, findingsById }: { items: UnusedFinding[]; findingsB
           </div>
         );
       })}
+    </div>
+  );
+}
+
+const ATTACKS_META: Record<ObjectionAttacks, { label: string; hint: string; className: string }> = {
+  evidence: {
+    label: "Attacks the evidence",
+    hint: "Disputes the findings themselves — how they were measured, their sample, or their severity.",
+    className:
+      "bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:ring-rose-900",
+  },
+  inference: {
+    label: "Attacks the inference",
+    hint: "Accepts the findings as recorded, but disputes what the synthesis concluded from them.",
+    className:
+      "bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:ring-violet-900",
+  },
+};
+
+/** One objection, showing what it is aimed at rather than only what it says. */
+function ObjectionCard({
+  objection,
+  findingsById,
+  claimsById,
+  onSelect,
+}: {
+  objection: CouncilObjection;
+  findingsById: Map<string, BackendFinding>;
+  claimsById: Map<string, SynthesisClaim>;
+  onSelect?: (findingId: string) => void;
+}) {
+  const attacks = objection.attacks ?? null;
+  const meta = attacks ? ATTACKS_META[attacks] : null;
+  const targetedClaim = objection.target_claim_id ? claimsById.get(objection.target_claim_id) : undefined;
+  const disputed = objection.target_finding_ids ?? [];
+
+  return (
+    <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+      <div className="border-b border-slate-100 dark:border-slate-700/50 bg-slate-50 dark:bg-slate-800/40 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {meta ? (
+            <span
+              title={meta.hint}
+              className={clsx("rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ring-1", meta.className)}
+            >
+              {meta.label}
+            </span>
+          ) : null}
+          <span className="text-[10.5px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+            {objection.category.replace(/_/g, " ")}
+          </span>
+          <span className="ml-auto font-mono text-[10px] text-slate-400 dark:text-slate-500">
+            {objection.objection_id}
+          </span>
+        </div>
+      </div>
+      <div className="space-y-2 p-3">
+        <p className="text-[12.5px] leading-5 text-slate-800 dark:text-slate-200">{objection.argument}</p>
+
+        {targetedClaim ? (
+          <div className="rounded-lg border border-violet-200 dark:border-violet-900 bg-violet-50/60 dark:bg-violet-950/20 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-400">
+              Challenges this claim
+            </p>
+            <p className="mt-0.5 text-[12px] leading-5 text-slate-700 dark:text-slate-300">
+              {targetedClaim.statement}
+            </p>
+          </div>
+        ) : null}
+
+        {disputed.length > 0 ? (
+          <div className="space-y-1">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-rose-700 dark:text-rose-400">
+              Disputes {disputed.length} finding{disputed.length === 1 ? "" : "s"}
+            </p>
+            {disputed.map((id) => {
+              const f = findingsById.get(id);
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => onSelect?.(id)}
+                  className="block w-full rounded border border-slate-200 dark:border-slate-700 px-2.5 py-1.5 text-left text-[11.5px] text-slate-700 dark:text-slate-300 transition hover:border-rose-300 dark:hover:border-rose-800"
+                >
+                  <span className="font-mono text-[10px] text-slate-400 dark:text-slate-500">{shortId(id)}</span>{" "}
+                  {f ? f.title : "(finding no longer in the record)"}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+
+        <p className="text-[11.5px] leading-5 text-slate-500 dark:text-slate-400">
+          <span className="font-semibold">Fix:</span> {objection.suggested_fix}
+          <span className="ml-1.5 rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 font-mono text-[10px]">
+            {objection.remediation_hint}
+          </span>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** Objections for one iteration, grouped by what they are aimed at. */
+export function CouncilObjections({
+  iteration,
+  findings,
+  fallbackObjections,
+  onSelectFinding,
+}: {
+  iteration: CouncilIteration | null;
+  findings: BackendFinding[];
+  /** Verdict-record objections, used for runs predating the state-sourced view. */
+  fallbackObjections: CouncilObjection[];
+  onSelectFinding?: (findingId: string) => void;
+}) {
+  const objections = iteration?.objections?.length ? iteration.objections : fallbackObjections;
+  if (objections.length === 0) {
+    return <p className="text-[12.5px] text-slate-500 dark:text-slate-400">No objections recorded.</p>;
+  }
+
+  const findingsById = new Map(findings.map((f) => [f.id, f]));
+  const claimsById = new Map((iteration?.claims ?? []).map((c) => [c.claim_id, c]));
+
+  const evidenceCount = objections.filter((o) => o.attacks === "evidence").length;
+  const inferenceCount = objections.filter((o) => o.attacks === "inference").length;
+  const untyped = objections.length - evidenceCount - inferenceCount;
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      {untyped < objections.length ? (
+        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+          {evidenceCount} challenge the evidence · {inferenceCount} challenge the reasoning drawn from it
+          {untyped > 0 ? ` · ${untyped} recorded before objections declared a target` : ""}
+        </p>
+      ) : null}
+      {objections.map((o, i) => (
+        <ObjectionCard
+          key={`${o.objection_id}-${i}`}
+          objection={o}
+          findingsById={findingsById}
+          claimsById={claimsById}
+          onSelect={onSelectFinding}
+        />
+      ))}
     </div>
   );
 }
