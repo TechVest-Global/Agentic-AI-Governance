@@ -554,6 +554,39 @@ def _append_council_iteration_state(
                     "dimensions": memo.dimensions,
                     "sample_sizes": memo.sample_sizes,
                     "conflicts": memo.conflicts,
+                    # Provenance edges back to the findings this synthesis rests
+                    # on, and what it did with each. Recorded here rather than
+                    # only on the Verdict because this is the append-only chain:
+                    # the edges are part of the tamper-evident record of how the
+                    # Council reasoned, not a derived view of its conclusion.
+                    "claims": [
+                        {
+                            "claim_id": c.claim_id,
+                            "statement": c.statement,
+                            "citations": [
+                                {"finding_id": cite.finding_id, "role": cite.role}
+                                for cite in c.citations
+                            ],
+                        }
+                        for c in memo.claims
+                    ],
+                    "unused_findings": [
+                        {"finding_id": u.finding_id, "reason": u.reason}
+                        for u in memo.unused_findings
+                    ],
+                    # Stored even when incomplete — see ProvenanceCoverage.
+                    "coverage": (
+                        {
+                            "total_findings": memo.coverage.total_findings,
+                            "cited": memo.coverage.cited,
+                            "declared_unused": memo.coverage.declared_unused,
+                            "unaccounted": memo.coverage.unaccounted,
+                            "invalid_citations": memo.coverage.invalid_citations,
+                            "is_complete": memo.coverage.is_complete,
+                        }
+                        if memo.coverage is not None
+                        else None
+                    ),
                 },
                 "objections": [
                     {

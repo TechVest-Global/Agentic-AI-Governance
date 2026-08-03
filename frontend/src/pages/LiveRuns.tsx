@@ -44,7 +44,7 @@ import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
 import { useRunProgress, phaseIndex, type AgentProgress } from "@/hooks/useRunProgress";
 import { MODEL_CALLING_LAYERS, PIPELINE_STEPS, layerStatus } from "@/pages/pipelineSteps";
 import { metricBlurb, metricName } from "@/data/metricCatalog";
-import type { AuditLedgerEntry, FindingToolCall, FrameworkComplianceMap, GovernanceReport, LlmCall } from "@/api/governanceApi";
+import type { AuditLedgerEntry, CouncilIteration, FindingToolCall, FrameworkComplianceMap, GovernanceReport, LlmCall } from "@/api/governanceApi";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -295,6 +295,7 @@ function PipelineStepContent({
   selectedAgentId,
   selectedCouncilMemberId,
   ledgerEntries,
+  councilIterations,
 }: {
   step: (typeof PIPELINE_STEPS)[number];
   navigateTo: (path: string) => void;
@@ -310,6 +311,7 @@ function PipelineStepContent({
   selectedAgentId: string | null;
   selectedCouncilMemberId: CouncilMemberId | null;
   ledgerEntries: AuditLedgerEntry[];
+  councilIterations: CouncilIteration[];
 }) {
   if (!runId) {
     return <NoRunMessage />;
@@ -436,7 +438,11 @@ function PipelineStepContent({
   if (step.id === "deliberation_council") {
     return (
       <div className="space-y-4">
-        <DeliberationCouncilPanel report={report} selectedMemberId={selectedCouncilMemberId} />
+        <DeliberationCouncilPanel
+          report={report}
+          selectedMemberId={selectedCouncilMemberId}
+          councilIterations={councilIterations}
+        />
         {runtimeDetail}
       </div>
     );
@@ -827,6 +833,7 @@ export function LiveRuns() {
               selectedAgentId={selectedAgentId}
               selectedCouncilMemberId={selectedCouncilMemberId}
               ledgerEntries={backend.ledgerEntries}
+              councilIterations={backend.councilIterations}
             />
           </div>
         </Card>

@@ -10,8 +10,10 @@ import {
   getFindings,
   getFrameworkMap,
   getGovernanceReport,
+  councilIterationsFromState,
   getLatestEvaluationRun,
   getLlmCalls,
+  listGovernanceState,
   runCouncilDeliberation,
   verifyAuditLedger,
   type AgentExecution,
@@ -20,6 +22,7 @@ import {
   type BackendFinding,
   type ContextAssemblyRead,
   type CouncilDeliberation,
+  type CouncilIteration,
   type EvaluationPlanRead,
   type EvaluationRun,
   type ExecutionArtifact,
@@ -43,6 +46,9 @@ type BackendState = {
   contextAssembly: ContextAssemblyRead | null;
   llmCalls: LlmCall[];
   executionArtifacts: ExecutionArtifact[];
+  /** Council iterations replayed from the append-only state log — the only
+   *  source carrying the synthesis' provenance edges back to findings. */
+  councilIterations: CouncilIteration[];
 };
 
 const initialState: BackendState = {
@@ -60,6 +66,7 @@ const initialState: BackendState = {
   contextAssembly: null,
   llmCalls: [],
   executionArtifacts: [],
+  councilIterations: [],
 };
 
 // A run that has reached one of these states will not change again, so we stop
@@ -126,6 +133,7 @@ export function useGovernanceBackend() {
           contextAssembly,
           llmCallLog,
           executionArtifacts,
+          stateEntries,
         ] = await Promise.all([
           getGovernanceReport(latestRun.id),
           getFrameworkMap(latestRun.id),
@@ -137,6 +145,7 @@ export function useGovernanceBackend() {
           getContextAssembly(latestRun.id),
           getLlmCalls(latestRun.id).catch(() => null),
           getExecutionArtifacts(latestRun.id).catch(() => []),
+          listGovernanceState(latestRun.id).catch(() => []),
         ]);
 
         if (!cancelled) {
@@ -155,6 +164,7 @@ export function useGovernanceBackend() {
             contextAssembly,
             llmCalls: llmCallLog?.calls ?? [],
             executionArtifacts,
+            councilIterations: councilIterationsFromState(stateEntries),
           });
         }
       } catch (error) {

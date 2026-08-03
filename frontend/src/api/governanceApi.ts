@@ -8,6 +8,35 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/** Thrown instead of a generic Error when the backend rejects our token.
+ *  Distinct so a caller can tell "your session ended" from "this request was
+ *  bad", and so an error boundary can stay quiet about the former — the user is
+ *  already being shown the sign-in screen by the time it surfaces. */
+export class SessionExpiredError extends Error {
+  constructor() {
+    super("Your session has expired. Please sign in again.");
+    this.name = "SessionExpiredError";
+  }
+}
+
+/** End the local session when the backend says the token is no longer good.
+ *
+ * Tokens expire after 8 hours (backend core/security.py TOKEN_TTL_SECONDS).
+ * Nothing used to act on the resulting 401: the expired token stayed in the
+ * store, isAuthenticated stayed true, and so the app kept rendering a
+ * signed-in UI in which every write silently failed — a run could be started
+ * from a dead session and simply never appear.
+ *
+ * signOut() flips isAuthenticated, and App.tsx renders SignIn on that alone.
+ * So recovery does not depend on the calling component handling the error,
+ * which matters because most call sites are effects that discard it.
+ */
+function endExpiredSession(): void {
+  const { isAuthenticated, signOut } = useAuthStore.getState();
+  // Concurrent requests all 401 at once; only the first needs to act.
+  if (isAuthenticated) signOut();
+}
+
 
 export type BackendAISystem = {
   id: string;
@@ -518,6 +547,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      endExpiredSession();
+      throw new SessionExpiredError();
+    }
     const body = await response.text();
     throw new Error(body || `Request failed with ${response.status}`);
   }
@@ -1065,6 +1098,75 @@ export async function listGovernanceState(runId: string, limit = 200): Promise<G
   return request<GovernanceStateEntry[]>(`/evaluation-runs/${runId}/state?limit=${limit}`);
 }
 
+/* ─────────────────────────────────── Council provenance (state-sourced) ── */
+
+/** How a claim uses a finding. Mirrors _ALLOWED_ROLES in synthesis_agent.py. */
+export type CitationRole = "primary_evidence" | "corroboration" | "compounding_factor";
+
+export type Citation = { finding_id: string; role: CitationRole };
+
+/** One assertion the synthesis made, with the findings behind it. */
+export type SynthesisClaim = {
+  claim_id: string;
+  statement: string;
+  citations: Citation[];
+};
+
+export type UnusedFinding = { finding_id: string; reason: string };
+
+/** How much of the run's evidence the synthesis accounted for.
+ *  Rendered even when incomplete — see ProvenanceCoverage in synthesis_agent.py. */
+export type ProvenanceCoverage = {
+  total_findings: number;
+  cited: number;
+  declared_unused: number;
+  unaccounted: string[];
+  invalid_citations: string[];
+  is_complete: boolean;
+};
+
+export type CouncilIteration = {
+  iteration: number;
+  sequence_number: number;
+  created_at: string;
+  narrative: string;
+  risk_summary: string;
+  claims: SynthesisClaim[];
+  unused_findings: UnusedFinding[];
+  coverage: ProvenanceCoverage | null;
+};
+
+/** Replay the council's iterations out of the append-only state log.
+ *
+ * The Council pane historically rendered from the `verdicts` row, which holds
+ * the conclusion but not the reasoning that produced it. The state log is the
+ * only place carrying the provenance edges, so the provenance view reads from
+ * there — one source, hash-chained, and ordered by sequence rather than by
+ * whatever the last write happened to leave behind.
+ *
+ * Tolerant of older runs: entries written before the v5 synthesis template have
+ * no `claims` key and simply replay with empty edges.
+ */
+export function councilIterationsFromState(entries: GovernanceStateEntry[]): CouncilIteration[] {
+  return entries
+    .filter((e) => e.entry_type === "council_iteration")
+    .map((e) => {
+      const payload = (e.payload ?? {}) as Record<string, unknown>;
+      const synthesis = (payload.synthesis ?? {}) as Record<string, unknown>;
+      return {
+        iteration: Number(payload.iteration ?? 0),
+        sequence_number: e.sequence_number,
+        created_at: e.created_at,
+        narrative: String(synthesis.narrative ?? ""),
+        risk_summary: String(synthesis.risk_summary ?? ""),
+        claims: (synthesis.claims as SynthesisClaim[] | undefined) ?? [],
+        unused_findings: (synthesis.unused_findings as UnusedFinding[] | undefined) ?? [],
+        coverage: (synthesis.coverage as ProvenanceCoverage | null | undefined) ?? null,
+      };
+    })
+    .sort((a, b) => a.sequence_number - b.sequence_number);
+}
+
 export async function verifyGovernanceState(runId: string): Promise<ChainVerification> {
   return request<ChainVerification>(`/evaluation-runs/${runId}/state/verify`);
 }
@@ -1379,6 +1481,10 @@ export async function uploadContextDocument(
     { method: "POST", body: form, headers: authHeaders() },
   );
   if (!response.ok) {
+    if (response.status === 401) {
+      endExpiredSession();
+      throw new SessionExpiredError();
+    }
     throw new Error(await response.text());
   }
   return response.json();
