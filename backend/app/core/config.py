@@ -116,6 +116,11 @@ class Settings(BaseSettings):
     # requests that are certain to be refused. Observed on a target answering
     # 429 with retry_after=62625s (a daily quota, resetting at midnight UTC).
     target_quota_exhausted_seconds: float = Field(default=300.0, gt=0)
+    # How many image probes the vision evaluator sends per image-safety metric.
+    # Each one is a real generation request against the audited system, so this
+    # is the dial for trading sample size against the target's cost and rate
+    # limit. Capped by the number of distinct prompts available.
+    vision_image_probe_count: int = Field(default=4, ge=1)
     # Metric evaluation fan-out width and phase budget. See metric_execution.py.
     metric_execution_max_workers: int = Field(default=3, ge=1)
     metric_execution_budget_seconds: float = Field(default=600.0, gt=0)
