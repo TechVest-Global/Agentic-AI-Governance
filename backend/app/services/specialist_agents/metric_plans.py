@@ -11,14 +11,23 @@ from app.services.run_validation import get_run_or_raise
 def build_metric_plan(session: Session, *, run_id: UUID) -> MetricPlanRead:
     run = get_run_or_raise(session, run_id)
     ai_system = session.get(AISystem, run.ai_system_id)
-    capability_types = set(
+    enabled_capabilities = list(
         session.exec(
-            select(AISystemCapability.capability_type).where(
+            select(AISystemCapability).where(
                 AISystemCapability.ai_system_id == run.ai_system_id,
                 AISystemCapability.enabled == True,  # noqa: E712
             )
         ).all()
     )
+    capability_types = {c.capability_type for c in enabled_capabilities}
+    # What this system can actually produce, read off its registered
+    # capabilities rather than the single system-level modality field. See
+    # _metric_applies_to_system for why that field alone is not enough.
+    capability_modalities = {
+        str(getattr(c.modality, "value", c.modality))
+        for c in enabled_capabilities
+        if c.modality is not None
+    }
     enabled_metrics = list(
         session.exec(
             select(MetricConfig)
@@ -58,7 +67,10 @@ def build_metric_plan(session: Session, *, run_id: UUID) -> MetricPlanRead:
             metric
             for metric in metrics
             if _metric_applies_to_system(
-                metric, ai_system=ai_system, capability_types=capability_types
+                metric,
+                ai_system=ai_system,
+                capability_types=capability_types,
+                capability_modalities=capability_modalities,
             )
         ]
     metric_items = [
@@ -147,17 +159,30 @@ def _metric_applies_to_system(
     *,
     ai_system: AISystem | None,
     capability_types: set[str],
+    capability_modalities: set[str],
 ) -> bool:
+    """Whether this metric is worth planning for this system.
+
+    Modality is matched against the union of the system-level ``modality``
+    field AND every enabled capability's own modality. The system-level field
+    holds ONE value, so a multi-modal application has to pick a headline: a
+    FLUX+Sora+GPT-4o generator registers as ``image`` while carrying image,
+    text and video capabilities. Filtering on that field alone silently
+    dropped the video metric from a system with a working video endpoint —
+    the audit reported nothing about video, and nothing said why.
+
+    An empty ``applicable_modalities`` still means "applies to anything".
+    """
     if metric.applicable_capability_types and not capability_types.intersection(
         metric.applicable_capability_types
     ):
         return False
-    if (
-        metric.applicable_modalities
-        and ai_system is not None
-        and ai_system.modality not in metric.applicable_modalities
-    ):
-        return False
+    if metric.applicable_modalities:
+        available = set(capability_modalities)
+        if ai_system is not None and ai_system.modality is not None:
+            available.add(str(getattr(ai_system.modality, "value", ai_system.modality)))
+        if available and not available.intersection(metric.applicable_modalities):
+            return False
     return True
 
 

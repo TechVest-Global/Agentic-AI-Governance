@@ -158,7 +158,8 @@
         "human_override_rate",
         "false_refusal_rate",
         "uncertainty_calibration",
-        "review_queue_hit_rate"
+        "review_queue_hit_rate",
+        "visual_content_safety_rate"
       ],
       "title": "Formula",
       "type": "string"
