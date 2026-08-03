@@ -51,6 +51,56 @@ _SUFFICIENCY_THRESHOLD = 0.65
 
 
 @dataclass
+class DerivationStep:
+    """One adjustment on the path from a raw assessment to the final score."""
+
+    step: str
+    detail: str
+    score_before: float | None = None
+    score_after: float | None = None
+
+
+@dataclass
+class ConfidenceDerivation:
+    """Where the confidence number came from, step by step.
+
+    Deliberately mechanical rather than narrated. Every adjustment below is
+    made by code -- the iteration penalty, the clamp, the sufficiency
+    threshold, the policy floor -- so the derivation can be recomputed and
+    checked against the inputs. Asking the model to explain its own confidence
+    would produce a fluent account with nothing holding it to what actually
+    happened, which is the failure mode this whole change exists to remove.
+
+    ``source`` says who produced the raw number before code touched it:
+      governance_model  — the judge returned it
+      risk_contract     — derived from the Risk Scorer's composite_score
+      severity_penalty  — derived from finding severities and metric failures
+    The latter two are the deterministic fallback, used when no judge was
+    reachable; a reader needs to tell those apart from a real assessment.
+    """
+
+    source: str
+    raw_score: float
+    final_score: float
+    threshold: float
+    steps: list[DerivationStep] = field(default_factory=list)
+    policy_floor_applied: bool = False
+    sufficiency_reason: str = ""
+
+    def record(
+        self,
+        step: str,
+        detail: str,
+        *,
+        before: float | None = None,
+        after: float | None = None,
+    ) -> None:
+        self.steps.append(
+            DerivationStep(step=step, detail=detail, score_before=before, score_after=after)
+        )
+
+
+@dataclass
 class VerdictOutput:
     confidence_score: float
     sufficient: bool
@@ -63,6 +113,10 @@ class VerdictOutput:
     objections_upheld: list[str] = field(default_factory=list)
     iteration_penalty: float = 0.0
     raw_response: str = ""
+    # How this verdict's confidence_score was arrived at. Every value here was
+    # already computed to produce the score; it used to be discarded, leaving
+    # the number unexplained on the record.
+    derivation: ConfidenceDerivation | None = None
     # Whether another Council iteration could still change this outcome.
     #
     # False means the verdict is insufficient by the threshold rule but is
@@ -150,8 +204,43 @@ def _parse_verdict(content: str, iteration: int) -> VerdictOutput | None:
         # Apply penalty after parsing so it is recorded separately
         adjusted_score = _clamp(raw_score - penalty)
         sufficient = bool(data.get("sufficient", False))
+
+        derivation = ConfidenceDerivation(
+            source="governance_model",
+            raw_score=raw_score,
+            final_score=adjusted_score,
+            threshold=_SUFFICIENCY_THRESHOLD,
+        )
+        derivation.record(
+            "model_assessment",
+            "The governance model assessed evidence quality at this confidence.",
+            after=raw_score,
+        )
+        if penalty:
+            derivation.record(
+                "iteration_penalty",
+                f"Deducted {penalty:.3f} to record that this confidence was reached "
+                f"only after re-deliberation, not on the first pass.",
+                before=raw_score,
+                after=_clamp(raw_score - penalty),
+            )
+        if not 0.0 <= raw_score - penalty <= 1.0:
+            derivation.record(
+                "clamped",
+                "The adjusted score fell outside 0.0-1.0 and was clamped into range.",
+                before=raw_score - penalty,
+                after=adjusted_score,
+            )
+
         # Guard: if score is below threshold, force sufficient=False
         if adjusted_score < _SUFFICIENCY_THRESHOLD:
+            if sufficient:
+                derivation.record(
+                    "threshold_guard",
+                    f"The model called the evidence sufficient at {adjusted_score:.3f}, "
+                    f"below the {_SUFFICIENCY_THRESHOLD} threshold. Sufficiency is a "
+                    f"threshold rule, not the model's to waive, so it was overruled.",
+                )
             sufficient = False
 
         label = str(data.get("label", "blocked"))
@@ -187,6 +276,7 @@ def _parse_verdict(content: str, iteration: int) -> VerdictOutput | None:
             objections_upheld=list(data.get("objections_upheld", [])),
             iteration_penalty=penalty,
             raw_response=content,
+            derivation=derivation,
         )
     except (json.JSONDecodeError, ValueError, TypeError) as exc:
         logger.warning("VerdictAgent: parse error: %s", exc)
@@ -243,6 +333,30 @@ def _remediation_can_change_outcome(
     if verdict.sufficient:
         return True  # moot: the router exits on sufficiency before consulting this
     return _conclusive_failure_count(metric_results) == 0
+
+
+def _sufficiency_reason(verdict: VerdictOutput, failed_metrics: int) -> str:
+    """One sentence on why the evidence was or was not called sufficient.
+
+    The sufficiency flag drives whether the pipeline exits or remediates, so
+    "why" should not have to be inferred from a score and a threshold.
+    """
+    if verdict.sufficient:
+        return (
+            f"Confidence {verdict.confidence_score:.3f} meets the "
+            f"{_SUFFICIENCY_THRESHOLD} threshold with no failed metrics."
+        )
+    if failed_metrics:
+        return (
+            f"{failed_metrics} metric(s) failed; the governance floor does not "
+            f"call evidence sufficient while a control is failing."
+        )
+    if verdict.confidence_score < _SUFFICIENCY_THRESHOLD:
+        return (
+            f"Confidence {verdict.confidence_score:.3f} is below the "
+            f"{_SUFFICIENCY_THRESHOLD} threshold."
+        )
+    return "The model judged the evidence insufficient to decide."
 
 
 def _validated(verdict: VerdictOutput, *, objections: list[Objection]) -> VerdictOutput:
@@ -314,12 +428,42 @@ def _deterministic_fallback(
 
     # Prefer calibrated composite from the risk contract when available
     composite = _extract_risk_bundle_score(findings)
+    derivation: ConfidenceDerivation | None = None
     if composite is not None:
         # composite is a risk score; invert to get confidence
         score = _clamp(1.0 - min(composite, 1.0))
+        derivation = ConfidenceDerivation(
+            source="risk_contract",
+            raw_score=score,
+            final_score=score,
+            threshold=_SUFFICIENCY_THRESHOLD,
+        )
+        derivation.record(
+            "no_governance_model",
+            "No governance model was reachable, so this confidence was computed "
+            "from the evidence rather than assessed by a judge.",
+        )
+        derivation.record(
+            "risk_composite_inverted",
+            f"The Risk Scorer's composite risk score was {composite:.3f}; "
+            f"confidence is its inverse.",
+            after=score,
+        )
         # High-risk composite (>= 0.75) or critical findings force a block
         if composite >= 0.75 or has_critical_finding:
-            score = min(score, 0.45)
+            capped = min(score, 0.45)
+            reason = (
+                "a critical finding is open"
+                if has_critical_finding
+                else f"composite risk {composite:.3f} is at or above 0.75"
+            )
+            derivation.record(
+                "high_risk_cap",
+                f"Confidence capped at 0.45 because {reason}.",
+                before=score,
+                after=capped,
+            )
+            score = capped
     else:
         _SEV_PENALTY = {
             Severity.info: 0.01,
@@ -328,10 +472,34 @@ def _deterministic_fallback(
             Severity.high: 0.15,
             Severity.critical: 0.25,
         }
-        score = 0.95 - failed * 0.15 - pending * 0.05
-        for f in open_findings:
-            score -= _SEV_PENALTY.get(f.severity, 0.07)
-        score = _clamp(score)
+        base = 0.95 - failed * 0.15 - pending * 0.05
+        severity_total = sum(_SEV_PENALTY.get(f.severity, 0.07) for f in open_findings)
+        score = _clamp(base - severity_total)
+        derivation = ConfidenceDerivation(
+            source="severity_penalty",
+            raw_score=score,
+            final_score=score,
+            threshold=_SUFFICIENCY_THRESHOLD,
+        )
+        derivation.record(
+            "no_governance_model",
+            "No governance model was reachable, and no Risk Scorer composite was "
+            "available, so confidence was computed from metric and finding counts.",
+        )
+        derivation.record(
+            "metric_deductions",
+            f"Started at 0.95, less {failed * 0.15:.3f} for {failed} failed "
+            f"metric(s) and {pending * 0.05:.3f} for {pending} pending.",
+            after=_clamp(base),
+        )
+        if severity_total:
+            derivation.record(
+                "finding_severity_deductions",
+                f"Less {severity_total:.3f} across {len(open_findings)} open finding(s), "
+                f"weighted by severity.",
+                before=_clamp(base),
+                after=score,
+            )
 
     sufficient = score >= _SUFFICIENCY_THRESHOLD and failed == 0
     if failed > 0 or has_high:
@@ -342,6 +510,14 @@ def _deterministic_fallback(
         label = "approved"
 
     source = "risk_contract" if composite is not None else "severity_penalty"
+    derivation.final_score = score
+    if not sufficient and score >= _SUFFICIENCY_THRESHOLD and failed:
+        derivation.record(
+            "failed_metric_blocks_sufficiency",
+            f"Confidence of {score:.3f} clears the {_SUFFICIENCY_THRESHOLD} threshold, "
+            f"but {failed} metric(s) failed and the fallback does not call evidence "
+            f"sufficient while a control is failing.",
+        )
     return VerdictOutput(
         confidence_score=score,
         sufficient=sufficient,
@@ -355,6 +531,7 @@ def _deterministic_fallback(
         remediation_type=None if sufficient else "re_deliberate",
         target_agent=None,
         raw_response="[deterministic_fallback]",
+        derivation=derivation,
     )
 
 
@@ -463,16 +640,33 @@ class VerdictAgent:
         ``has_high`` findings rule is not enforced here: findings genuinely change
         between iterations, so freezing a verdict on them would break remediation.
         """
-        if _conclusive_failure_count(metric_results) > 0:
+        failed = _conclusive_failure_count(metric_results)
+        if failed > 0:
             verdict.sufficient = False
             if verdict.label != "blocked":
                 logger.warning(
                     "VerdictAgent: overriding label '%s' -> 'blocked'; %d metric(s) "
                     "failed and the governance floor does not permit approval",
                     verdict.label,
-                    _conclusive_failure_count(metric_results),
+                    failed,
                 )
+                if verdict.derivation is not None:
+                    # Recorded, not just logged. A reader looking at a blocked
+                    # verdict otherwise cannot tell a decision the judge reached
+                    # from one policy imposed over its objection.
+                    verdict.derivation.policy_floor_applied = True
+                    verdict.derivation.record(
+                        "policy_floor",
+                        f"The model returned '{verdict.label}'. {failed} metric(s) "
+                        f"failed, and whether a failed control permits approval is a "
+                        f"policy decision enforced in code, so the label was "
+                        f"overridden to 'blocked'.",
+                    )
                 verdict.label = "blocked"
                 verdict.action_tier = _safe_action_tier("blocked")
         verdict.remediable = _remediation_can_change_outcome(verdict, metric_results)
+
+        if verdict.derivation is not None:
+            verdict.derivation.final_score = verdict.confidence_score
+            verdict.derivation.sufficiency_reason = _sufficiency_reason(verdict, failed)
         return verdict

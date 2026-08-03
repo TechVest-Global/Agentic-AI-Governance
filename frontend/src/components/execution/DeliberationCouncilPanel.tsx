@@ -1,7 +1,7 @@
 import { ScanSearch } from "lucide-react";
 import type { BackendFinding, CouncilIteration, GovernanceReport } from "@/api/governanceApi";
 import type { CouncilMemberId } from "@/components/execution/LiveRunSidebar";
-import { CouncilObjections, CouncilProvenance } from "@/components/execution/CouncilProvenance";
+import { ConfidenceDerivationPanel, CouncilObjections, CouncilProvenance } from "@/components/execution/CouncilProvenance";
 import { BarRow, DrawerHeader, DrawerNote, DrawerSection, ReceivesList, StatGrid } from "@/components/execution/DrawerPrimitives";
 
 const SEVERITY_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
@@ -156,6 +156,14 @@ export function DeliberationCouncilPanel({
               ["Label", verdict.label],
               ["Objections", `${verdict.objections.length}`],
             ]}
+          />
+        </DrawerSection>
+        {/* Before the threshold bars: which band the score lands in matters
+            less than whether the score was assessed or computed, and whether
+            the label is the model's or a policy override of it. */}
+        <DrawerSection label="How this confidence was reached">
+          <ConfidenceDerivationPanel
+            derivation={latestCouncilIteration?.verdict?.derivation ?? null}
           />
         </DrawerSection>
         <DrawerSection label="Threshold routing">

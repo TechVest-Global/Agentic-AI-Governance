@@ -1141,6 +1141,38 @@ export type ObjectionAttacks = "evidence" | "inference";
  *  drift apart as the objection contract grows. */
 export type CouncilObjection = VerdictObjection;
 
+/** Who produced the raw confidence number before code adjusted it.
+ *  "governance_model" is a real assessment; the other two are the deterministic
+ *  fallback used when no judge was reachable. Mirrors ConfidenceDerivation. */
+export type ConfidenceSource = "governance_model" | "risk_contract" | "severity_penalty";
+
+export type DerivationStep = {
+  step: string;
+  detail: string;
+  score_before?: number | null;
+  score_after?: number | null;
+};
+
+export type ConfidenceDerivation = {
+  source: ConfidenceSource;
+  raw_score: number;
+  final_score: number;
+  threshold: number;
+  policy_floor_applied: boolean;
+  sufficiency_reason: string;
+  steps: DerivationStep[];
+};
+
+export type CouncilVerdictState = {
+  confidence_score: number;
+  sufficient: boolean;
+  label: string;
+  action_tier: string;
+  reasoning: string;
+  /** Absent on runs recorded before derivation was captured. */
+  derivation?: ConfidenceDerivation | null;
+};
+
 export type CouncilIteration = {
   iteration: number;
   sequence_number: number;
@@ -1151,6 +1183,7 @@ export type CouncilIteration = {
   unused_findings: UnusedFinding[];
   coverage: ProvenanceCoverage | null;
   objections: CouncilObjection[];
+  verdict: CouncilVerdictState | null;
 };
 
 /** Replay the council's iterations out of the append-only state log.
@@ -1180,6 +1213,7 @@ export function councilIterationsFromState(entries: GovernanceStateEntry[]): Cou
         unused_findings: (synthesis.unused_findings as UnusedFinding[] | undefined) ?? [],
         coverage: (synthesis.coverage as ProvenanceCoverage | null | undefined) ?? null,
         objections: (payload.objections as CouncilObjection[] | undefined) ?? [],
+        verdict: (payload.verdict as CouncilVerdictState | undefined) ?? null,
       };
     })
     .sort((a, b) => a.sequence_number - b.sequence_number);

@@ -3,6 +3,8 @@ import clsx from "clsx";
 import type {
   BackendFinding,
   CitationRole,
+  ConfidenceDerivation,
+  ConfidenceSource,
   CouncilIteration,
   CouncilObjection,
   ObjectionAttacks,
@@ -368,6 +370,107 @@ export function CouncilObjections({
           onSelect={onSelectFinding}
         />
       ))}
+    </div>
+  );
+}
+
+const SOURCE_META: Record<ConfidenceSource, { label: string; hint: string; warn: boolean }> = {
+  governance_model: {
+    label: "Assessed by the governance model",
+    hint: "A judge model read the evidence and returned this confidence.",
+    warn: false,
+  },
+  risk_contract: {
+    label: "Computed — no judge reachable",
+    hint: "Derived by inverting the Risk Scorer's composite risk score, not assessed by a model.",
+    warn: true,
+  },
+  severity_penalty: {
+    label: "Computed — no judge reachable",
+    hint: "Derived from metric failures and finding severities, not assessed by a model.",
+    warn: true,
+  },
+};
+
+function formatScore(value: number | null | undefined): string {
+  return typeof value === "number" ? value.toFixed(3) : "—";
+}
+
+/** Where the confidence number came from, step by step.
+ *
+ *  Mechanical rather than narrated: every step below is an adjustment made by
+ *  code, so it can be checked against the inputs instead of taken on trust. */
+export function ConfidenceDerivationPanel({ derivation }: { derivation: ConfidenceDerivation | null }) {
+  if (!derivation) {
+    return (
+      <p className="text-[11.5px] text-slate-500 dark:text-slate-400">
+        This verdict predates derivation tracking, so its confidence number cannot be traced.
+      </p>
+    );
+  }
+
+  const source = SOURCE_META[derivation.source];
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          title={source?.hint}
+          className={clsx(
+            "rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ring-1",
+            source?.warn
+              ? "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900"
+              : "bg-brand-50 text-brand-700 ring-brand-200 dark:bg-brand-900/30 dark:text-brand-300 dark:ring-brand-800",
+          )}
+        >
+          {source?.label ?? derivation.source}
+        </span>
+        {derivation.policy_floor_applied ? (
+          <span
+            title="The model's label was overridden by a policy rule enforced in code."
+            className="rounded bg-rose-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-rose-700 ring-1 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:ring-rose-900"
+          >
+            Policy override
+          </span>
+        ) : null}
+      </div>
+
+      <ol className="space-y-1.5">
+        {derivation.steps.map((s, i) => (
+          <li
+            key={`${s.step}-${i}`}
+            className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2"
+          >
+            <div className="flex flex-wrap items-baseline gap-2">
+              <span className="font-mono text-[10px] text-slate-400 dark:text-slate-500">{i + 1}</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+                {s.step.replace(/_/g, " ")}
+              </span>
+              {typeof s.score_after === "number" ? (
+                <span className="ml-auto font-mono text-[11px] text-slate-700 dark:text-slate-300">
+                  {typeof s.score_before === "number" ? `${formatScore(s.score_before)} → ` : ""}
+                  {formatScore(s.score_after)}
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-0.5 text-[11.5px] leading-5 text-slate-600 dark:text-slate-400">{s.detail}</p>
+          </li>
+        ))}
+      </ol>
+
+      <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 px-3 py-2">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+            Final confidence
+          </span>
+          <span className="font-mono text-[13px] font-semibold text-slate-900 dark:text-white">
+            {formatScore(derivation.final_score)}
+          </span>
+        </div>
+        <p className="mt-0.5 text-[11.5px] leading-5 text-slate-600 dark:text-slate-400">
+          {derivation.sufficiency_reason || `Sufficiency threshold is ${formatScore(derivation.threshold)}.`}
+        </p>
+      </div>
     </div>
   );
 }

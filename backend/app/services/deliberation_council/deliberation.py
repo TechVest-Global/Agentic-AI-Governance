@@ -620,6 +620,30 @@ def _append_council_iteration_state(
                     "objections_addressed": verdict.objections_addressed,
                     "objections_upheld": verdict.objections_upheld,
                     "iteration_penalty": verdict.iteration_penalty,
+                    # Where the confidence number came from, step by step. Every
+                    # value was already computed to produce the score; recording
+                    # it is what makes the number checkable rather than asserted.
+                    "derivation": (
+                        {
+                            "source": verdict.derivation.source,
+                            "raw_score": verdict.derivation.raw_score,
+                            "final_score": verdict.derivation.final_score,
+                            "threshold": verdict.derivation.threshold,
+                            "policy_floor_applied": verdict.derivation.policy_floor_applied,
+                            "sufficiency_reason": verdict.derivation.sufficiency_reason,
+                            "steps": [
+                                {
+                                    "step": st.step,
+                                    "detail": st.detail,
+                                    "score_before": st.score_before,
+                                    "score_after": st.score_after,
+                                }
+                                for st in verdict.derivation.steps
+                            ],
+                        }
+                        if verdict.derivation is not None
+                        else None
+                    ),
                 },
             },
         ),

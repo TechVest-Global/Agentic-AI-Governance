@@ -53,11 +53,21 @@ from app.services.model_clients.mock import is_mock_governance_client
 logger = logging.getLogger(__name__)
 
 _TEMPLATE_ID = "synthesis_agent.council_memo"
-# v5. Supersedes v4 (2cbc634e…), which produced narrative prose with no way back
-# to the evidence. v5 adds the claims/unused_findings provenance contract. v4 is
-# left in place unmodified: templates are content-addressed, so a shipped version
-# is immutable and older runs keep resolving the template they actually used.
-_PHASE_HASH = "52c26971b8ee2ff9c5ad4d65f82015670731eb55514e466e375d139a6f102dec"
+# v5 (52c26971…) added the claims/unused_findings provenance contract to v4
+# (2cbc634e…), which produced narrative prose with no way back to the evidence.
+#
+# v6 fixes a latent defect v5 inherited from v4. Both told the model to copy the
+# ACTUAL PROBE COUNTS block "verbatim" into sample_sizes. When a run has no probe
+# telemetry that block is prose, not data, and the model copied the prose inside
+# the JSON object — `"sample_sizes": { "(no probe telemetry...)" }` — which is
+# invalid JSON and cost the entire memo. Harmless while the memo was prose;
+# fatal once the memo carries the provenance, and especially wasteful because
+# sample_sizes is overwritten with real telemetry immediately after parsing, so
+# the run lost everything over a field whose value is discarded.
+#
+# Earlier versions stay in place unmodified: templates are content-addressed, so
+# a shipped version is immutable and older runs keep resolving the one they used.
+_PHASE_HASH = "d400a8af1ed2adc983b924a325f88e23e90b7c52a1a19441f26be345ba3bca97"
 
 # How a claim uses a finding.
 #   primary_evidence   — the claim mainly rests on it
@@ -186,6 +196,26 @@ def _format_metrics(metrics: list[MetricResult]) -> str:
     return "\n".join(lines)
 
 
+def _parse_sample_sizes(raw: object) -> dict[str, int]:
+    """Read sample_sizes without letting a bad value cost us the memo.
+
+    Whatever the model returns here is overwritten with real AgentExecution
+    telemetry immediately after parsing (see synthesize), so this value is
+    discarded either way. It has no business raising — which it previously
+    could, taking the claims and coverage down with it over a field nobody
+    reads. See the v6 note on _PHASE_HASH for how that actually bit.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    counts: dict[str, int] = {}
+    for name, value in raw.items():
+        try:
+            counts[str(name)] = int(value)
+        except (TypeError, ValueError):
+            continue
+    return counts
+
+
 def _parse_claims(raw: object) -> list[Claim]:
     """Read the claims array, skipping anything structurally unusable.
 
@@ -261,7 +291,7 @@ def _try_parse_memo(content: str, iteration: int) -> SynthesisMemo | None:
             narrative=str(data.get("narrative", "Evidence synthesis not available.")),
             risk_summary=str(data.get("risk_summary", "Risk level indeterminate.")),
             dimensions=list(data.get("dimensions", [])),
-            sample_sizes={str(k): int(v) for k, v in data.get("sample_sizes", {}).items()},
+            sample_sizes=_parse_sample_sizes(data.get("sample_sizes")),
             conflicts=list(data.get("conflicts", [])),
             iteration=int(data.get("iteration", iteration)),
             raw_response=content,

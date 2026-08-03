@@ -266,6 +266,36 @@ def test_two_bad_responses_degrade_rather_than_raise() -> None:
     assert memo.coverage.total_findings == 1
 
 
+def test_a_bad_sample_sizes_value_does_not_cost_us_the_claims() -> None:
+    """That field is overwritten with real telemetry, so it must never raise.
+
+    Observed live: the model copied the "no probe telemetry" prose into the
+    sample_sizes object, and the whole memo — claims, coverage, everything —
+    was discarded over a value nothing reads.
+    """
+    finding = _finding()
+    payload = json.loads(
+        _memo_json(
+            [
+                {
+                    "claim_id": "c1",
+                    "statement": "Disclosure fails.",
+                    "citations": [{"finding_id": str(finding.id), "role": "primary_evidence"}],
+                }
+            ]
+        )
+    )
+    payload["sample_sizes"] = "(no probe telemetry available for this run)"
+
+    memo = SynthesisAgent(_StubClient(json.dumps(payload))).synthesize(
+        findings=[finding], metric_results=[], iteration=1
+    )
+
+    assert len(memo.claims) == 1
+    assert memo.sample_sizes == {}
+    assert memo.coverage.is_complete
+
+
 def _build_memo(claims: list[dict]):
     """Parse a memo straight from claim dicts, bypassing the LLM call."""
     from app.services.deliberation_council.synthesis_agent import _parse_memo
