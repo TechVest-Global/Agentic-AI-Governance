@@ -51,6 +51,34 @@ def resolve_evaluator_endpoint(
     return base
 
 
+def probe_endpoint(evaluation_input: "MetricEvaluationInput") -> str:
+    """The endpoint this evaluator should actually probe.
+
+    Use this rather than reading ``ai_system.target_endpoint_ref`` directly.
+    The caller has already resolved a functional endpoint for this run (see
+    resolve_evaluator_endpoint, called from metric_execution), honouring a scoped
+    audit's selected capability and otherwise preferring a text capability's
+    own path.
+
+    Reading the bare base URL instead is not a harmless fallback: a system
+    whose capabilities each live under their own path — separate image/text/
+    video generation endpoints under one registration — serves nothing at its
+    base URL, so every probe 404s and the metric reports the target as broken
+    when it is fine. Observed live: pyrit_jailbreak_success_rate sent 10 probes
+    to http://localhost:8001 and got 10 404s, while probes that used the
+    resolved endpoint succeeded 23 times against the same system.
+
+    The ai_system fallbacks below only apply when the caller resolved nothing
+    at all, which is the single-endpoint case where the base URL is correct.
+    """
+    return (
+        evaluation_input.target_endpoint_ref
+        or evaluation_input.ai_system.target_endpoint_ref
+        or evaluation_input.ai_system.name
+        or "default"
+    )
+
+
 @dataclass(frozen=True)
 class MetricEvaluationInput:
     metric: MetricPlanItem
