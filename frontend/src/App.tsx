@@ -10,7 +10,6 @@ import { AuditLedger } from "@/pages/AuditLedger";
 import { CouncilDeliberation } from "@/pages/CouncilDeliberation";
 import { Evidence } from "@/pages/Evidence";
 import { EvaluationRuns } from "@/pages/EvaluationRuns";
-import { GovernanceEngine } from "@/pages/GovernanceEngine";
 import { LiveRuns } from "@/pages/LiveRuns";
 import { Reports } from "@/pages/Reports";
 import { Verdicts } from "@/pages/Verdicts";
@@ -48,7 +47,6 @@ const pages = {
   dashboard: Dashboard,
   systems: AISystems,
   "eval-runs": EvaluationRuns,
-  engine: GovernanceEngine,
   runs: LiveRuns,
   "metric-plan": MetricPlan,
   council: CouncilDeliberation,

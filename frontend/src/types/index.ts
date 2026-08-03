@@ -4,7 +4,6 @@ export type PageId =
   | "dashboard"
   | "systems"
   | "eval-runs"
-  | "engine"
   | "runs"
   | "metric-plan"
   | "council"
