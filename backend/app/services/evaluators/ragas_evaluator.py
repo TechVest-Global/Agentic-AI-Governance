@@ -140,6 +140,11 @@ _FORMULA_METRICS = {
 
 _MAX_CONTEXT_DOCS = 5
 
+# ragas metric classes that need an embeddings model, not just a judge LLM.
+# _build_metric passes `llm=` only, and Settings has no embeddings deployment,
+# so these cannot be scored here yet — see the guard in evaluate().
+_METRICS_NEEDING_EMBEDDINGS = frozenset({"ResponseRelevancy"})
+
 
 def _build_probe_questions(contexts: list[str]) -> list[str]:
     """Grounding-oriented probes anchored to the system's own seeded corpus.
@@ -250,6 +255,24 @@ class RagasEvaluator:
 
         if metric_spec is None:
             return _skip_result(metric, reason=f"unsupported formula: {formula}")
+
+        # A few ragas metrics score by embedding similarity, not by asking the
+        # judge — and _build_metric only ever passes `llm=`. ResponseRelevancy
+        # therefore raised ragas's own "'answer_relevancy' requires embeddings to
+        # be set" deep inside scoring, which surfaced as an opaque
+        # "scoring failed: ..." on the metric result. There is no embeddings
+        # deployment in Settings at all, so this is unscoreable by construction:
+        # say so up front, the way the missing-interpreter and missing-judge
+        # branches below already do, instead of failing mid-score.
+        if metric_spec[0] in _METRICS_NEEDING_EMBEDDINGS:
+            return _skip_result(
+                metric,
+                reason=(
+                    f"ragas {metric_spec[0]} scores by embedding similarity and no embeddings "
+                    "model is configured — add an Azure OpenAI embeddings deployment and wire "
+                    "it into _build_metric before selecting this metric"
+                ),
+            )
 
         # On an unsupported interpreter, score via the isolated .venv-ragas
         # runner instead of skipping outright — falls back to a real skip

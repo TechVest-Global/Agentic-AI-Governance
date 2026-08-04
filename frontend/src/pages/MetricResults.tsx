@@ -268,9 +268,15 @@ export function MetricResults() {
                     className="border-b border-slate-100 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-800/60"
                   >
                     <td className="px-4 py-3 cursor-help" title={metricBlurb(r.metric_id, metricName(r.metric_id))}>
-                      <span className="font-mono text-[11px] font-semibold text-slate-950 dark:text-white">{r.metric_id}</span>
+                      {/* Name is the heading, id the subtitle — this table is
+                          scanned for what was measured, not for catalog ids. */}
+                      <span className="text-[12px] font-semibold text-slate-950 dark:text-white">
+                        {metricName(r.metric_id)}
+                      </span>
                       {metricName(r.metric_id) !== r.metric_id && (
-                        <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">{metricName(r.metric_id)}</p>
+                        <p className="mt-0.5 font-mono text-[10px] text-slate-400 dark:text-slate-500">
+                          {r.metric_id}
+                        </p>
                       )}
                     </td>
                     <td className="px-4 py-3">

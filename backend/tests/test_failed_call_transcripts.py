@@ -6,6 +6,12 @@ every failure branch, keeping only a status string. A live TechVest run where
 the calls with the most diagnostic value were the ones with no transcript at
 all — a reviewer could see "rate_limited" and nothing else: not the prompt, not
 the status code, not whether it was throttling or an auth failure.
+
+The reason is recorded as error_type + error_detail. An `error_text` column
+briefly held the same information as one joined string; it was dropped because
+two sources for one fact made the UI render the reason twice, and the split
+version is more useful — error_type is groupable (endpoint_coverage counts by
+it) and error_detail carries the target's own response body.
 """
 
 import urllib.error
@@ -72,7 +78,7 @@ def test_a_rate_limited_probe_keeps_its_prompt_and_says_why() -> None:
     assert entry["status"] == "rate_limited"
     assert entry["prompt_text"] == PROBE_PROMPT, "the probe that failed is the one worth reading"
     assert entry["response_text"] is None
-    assert "429" in entry["error_text"]
+    assert "429" in entry["error_detail"]
 
 
 def test_a_non_retryable_probe_failure_records_the_status_code() -> None:
@@ -86,7 +92,7 @@ def test_a_non_retryable_probe_failure_records_the_status_code() -> None:
     entry = _only_entry()
     assert entry["status"] == "error"
     assert entry["prompt_text"] == PROBE_PROMPT
-    assert "403" in entry["error_text"]
+    assert "403" in entry["error_detail"]
 
 
 def test_a_failed_governance_call_keeps_the_reasoning_prompt() -> None:
@@ -99,7 +105,7 @@ def test_a_failed_governance_call_keeps_the_reasoning_prompt() -> None:
     entry = _only_entry()
     assert entry["status"] == "rate_limited"
     assert entry["prompt_text"] == GOV_PROMPT
-    assert "429" in entry["error_text"]
+    assert "429" in entry["error_detail"]
 
 
 def test_a_non_retryable_governance_failure_names_the_exception() -> None:
@@ -112,11 +118,11 @@ def test_a_non_retryable_governance_failure_names_the_exception() -> None:
     entry = _only_entry()
     assert entry["status"] == "error"
     assert entry["prompt_text"] == GOV_PROMPT
-    assert "ValueError" in entry["error_text"]
-    assert "bad deployment name" in entry["error_text"]
+    assert entry["error_type"] == "ValueError"
+    assert "bad deployment name" in entry["error_detail"]
 
 
-def test_a_successful_call_records_no_error_text() -> None:
+def test_a_successful_call_records_no_error_detail() -> None:
     """Guard against every row growing a spurious error string."""
 
     class _Succeeds:
@@ -141,4 +147,5 @@ def test_a_successful_call_records_no_error_text() -> None:
 
     entry = _only_entry()
     assert entry["status"] == "success"
-    assert entry.get("error_text") is None
+    assert entry.get("error_detail") is None
+    assert entry.get("error_type") is None

@@ -29,7 +29,7 @@ from app.schemas.governance import (
 )
 from app.services import audit_ledger
 from app.services.agents.base import AgentContext, GovernanceAgent
-from app.services.agents.helpers import unprobed_endpoints_finding
+from app.services.agents.helpers import agent_failed_finding, unprobed_endpoints_finding
 from app.services.agents.registry import select_agents
 from app.services.concurrency_settings import (
     agent_execution_budget_seconds,
@@ -50,6 +50,12 @@ from app.services.run_validation import get_run_or_raise
 from app.services.specialist_agents.metric_plans import build_metric_plan
 
 logger = logging.getLogger(__name__)
+
+# Floor on what the aggregate stage gets when the fan-out has already consumed
+# the whole phase budget. It reasons over findings that are already durable, so
+# giving it nothing would throw away the composite risk score over a few seconds
+# — but it must still be bounded, which is the whole point of the change.
+_AGGREGATE_MIN_BUDGET_SECONDS = 120.0
 
 # Specialist agents run CONCURRENTLY — this is Layer 3 as specified in README.md
 # ("Layer 3: Specialist Agents / Parallel agents for bias, drift, misuse,
@@ -201,6 +207,10 @@ class _AgentOutcome:
     findings: list[FindingCreate] = field(default_factory=list)
     error: dict[str, str] | None = None
     probe_count: int = 0
+    # Probes the agent planned to send. Reported alongside probe_count rather
+    # than instead of it: the gap between them IS the finding when a target is
+    # unreachable, and conflating the two let a plan be reported as evidence.
+    probes_planned: int = 0
     probes_skipped: list[dict] = field(default_factory=list)
     # Probes that were sent and errored. Captured even when the agent SUCCEEDS,
     # so a partially-degraded evaluation is visible in the audit record rather
@@ -293,9 +303,120 @@ def _execute_agent(
             context.probe_counts.get(agent.name, 0)
             + context.tool_probe_counts.get(agent.name, 0)
         ),
+        # What the agent INTENDED to send, kept separately so the difference is
+        # legible. When probing raises, planned stays high and sent stays 0 —
+        # previously the planned figure sat in probe_counts and was reported as
+        # sent, so five agents claimed 79 probes on a run where 3 landed.
+        probes_planned=context.probe_plan_counts.get(agent.name, 0),
         probes_skipped=context.probe_skips.get(agent.name, []),
         probes_failed=context.probe_failures.get(agent.name, []),
     )
+
+
+def _agent_inputs(
+    agent: GovernanceAgent,
+    *,
+    snapshot: _WorkerSnapshot,
+    probe_budgets: dict[str, int],
+    selected_capabilities: list[str],
+    evaluation_plan: EvaluationPlanRead | None,
+) -> dict:
+    """What this agent was handed, recorded BEFORE it runs.
+
+    An execution row used to say only how an agent was scheduled. Its outputs
+    (probes, findings) arrived at the end, and its INPUTS were never recorded at
+    all — so an agent that failed, timed out, or exited early left nothing
+    explaining what it had been asked to check. On a run where the audited
+    target was out of quota, six agents failed with an error string and zero
+    findings, and the record could not answer "what was bias_agent even
+    looking at?".
+
+    Written at row-creation time so it is queryable while the phase is still
+    running, not only after the agent returns.
+    """
+    plan_item = None
+    if evaluation_plan is not None:
+        plan_item = next(
+            (a for a in evaluation_plan.activated_agents if a.agent_name == agent.name), None
+        )
+
+    # Metrics this agent owns. The plan is authoritative when present; otherwise
+    # fall back to the metric plan's own primary_agent attribution.
+    if plan_item is not None and plan_item.assigned_metric_ids:
+        owned_ids = list(plan_item.assigned_metric_ids)
+    else:
+        owned_ids = [
+            item.metric_id
+            for item in (snapshot.metric_plan_items or [])
+            if getattr(item, "primary_agent", None) == agent.name
+        ]
+
+    # Human names for the IDs, from the run's own metric plan — "CM-017" means
+    # nothing to a reader, "Disparate Failure Rate" does. Taken from the plan
+    # rather than a hardcoded UI lookup table so the label can never drift from
+    # the catalog the run actually used.
+    names = {
+        item.metric_id: item.name
+        for item in (snapshot.metric_plan_items or [])
+        if getattr(item, "name", None)
+    }
+    dimensions = {
+        item.metric_id: item.dimension
+        for item in (snapshot.metric_plan_items or [])
+        if getattr(item, "dimension", None)
+    }
+
+    # The upstream state those metrics were in — this is the evidence the agent
+    # reasons over, and what decides whether it probes at all.
+    owned = [m for m in snapshot.metric_results if m.metric_id in set(owned_ids)]
+    return {
+        "dimension": getattr(agent, "probe_dimension", None) or agent.name,
+        "assigned_metric_ids": owned_ids,
+        "assigned_metrics": [
+            {"metric_id": mid, "name": names.get(mid, mid), "dimension": dimensions.get(mid)}
+            for mid in owned_ids
+        ],
+        "probe_budget": probe_budgets.get(agent.name),
+        "priority": getattr(plan_item, "priority", None),
+        "activation_rationale": getattr(plan_item, "rationale", None),
+        "audit_scope_capabilities": selected_capabilities or ["<whole application>"],
+        # Statuses drive the probe/skip decision, so record them as seen.
+        "assigned_metric_states": [
+            {
+                "metric_id": m.metric_id,
+                "name": names.get(m.metric_id, m.metric_id),
+                "dimension": m.dimension,
+                "status": str(getattr(m.status, "value", m.status)),
+                "normalized_score": m.normalized_score,
+                "threshold": m.threshold,
+                "passed": m.passed,
+            }
+            for m in owned
+        ],
+        "visible_metric_results": len(snapshot.metric_results),
+        "visible_evidence_records": len(snapshot.evidence),
+        "visible_prior_findings": len(snapshot.existing_findings),
+    }
+
+
+def _agent_outputs(outcome: "_AgentOutcome") -> dict:
+    """What this agent produced, in the same place its inputs are recorded."""
+    by_severity: dict[str, int] = {}
+    for f in outcome.findings:
+        key = str(getattr(f.severity, "value", f.severity))
+        by_severity[key] = by_severity.get(key, 0) + 1
+    return {
+        "probes_sent": outcome.probe_count,
+        "probes_planned": outcome.probes_planned,
+        # The honest headline when a target refuses: planned 30, sent 0.
+        "probes_not_sent": max(0, outcome.probes_planned - outcome.probe_count),
+        "probes_skipped": len(outcome.probes_skipped),
+        "probes_failed": len(getattr(outcome, "probes_failed", []) or []),
+        "finding_count": len(outcome.findings),
+        "findings_by_severity": by_severity,
+        "finding_titles": [f.title for f in outcome.findings],
+        "error": outcome.error,
+    }
 
 
 def run_agents(
@@ -450,6 +571,16 @@ def run_agents(
                 # resume's already-completed scan skips them — a re_probe/re_plan
                 # execution must never suppress the normal agent of the same name.
                 "is_remediation": is_remediation_call,
+                # What this agent was handed. Written now, while its status is
+                # still `running`, so the inputs are visible during the phase and
+                # survive a failure that produces no outputs at all.
+                "inputs": _agent_inputs(
+                    agent,
+                    snapshot=snapshot,
+                    probe_budgets=probe_budgets,
+                    selected_capabilities=selected_capabilities,
+                    evaluation_plan=evaluation_plan,
+                ),
             },
         )
         session.add(execution)
@@ -472,9 +603,29 @@ def run_agents(
                 capture_buffer=capture_buffer,
             )
 
+    def _run_aggregate_in_worker(
+        agent: GovernanceAgent, existing_findings: list[Finding]
+    ) -> _AgentOutcome:
+        """Same isolation as _run_in_worker, but over the post-barrier finding set.
+
+        On a thread rather than inline so the aggregate stage can be held to the
+        phase budget — see the aggregate loop below.
+        """
+        with Session(db_session.engine) as worker_session:
+            return _execute_agent(
+                agent,
+                _context_for(
+                    own_session=worker_session,
+                    existing_findings=existing_findings,
+                ),
+                capture_buffer=capture_buffer,
+            )
+
     # Late LLM calls made by any agent abandoned below are recovered through
     # this sink; see _LateLogSink and _record_orphaned_agent_completion.
     late_logs = _LateLogSink(capture_buffer)
+    # Start of the phase's wall-clock budget, shared by both stages.
+    phase_started_at = utc_now()
 
     outcomes: dict[str, _AgentOutcome] = {}
     if len(fanout_agents) == 1:
@@ -546,14 +697,34 @@ def run_agents(
             # progress stream reports a live "Probes Sent" total. Recorded even
             # on failure, so partial probing is still counted.
             "probe_count": outcome.probe_count,
+            "probes_planned": outcome.probes_planned,
             "probes_skipped": outcome.probes_skipped,
             "probes_failed": outcome.probes_failed,
+            # Paired with `inputs` above, so one row answers both "what was this
+            # agent asked to check" and "what did it come back with" — including
+            # when the answer is "nothing, and here is why".
+            "outputs": _agent_outputs(outcome),
         }
         execution.updated_at = utc_now()
         if outcome.error:
             failed_execution_count += 1
         session.add(execution)
-        for finding_payload in outcome.findings:
+        # A failed agent produced no findings, so its dimension contributed
+        # nothing to the report — and the council counts findings, so silence
+        # read as "clean". Record the failure AS a finding so the coverage loss
+        # is visible in the evidence package, not only in an execution row's
+        # error column that no report renders.
+        emitted = list(outcome.findings)
+        if outcome.error and not emitted:
+            emitted.append(
+                agent_failed_finding(
+                    agent_name=agent.name,
+                    dimension=getattr(agent, "probe_dimension", None) or agent.name,
+                    error=outcome.error,
+                )
+            )
+            execution.finding_count = len(emitted)
+        for finding_payload in emitted:
             finding = Finding(run_id=run_id, **finding_payload.model_dump())
             session.add(finding)
             created_findings.append(finding)
@@ -584,7 +755,10 @@ def run_agents(
                     "execution_stage": (execution.metadata_json or {}).get("execution_stage"),
                     "probe_count": outcome.probe_count,
                     "probes_skipped": len(outcome.probes_skipped),
-                    "finding_count": len(outcome.findings),
+                    # `emitted`, not outcome.findings: a failed agent's synthetic
+                    # coverage finding must be counted here too, or the ledger
+                    # disagrees with the execution row it describes.
+                    "finding_count": len(emitted),
                     "started_at": outcome.started_at.isoformat(),
                     "completed_at": outcome.completed_at.isoformat(),
                     "duration_ms": int(
@@ -629,18 +803,43 @@ def run_agents(
     if aggregate_agents:
         session.flush()
 
+    # The phase budget bounded the fan-out only — it is an `as_completed`
+    # timeout on that pool, and the aggregate stage ran straight on this thread
+    # with no bound at all. On a run against a throttled target, risk_scorer
+    # blocked here for 7.8 HOURS against a 900s phase budget, holding the run at
+    # `agents_running` and the request thread with it. Give the aggregate stage
+    # whatever remains of the same budget, on the same abandon-never-block terms
+    # as the fan-out.
     for agent in aggregate_agents:
-        _finalize(
-            agent,
-            _execute_agent(
-                agent,
-                _context_for(
-                    own_session=session,
-                    existing_findings=_list_findings(session, run_id=run_id),
-                ),
-                capture_buffer=capture_buffer,
-            ),
+        remaining = max(
+            _AGGREGATE_MIN_BUDGET_SECONDS,
+            agent_execution_budget_seconds() - (utc_now() - phase_started_at).total_seconds(),
         )
+        aggregate_pool = ThreadPoolExecutor(max_workers=1)
+        aggregate_future = aggregate_pool.submit(
+            _run_aggregate_in_worker, agent, _list_findings(session, run_id=run_id)
+        )
+        try:
+            aggregate_outcome = aggregate_future.result(timeout=remaining)
+        except FuturesTimeout:
+            logger.warning(
+                "Aggregate agent %s exceeded its %.0fs share of the phase budget; abandoning it",
+                agent.name,
+                remaining,
+            )
+            aggregate_outcome = _AgentOutcome(
+                started_at=utc_now(),
+                completed_at=utc_now(),
+                error={
+                    "error_type": "TimeoutError",
+                    "message": (
+                        "aggregate agent exceeded the specialist-agent phase time budget"
+                    ),
+                },
+            )
+        finally:
+            aggregate_pool.shutdown(wait=False)
+        _finalize(agent, aggregate_outcome)
 
     # ---- Endpoint coverage -------------------------------------------------
     # Every probe this phase sent has now been logged with the endpoint it hit,

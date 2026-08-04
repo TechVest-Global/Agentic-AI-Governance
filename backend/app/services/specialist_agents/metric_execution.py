@@ -19,7 +19,7 @@ from app.schemas.governance import (
 )
 from app.services import audit_ledger
 from app.services.concurrency_settings import (
-    metric_execution_budget_seconds,
+    metric_execution_budget_for,
     metric_execution_max_workers,
 )
 from app.services.evaluators.base import (
@@ -271,7 +271,9 @@ def run_metrics(
             session.commit()
 
     if metrics:
-        phase_budget_seconds = metric_execution_budget_seconds()
+        # Scaled by how many metrics are actually planned — a flat budget starved
+        # full-catalog runs (see metric_execution_budget_for).
+        phase_budget_seconds = metric_execution_budget_for(len(metrics))
         worker_count = max(1, min(metric_execution_max_workers(), len(metrics)))
         # Bound the whole phase: collect results as they complete, up to a hard
         # budget. Any metric still running when the budget expires is recorded as

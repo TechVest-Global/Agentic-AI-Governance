@@ -170,4 +170,8 @@ def test_a_latched_failure_is_not_recorded_as_having_sent_a_request() -> None:
 
     assert [e["attempts"] for e in entries] == [1, 0]
     assert all(e["status"] == "rate_limited" for e in entries)
-    assert "quota exhausted" in entries[1]["error_text"].lower()
+    # error_detail, not error_text: a second column briefly held the same reason
+    # as one joined string and has been dropped — error_type + error_detail is
+    # what the gateway writes and what endpoint_coverage groups on.
+    assert entries[1]["error_type"] == "TargetQuotaExhausted"
+    assert "quota exhausted" in entries[1]["error_detail"].lower()

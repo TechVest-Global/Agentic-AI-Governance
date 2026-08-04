@@ -41,6 +41,12 @@ class AgentContext:
     # agents record their probe count here so the SSE progress endpoint can report
     # a real "Probes Sent" figure instead of a hardcoded 0.
     probe_counts: dict[str, int] = None  # type: ignore[assignment]
+    # agent_name -> probes the agent PLANNED to send. Kept apart from
+    # probe_counts because probe planning happens before probing: when the probe
+    # run then raised (an unreachable or out-of-quota target), the planned figure
+    # was left sitting in probe_counts and reported as if it had been sent. A
+    # live run claimed 79 probes across five agents when 3 reached the target.
+    probe_plan_counts: dict[str, int] = None  # type: ignore[assignment]
     # agent_name -> probes it declined to send this run (capability modality
     # didn't match), each a dict with endpoint_ref/probe_name/dimension/reason.
     # An honest record of coverage gaps, never a fabricated result — see
@@ -73,6 +79,8 @@ class AgentContext:
             object.__setattr__(self, "metric_plan_items", [])
         if self.probe_counts is None:
             object.__setattr__(self, "probe_counts", {})
+        if self.probe_plan_counts is None:
+            object.__setattr__(self, "probe_plan_counts", {})
         if self.probe_skips is None:
             object.__setattr__(self, "probe_skips", {})
         if self.probe_failures is None:
