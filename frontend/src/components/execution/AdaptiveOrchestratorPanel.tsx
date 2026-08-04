@@ -176,8 +176,13 @@ function AgentAllocationDetail({
                   title={metricBlurb(id, metricName(id))}
                   className="inline-flex cursor-help items-center rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 text-[11px] text-slate-700 dark:text-slate-300"
                 >
-                  <span className="font-mono font-semibold">{id}</span>
-                  {metricName(id) !== id && <span className="ml-1.5">{metricName(id)}</span>}
+                  {/* Name leads; the id is provenance, not a label. */}
+                  <span className="font-medium">{metricName(id)}</span>
+                  {metricName(id) !== id && (
+                    <span className="ml-1.5 font-mono text-[10px] text-slate-400 dark:text-slate-500">
+                      {id}
+                    </span>
+                  )}
                 </span>
               ))}
             </div>

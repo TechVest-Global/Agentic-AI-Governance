@@ -86,9 +86,9 @@ class LLMCallLog(TimestampMixin, UUIDPrimaryKey, table=True):
     response_text: str | None = Field(
         default=None, sa_column=Column("response_text", sa.Text, nullable=True)
     )
-    # Why a non-success call failed. Without this a failed probe shows a prompt,
-    # a red "error" pill, and no explanation — leaving a reviewer unable to tell
-    # a rate limit from an auth failure from a malformed request.
-    error_text: str | None = Field(
-        default=None, sa_column=Column("error_text", sa.Text, nullable=True)
-    )
+    # Why a non-success call failed lives in error_type + error_detail above.
+    # An `error_text` column briefly held the same information as one joined
+    # string; it was dropped because two sources for one fact meant the UI
+    # rendered the reason twice, and error_type/error_detail is the better shape
+    # (the type is groupable — see action_reporting/endpoint_coverage.py — and
+    # the detail carries the target's own response body).

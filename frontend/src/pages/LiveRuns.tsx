@@ -213,7 +213,9 @@ function ExpandableFindingCard({
                         : "border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300",
                     )}
                   >
-                    {tc.tool_name} · {metricName(tc.metric_id) !== tc.metric_id ? `${tc.metric_id} (${metricName(tc.metric_id)})` : tc.metric_id}
+                    {/* Name leads, id trails — a reader recognises "Toxicity
+                        Score", not "CM-014". */}
+                    {tc.tool_name} · {metricName(tc.metric_id) !== tc.metric_id ? `${metricName(tc.metric_id)} (${tc.metric_id})` : tc.metric_id}
                     {typeof tc.normalized_score === "number" && ` · ${tc.normalized_score.toFixed(2)}`}
                     {tc.passed === false ? " · failed" : tc.passed === true ? " · passed" : ""}
                   </span>
@@ -291,7 +293,7 @@ function ExpandableFindingCard({
               title={finding.metricId ? metricBlurb(finding.metricId, metricName(finding.metricId)) : undefined}
             >
               {finding.metricId
-                ? `Triggered by metric ${finding.metricId}${metricName(finding.metricId) !== finding.metricId ? ` (${metricName(finding.metricId)})` : ""}`
+                ? `Triggered by ${metricName(finding.metricId) !== finding.metricId ? `${metricName(finding.metricId)} (${finding.metricId})` : `metric ${finding.metricId}`}`
                 : ""}
               {finding.metricId && finding.dimension ? " · " : ""}
               {finding.dimension ? `dimension: ${finding.dimension}` : ""}

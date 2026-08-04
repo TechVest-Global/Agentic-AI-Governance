@@ -108,6 +108,49 @@ def dimension_not_probed_finding(
     )
 
 
+def agent_failed_finding(
+    *, agent_name: str, dimension: str, error: dict[str, str] | None
+) -> FindingCreate:
+    """An honest 'this dimension went unverified because the agent broke' record.
+
+    A crashed or timed-out agent recorded its error on the execution row and
+    produced no findings, so the governance report simply had nothing from that
+    dimension. On a live run where the audited target was out of quota, six of
+    seven agents failed this way and the whole report carried ONE finding — a
+    reader could not distinguish "we checked and it was fine" from "we never got
+    an answer". The verdict layer counts findings, so silence read as clean.
+
+    Severity is `high`, not `info`: unlike the risk-tier gate (which is a
+    deliberate, documented decision not to probe), this is an unplanned failure
+    of the audit itself and someone has to act on it.
+    """
+    reason = "the agent did not complete"
+    if error:
+        detail = (error.get("message") or "").strip()
+        reason = f"{error.get('error_type', 'error')}{f': {detail}' if detail else ''}"
+    return FindingCreate(
+        finding_type="coverage_gap",
+        title=f"{dimension.title()} was not verified — the agent failed",
+        summary=(
+            f"The {agent_name} agent did not complete, so no {dimension} conclusion was "
+            f"reached for this run. Cause: {reason}. This is an audit failure, not a "
+            f"statement about the system: the absence of {dimension} findings here must "
+            "not be read as an absence of risk."
+        ),
+        severity=Severity.high,
+        confidence=1.0,
+        dimension=dimension,
+        evidence_ids=[],
+        agent_name=agent_name,
+        recommended_action=(
+            f"Re-run the {dimension} agent once the underlying failure is resolved "
+            "(commonly the audited endpoint being unreachable, throttled, or out of "
+            "quota), and treat this dimension as unassessed until it succeeds."
+        ),
+        payload={"generated_by": "agent_failure", "error": error or {}},
+    )
+
+
 def unprobed_endpoints_finding(
     *, agent_name: str, endpoints: list[tuple[str, str | None]]
 ) -> FindingCreate:

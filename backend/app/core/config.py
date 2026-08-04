@@ -123,7 +123,18 @@ class Settings(BaseSettings):
     vision_image_probe_count: int = Field(default=4, ge=1)
     # Metric evaluation fan-out width and phase budget. See metric_execution.py.
     metric_execution_max_workers: int = Field(default=3, ge=1)
+    # FLOOR on the phase budget, not the whole story — the effective budget also
+    # scales with how many metrics were planned (below). A flat 600s cannot serve
+    # both a 7-metric smoke run and a full 42-metric catalog audit: measured at
+    # ~6s per model call and ~3.5 calls per metric, 42 metrics need ~880s, so the
+    # tail was recorded as "evaluation exceeded the metric-execution time budget"
+    # — a clock expiring, presented as if the tools had failed.
     metric_execution_budget_seconds: float = Field(default=600.0, gt=0)
+    # Per-metric allowance added on top of the floor. 25s covers a metric's usual
+    # 2-4 calls at the ~6s/call measured against a live target with
+    # AGENT_TARGET_MAX_INFLIGHT=1 (the setting that keeps a rate-limited target
+    # from refusing everything). Set to 0 to restore a purely flat budget.
+    metric_execution_seconds_per_metric: float = Field(default=25.0, ge=0)
 
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore"
