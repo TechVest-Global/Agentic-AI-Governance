@@ -626,8 +626,8 @@ export async function orchestrateRun(runId: string): Promise<{ run_id: string; s
     // adaptive orchestrator get real per-system evidence instead of an empty result.
     // (A user-uploaded log sample would be passed here to override the synthesizer.)
     // evaluator_name: "auto" routes each metric to the real tool its own config names
-    // (garak/presidio/ragas/deepeval), falling back to deterministic threshold scoring
-    // for metrics whose tool has no real integration yet (langfuse/evidently/promptfoo).
+    // (garak/presidio/ragas/deepeval/drift), skipping with an explicit reason for
+    // metrics whose tool has no real integration yet (langfuse/promptfoo).
     //
     // No force_metric_status: each metric now reports its REAL status (passed/failed
     // from score-vs-threshold) instead of every result being forced to "failed".

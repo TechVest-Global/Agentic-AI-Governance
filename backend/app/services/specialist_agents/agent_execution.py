@@ -46,6 +46,7 @@ from app.services.model_clients.registry import (
     get_governance_model_client,
     get_target_model_client_for_system,
 )
+from app.services.model_clients.target_modality import register_capability_modalities
 from app.services.run_validation import get_run_or_raise
 from app.services.specialist_agents.metric_plans import build_metric_plan
 
@@ -242,10 +243,15 @@ def _load_worker_snapshot(*, ai_system_id: UUID, run_id: UUID) -> _WorkerSnapsho
     worker_ai_system.
     """
     with Session(db_session.engine) as snapshot:
+        capabilities = _list_capabilities(snapshot, ai_system_id=ai_system_id)
+        # Teach the gateway which endpoints are video before any agent probes,
+        # so its concurrency cap can serialise renders regardless of which agent
+        # happens to reach a video capability. See target_modality.py.
+        register_capability_modalities(capabilities)
         return _WorkerSnapshot(
             ai_system=snapshot.get(AISystem, ai_system_id),
             context_profile=_get_context_profile(snapshot, ai_system_id=ai_system_id),
-            capabilities=_list_capabilities(snapshot, ai_system_id=ai_system_id),
+            capabilities=capabilities,
             evidence=_list_evidence(snapshot, run_id=run_id),
             metric_results=_list_metric_results(snapshot, run_id=run_id),
             metric_plan_items=build_metric_plan(snapshot, run_id=run_id).metrics,

@@ -20,6 +20,7 @@ working untouched — only the message gets richer.
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 
 # A response body is a diagnostic here, not evidence — cap it so a target that
@@ -42,6 +43,40 @@ def _body_retry_after(parsed: object) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return float(value) if value > 0 else None
+
+
+# An upstream status quoted inside the body, e.g. a target that catches its own
+# provider's failure and re-reports it: "Sora create failed [429]: {...}". The
+# HTTP status we actually receive in that case is the target's own (typically
+# 502 Bad Gateway), which hides the upstream's meaning completely — a rate limit
+# arrives looking like a generic server error and gets a blind 1-2-4s backoff
+# instead of the shared cooldown a rate limit requires.
+_UPSTREAM_STATUS = re.compile(r"\[(\d{3})\]")
+
+# Deterministic upstream refusals: the request itself is unacceptable, so the
+# identical request will be refused identically no matter how long we wait.
+# Retrying is pure waste — observed burning 35s and 77s on three attempts at a
+# moderation-blocked video prompt — and it is not a target defect either, so it
+# must not be dressed up as a transient error.
+_TERMINAL_UPSTREAM_MARKERS = (
+    "moderation_blocked",
+    "content_policy_violation",
+    "content_filter",
+)
+
+
+def _upstream_status(text: str) -> int | None:
+    """A provider status the target quoted in its error body, if any."""
+    match = _UPSTREAM_STATUS.search(text)
+    if match is None:
+        return None
+    code = int(match.group(1))
+    return code if 100 <= code <= 599 else None
+
+
+def _is_terminal_refusal(text: str) -> bool:
+    lowered = text.lower()
+    return any(marker in lowered for marker in _TERMINAL_UPSTREAM_MARKERS)
 
 
 def _readable_body(exc: urllib.error.HTTPError) -> tuple[str, float | None]:
@@ -95,6 +130,13 @@ class TargetHTTPError(urllib.error.HTTPError):
         # that answers 429 with {"retry_after": N} and no header was previously
         # read as having named no wait at all.
         self.body_retry_after = retry_after
+        # The provider status the target quoted in its body, when its own status
+        # hides it. `self.code` stays the status actually received — callers that
+        # need the upstream meaning ask for it explicitly.
+        self.upstream_status = _upstream_status(body_text)
+        # Whether the upstream refused the request itself, rather than failing
+        # transiently. Retrying such a call cannot change the outcome.
+        self.terminal_refusal = _is_terminal_refusal(body_text)
 
     def __str__(self) -> str:
         base = f"HTTP Error {self.code}: {self.reason}"

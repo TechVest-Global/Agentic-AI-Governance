@@ -33,6 +33,7 @@ from app.services.model_clients.base import (
     TargetModelResponse,
 )
 from app.services.model_clients.http_errors import error_detail
+from app.services.model_clients.target_modality import modality_for
 from app.services.model_clients.target_throttle import target_slot
 
 logger = logging.getLogger(__name__)
@@ -126,16 +127,19 @@ def _append_log(entry: dict) -> None:
     # Attribute the call to the executing agent so per-agent views can filter.
     entry.setdefault("agent_name", _current_agent.get(None))
 
+    buf = _log_buffer.get(None)
+
     # Emit the call to Langfuse when tracing is configured (no-op otherwise).
-    # Guarded so tracing can never break the call path.
+    # Guarded so tracing can never break the call path. run_id (from the same
+    # buffer _persist_now reads below) lets CM-039 measure real per-run trace
+    # completeness — see tracing/langfuse_tracer.py.
     try:
         from app.services.tracing.langfuse_tracer import record_llm_call
 
-        record_llm_call(entry)
+        record_llm_call(entry, run_id=getattr(buf, "run_id", None))
     except Exception:  # noqa: BLE001
         pass
 
-    buf = _log_buffer.get(None)
     if buf is not None:
         # Which pipeline layer made this call. Set here rather than at every
         # _append_log site so no call site can forget it.
@@ -240,6 +244,13 @@ def _is_retryable(exc: BaseException) -> bool:
     # further attempt spends an allowance the target has already refused.
     if isinstance(exc, TargetQuotaExhausted):
         return False
+    # A deterministic upstream refusal — a moderation or content-policy block —
+    # will be refused identically however many times it is sent. Checked before
+    # the status table because it arrives as the target's own 502, which that
+    # table (correctly, in general) treats as a transient server error. Observed
+    # spending 35s and 77s on three attempts at one blocked video prompt.
+    if getattr(exc, "terminal_refusal", False):
+        return False
     if isinstance(exc, (RateLimitError, APIConnectionError, APITimeoutError)):
         return True
     # HTTPError subclasses URLError, so it must be checked first.
@@ -255,10 +266,22 @@ def _is_rate_limit(exc: BaseException | None) -> bool:
 
     Covers the plain-HTTP adapters' 429 as well as the SDK's RateLimitError, so
     a throttled audit is recorded as `rate_limited` rather than a generic error.
+
+    Also covers a 429 the target TUNNELS inside its own status. A system that
+    calls a provider on our behalf catches the provider's rate limit and reports
+    it as its own 502 with the real status quoted in the body ("Sora create
+    failed [429]: Too many running tasks"). Keying only on ``exc.code`` read that
+    as a generic server error, so none of the rate-limit machinery engaged: no
+    shared cooldown was published and every other worker kept firing into the
+    same limit, each retrying on a blind 1-2-4s backoff far shorter than the
+    limit needed. Observed on every video probe of a live Marketing Campaign
+    Generator run.
     """
     if isinstance(exc, (RateLimitError, TargetQuotaExhausted)):
         return True
-    return isinstance(exc, urllib.error.HTTPError) and exc.code == 429
+    if not isinstance(exc, urllib.error.HTTPError):
+        return False
+    return exc.code == 429 or getattr(exc, "upstream_status", None) == 429
 
 
 class TargetQuotaExhausted(Exception):
@@ -621,7 +644,12 @@ class GatewayTargetModelClient:
                 # only. Acquiring here rather than around the whole retry loop is
                 # what keeps the backoff sleep below from occupying a slot while
                 # doing nothing — see model_clients/target_throttle.py.
-                with target_slot():
+                #
+                # The modality comes from the endpoint's registered capability
+                # rather than the request, because the callers that most need
+                # bounding are the ones that don't know what they're calling —
+                # see model_clients/target_modality.py.
+                with target_slot(modality_for(request.endpoint_ref)):
                     response = self._inner.invoke(request)
                 logger.info(
                     "llm_target_response endpoint=%s latency_ms=%d output_chars=%d",

@@ -6,11 +6,53 @@ from uuid import UUID
 from sqlmodel import Session
 
 from app.models.ai_system import AISystem, AISystemCapability
-from app.models.enums import MetricResultStatus, Modality
+from app.models.enums import CapabilityType, MetricResultStatus, Modality
 from app.schemas.governance import MetricPlanItem
 
 if TYPE_CHECKING:
     from app.services.model_clients.base import TargetModelClient
+
+
+def missing_grounding_corpus_reason(
+    evaluation_input: "MetricEvaluationInput", *, what: str
+) -> str:
+    """Why this system has no corpus to ground against — the ACTIONABLE version.
+
+    A grounding metric (ragas faithfulness/hallucination, or a deepeval formula
+    carrying RETRIEVAL_CONTEXT) needs a knowledge base to score an answer
+    against. Both cases below produce a skip, but they are completely different
+    findings and one message could not tell them apart:
+
+    - The system declares a ``retrieval`` capability, so grounding IS in scope
+      and nobody seeded the corpus. That is a real coverage gap on a system that
+      does RAG — someone has to fix it before the audit means anything.
+    - The system declares no retrieval capability at all. The endpoint under
+      audit reads no corpus, so grounding does not apply to it. Seeding
+      documents here would be actively WRONG: the judge would score answers
+      against a document the endpoint never received, manufacturing failures
+      that describe the auditor's setup rather than the system.
+
+    Chased exactly this on a marketing generator: its stateless probe endpoint
+    reads no corpus, so the "missing documents" reading sent us hunting for
+    brand books that were never the problem.
+    """
+    declares_retrieval = any(
+        c.capability_type == CapabilityType.retrieval
+        for c in (evaluation_input.capabilities or ())
+    )
+    if declares_retrieval:
+        return (
+            f"{what}, and this system declares a retrieval capability but has no retrieval "
+            "context documents seeded — seed the corpus it retrieves from on the AI system, "
+            "then re-run; until then this dimension is unverified, not clean"
+        )
+    return (
+        f"{what}, and this system declares no retrieval capability — the endpoint under audit "
+        "reads no knowledge base, so grounding does not apply to it. Do NOT seed documents to "
+        "silence this: scoring answers against a corpus the endpoint never received measures "
+        "the audit setup, not the system. Register the grounded endpoint as a retrieval "
+        "capability if this system does have a knowledge base."
+    )
 
 
 def resolve_evaluator_endpoint(
@@ -45,10 +87,42 @@ def resolve_evaluator_endpoint(
                 return ref
 
     base = ai_system.target_endpoint_ref or ai_system.name or "default"
-    for capability in capabilities:
-        if capability.modality == Modality.text:
+    # Prefer a GENERAL text capability over a retrieval one. A system can
+    # register both — e.g. a stateless copywriter endpoint plus a
+    # knowledge-base-grounded one — and this resolves the surface that ordinary
+    # metrics (safety, fairness, security) should probe. Routing them at the
+    # grounded endpoint instead would measure a corpus-constrained variant of
+    # the system and, because the capability rows come back unordered, would do
+    # so nondeterministically from run to run. Grounding metrics ask for the
+    # retrieval endpoint explicitly — see grounding_probe_endpoint.
+    text_capabilities = [c for c in capabilities if c.modality == Modality.text]
+    for capability in text_capabilities:
+        if capability.capability_type != CapabilityType.retrieval:
             return capability.endpoint_ref
+    for capability in text_capabilities:
+        return capability.endpoint_ref
     return base
+
+
+def grounding_probe_endpoint(evaluation_input: "MetricEvaluationInput") -> str:
+    """The endpoint a GROUNDING metric should probe.
+
+    Grounding metrics (ragas faithfulness/hallucination, deepeval's
+    context-aware formulas) score an answer against the system's knowledge
+    base, so they have to reach the surface that actually reads that knowledge
+    base. The run-level endpoint resolves to the system's general text
+    capability, which for a multi-surface system is the UNGROUNDED one —
+    probing it and then scoring the reply against a corpus it never received
+    manufactures hallucination findings out of the audit's own routing.
+
+    Falls back to the run-resolved endpoint when the system declares no
+    retrieval capability; the evaluators skip before probing in that case
+    anyway (see missing_grounding_corpus_reason).
+    """
+    for capability in evaluation_input.capabilities or ():
+        if capability.capability_type == CapabilityType.retrieval:
+            return capability.endpoint_ref
+    return probe_endpoint(evaluation_input)
 
 
 def probe_endpoint(evaluation_input: "MetricEvaluationInput") -> str:

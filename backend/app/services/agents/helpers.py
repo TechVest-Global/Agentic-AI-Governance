@@ -19,6 +19,87 @@ def metric_pending(metric: MetricResult) -> bool:
     return metric.status in {MetricResultStatus.pending, MetricResultStatus.skipped}
 
 
+def split_attention_metrics(
+    metrics: list[MetricResult],
+) -> tuple[list[MetricResult], list[MetricResult]]:
+    """Split into (genuinely_failed, never_evaluated) for what a fallback finding SAYS.
+
+    ``metric_failed``/``metric_pending`` deliberately group failed+error and
+    pending+skipped for deciding WHETHER an agent has anything to act on —
+    that grouping is right there. It is wrong for deciding WHAT TO SAY: a
+    ``skipped`` metric (no real evaluator integrated, e.g. a ``tool: langfuse``
+    metric with no workflow_db integration) or an ``error`` metric (the target
+    was unreachable) produced no evidence at all, and a fallback finding
+    claiming it "did not pass" manufactures a confident compliance verdict out
+    of an evaluation that never actually happened. Found on CM-022 to CM-025
+    (presidio): a dead target connection was reported as "Security metric
+    failed... may not adequately resist...", implying an observed PII leak
+    from zero real probes.
+
+    ``passed is False`` overrides status either way — an evaluator that
+    explicitly recorded a failed pass/fail judgement made a real claim,
+    whatever its status string says.
+    """
+    never_evaluated: list[MetricResult] = []
+    genuinely_failed: list[MetricResult] = []
+    for m in metrics:
+        if m.passed is False:
+            genuinely_failed.append(m)
+        elif m.status in {
+            MetricResultStatus.skipped, MetricResultStatus.pending, MetricResultStatus.error,
+        }:
+            never_evaluated.append(m)
+        else:
+            genuinely_failed.append(m)
+    return genuinely_failed, never_evaluated
+
+
+def metric_not_evaluated_finding(*, agent_name: str, metric: MetricResult) -> FindingCreate:
+    """A single owned metric that never produced a real result this run.
+
+    Companion to ``coverage_gap_finding``, but per-METRIC rather than
+    per-dimension: some of an agent's owned metrics can genuinely fail while a
+    sibling metric was simply never evaluated (no tool integration, target
+    unreachable, still queued) in the very same call — an agent-wide
+    coverage_gap finding would either bury the real failure or wrongly blanket
+    it with this disclaimer too. Shares finding_type "coverage_gap" so
+    existing report/UI handling and the audit_invariants evidence exemption
+    both already cover it with no further changes.
+    """
+    status_clause = {
+        MetricResultStatus.skipped: (
+            "was skipped (no real evaluator/tool integration reached a verdict)"
+        ),
+        MetricResultStatus.error: (
+            "could not be evaluated (the evaluator errored, e.g. the target was unreachable)"
+        ),
+        MetricResultStatus.pending: "has not completed evaluation yet",
+    }.get(metric.status, "was not evaluated")
+    return FindingCreate(
+        finding_type="coverage_gap",
+        title=f"{metric.metric_id} was not evaluated this run",
+        summary=(
+            f"Metric {metric.metric_id} ({metric.dimension}) {status_clause}. This is a gap "
+            "in what this run measured, not a compliance finding — no conclusion should be "
+            "drawn about this control from this run."
+        ),
+        severity=Severity.info,
+        confidence=1.0,
+        dimension=metric.dimension,
+        evidence_ids=metric.evidence_ids or [],
+        agent_name=agent_name,
+        recommended_action=(
+            "Confirm a real evaluator/tool integration exists for this metric and that the "
+            "target was reachable, then re-run."
+        ),
+        payload={
+            "generated_by": "metric_not_evaluated_gate",
+            "metric_id": metric.metric_id,
+            "metric_status": metric.status.value,
+        },
+    )
+
+
 def finding(
     *,
     finding_type: str,
@@ -32,6 +113,7 @@ def finding(
     confidence: float = 0.8,
     tool_calls: list[dict] | None = None,
     evidence_ids: list[str] | None = None,
+    generated_by: str = "deterministic_agent",
 ) -> FindingCreate:
     """Build a Finding, always with real evidence_ids when any exist.
 
@@ -43,6 +125,15 @@ def finding(
     whenever the LLM's cited metric_id doesn't match anything — would report
     empty evidence_ids even when real evidence informed it, breaking the
     council's ability to trace a verdict back to a specific evidence record.
+
+    ``generated_by`` records who authored the finding, and callers on the
+    governance-JSON path MUST pass "governance_model". It used to be hardcoded
+    to "deterministic_agent", so every LLM-authored finding claimed a
+    deterministic provenance it did not have — a reviewer auditing a critical
+    finding could not tell a rule-derived conclusion from a model-written one.
+    The default stays "deterministic_agent" because the structural checks and
+    the fallback paths, which are the majority of callers, really are
+    deterministic.
     """
     resolved_evidence_ids = (
         list(evidence_ids)
@@ -60,7 +151,7 @@ def finding(
         agent_name=agent_name,
         recommended_action=recommended_action,
         payload={
-            "generated_by": "deterministic_agent",
+            "generated_by": generated_by,
             "metric_id": metric.metric_id if metric is not None else None,
             "tool_calls": tool_calls or [],
         },

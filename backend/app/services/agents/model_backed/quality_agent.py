@@ -10,7 +10,12 @@ metric-failure detection when the governance model returns non-JSON.
 from app.models.enums import Severity
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import coverage_gap_finding, finding
+from app.services.agents.helpers import (
+    coverage_gap_finding,
+    finding,
+    metric_not_evaluated_finding,
+    split_attention_metrics,
+)
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 
 _QUALITY_METRIC_IDS = {"CM-001", "CM-002", "CM-003", "CM-004"}
@@ -133,8 +138,13 @@ class QualityEvaluatorAgent(ModelBackedAgent):
         if parsed is not None:
             return _findings_from_governance(parsed, context, reviewed_metrics=quality_metrics)
 
-        # Fallback only on genuinely failed/pending metrics — never on passes.
-        return _deterministic_fallback(attention_metrics, context)
+        # Fallback only on genuinely failed metrics — never on passes, and never
+        # report a skipped/errored/pending metric as if it had been observed
+        # to fail (no real evidence exists for or against it).
+        genuinely_failed, never_evaluated = split_attention_metrics(attention_metrics)
+        return _deterministic_fallback(genuinely_failed, context) + [
+            metric_not_evaluated_finding(agent_name=self.name, metric=m) for m in never_evaluated
+        ]
 
 
 def _findings_from_governance(
@@ -167,6 +177,7 @@ def _findings_from_governance(
                 recommended_action=str(item.get("recommended_action", "")),
                 metric=metric,
                 evidence_ids=metric.evidence_ids if metric else reviewed_evidence_ids,
+                generated_by="governance_model",
             )
         )
     return results

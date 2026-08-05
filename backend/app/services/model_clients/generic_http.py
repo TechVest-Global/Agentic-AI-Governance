@@ -197,7 +197,11 @@ class GenericHTTPTargetModelClient:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+            # A probe may ask for longer than the client default — see
+            # TargetModelRequest.timeout_seconds (video generation).
+            with urllib.request.urlopen(
+                req, timeout=request.timeout_seconds or self._timeout
+            ) as resp:
                 raw_body = resp.read().decode()
         except Exception as exc:
             # Re-raise carrying the target's own response body, so the reason

@@ -19,6 +19,19 @@ Both are fixed by owning the semaphore here and acquiring it in
 client is Gateway-wrapped (see model_clients/registry.py), so that single
 acquisition point covers every caller, and the backoff sleep now happens with
 the slot released so a queued caller can use it.
+
+VIDEO gets its own, tighter pool on top of the general one. A single cap counts
+requests, and a video request is not one comparable unit: a Sora-class render
+runs for minutes and the provider bounds how many may run AT ONCE, refusing
+further creates with "Too many running tasks" — a CONCURRENCY limit, which no
+per-minute backoff can satisfy. Under the shared cap of 6, several renders
+overlapped and every video probe of a live Marketing Campaign Generator run
+failed that way. Video callers hold a general slot AND a video slot, so video is
+serialised without letting it escape the process-wide ceiling.
+
+Ordering note: the general slot is taken FIRST and the video slot second, and
+every caller acquires in that same order, so the two pools cannot deadlock
+against each other.
 """
 
 from __future__ import annotations
@@ -26,49 +39,66 @@ from __future__ import annotations
 import threading
 from contextlib import contextmanager
 
-from app.services.concurrency_settings import target_max_inflight
+from app.services.concurrency_settings import target_max_inflight, target_max_inflight_video
+
+VIDEO = "video"
 
 _lock = threading.Lock()
-_semaphore: threading.BoundedSemaphore | None = None
-_semaphore_limit: int | None = None
+_pools: dict[str, tuple[threading.BoundedSemaphore, int]] = {}
+
+# Pool name -> how many slots it should have. Resolved per call so .env and env
+# vars both work and tests can change the width (see concurrency_settings).
+_LIMITS = {
+    "general": target_max_inflight,
+    VIDEO: target_max_inflight_video,
+}
 
 
-def _get_semaphore() -> threading.BoundedSemaphore:
-    """Return the shared semaphore, building it on first use.
+def _get_semaphore(pool: str) -> threading.BoundedSemaphore:
+    """Return a named pool's semaphore, building it on first use.
 
     Built lazily rather than at import so the limit comes from resolved settings
     (see concurrency_settings) instead of being frozen at import time. Rebuilt if
     the configured limit changes, which only happens when a test clears the
     settings cache — never mid-run in a live process.
     """
-    global _semaphore, _semaphore_limit
-    limit = target_max_inflight()
+    limit = _LIMITS[pool]()
     with _lock:
-        if _semaphore is None or _semaphore_limit != limit:
-            _semaphore = threading.BoundedSemaphore(limit)
-            _semaphore_limit = limit
-        return _semaphore
+        existing = _pools.get(pool)
+        if existing is None or existing[1] != limit:
+            existing = (threading.BoundedSemaphore(limit), limit)
+            _pools[pool] = existing
+        return existing[0]
 
 
 @contextmanager
-def target_slot():
-    """Hold one of the process's target-request slots for the duration of the block.
+def target_slot(modality: str | None = None):
+    """Hold the process's target-request slots for the duration of the block.
 
     Wrap a SINGLE network attempt only. Anything slow that is not the request
     itself — retry backoff, response sanitization, evidence persistence — must
     sit outside, or the scarce resource is held while doing no work.
+
+    ``modality`` defaults to None, which takes only the general slot — the
+    behaviour every caller had before video got its own pool. A video request
+    additionally holds the video slot, serialising renders against each other.
     """
-    semaphore = _get_semaphore()
-    semaphore.acquire()
+    general = _get_semaphore("general")
+    video = _get_semaphore(VIDEO) if modality == VIDEO else None
+    general.acquire()
     try:
-        yield
+        if video is not None:
+            video.acquire()
+        try:
+            yield
+        finally:
+            if video is not None:
+                video.release()
     finally:
-        semaphore.release()
+        general.release()
 
 
 def reset_for_tests() -> None:
-    """Drop the cached semaphore so the next call re-reads the configured limit."""
-    global _semaphore, _semaphore_limit
+    """Drop the cached semaphores so the next call re-reads the configured limits."""
     with _lock:
-        _semaphore = None
-        _semaphore_limit = None
+        _pools.clear()

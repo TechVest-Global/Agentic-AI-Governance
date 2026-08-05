@@ -29,6 +29,12 @@ class TargetModelRequest:
     # Non-text inputs sent to the audited system (empty for text-only probes).
     media: list[MediaAsset] = field(default_factory=list)
     metadata: dict[str, object] = field(default_factory=dict)
+    # Per-probe override of the client's configured HTTP timeout. None keeps the
+    # client default. Needed because one timeout cannot serve every capability: a
+    # text completion answers in seconds, while a video generation (Sora) runs for
+    # minutes, so the shared 60s LLM_CALL_TIMEOUT_SECONDS guaranteed that every
+    # video probe timed out before the target could possibly answer.
+    timeout_seconds: float | None = None
 
 
 @dataclass(frozen=True)

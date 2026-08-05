@@ -14,7 +14,12 @@ returns non-JSON.
 from app.models.enums import Severity
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import coverage_gap_finding, finding
+from app.services.agents.helpers import (
+    coverage_gap_finding,
+    finding,
+    metric_not_evaluated_finding,
+    split_attention_metrics,
+)
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 
 _EXPLAINABILITY_METRIC_IDS = {
@@ -185,9 +190,17 @@ class ExplainabilityAgent(ModelBackedAgent):
                 parsed, context, tool_calls_payload, reviewed_metrics=explainability_metrics
             )
 
-        # Fallback only on genuinely failed/pending metrics — never on passes.
-        return coverage_gap + _deterministic_fallback(
-            attention_metrics, context, tool_calls_payload
+        # Fallback only on genuinely failed metrics — never on passes, and
+        # never report a skipped/errored/pending metric (e.g. ragas with no
+        # seeded context documents) as if a real defect had been observed.
+        genuinely_failed, never_evaluated = split_attention_metrics(attention_metrics)
+        return (
+            coverage_gap
+            + _deterministic_fallback(genuinely_failed, context, tool_calls_payload)
+            + [
+                metric_not_evaluated_finding(agent_name=self.name, metric=m)
+                for m in never_evaluated
+            ]
         )
 
 
@@ -238,6 +251,7 @@ def _findings_from_governance(
                 metric=metric,
                 tool_calls=tool_calls_payload,
                 evidence_ids=metric.evidence_ids if metric else reviewed_evidence_ids,
+                generated_by="governance_model",
             )
         )
     return results

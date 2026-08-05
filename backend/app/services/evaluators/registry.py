@@ -2,8 +2,10 @@ from app.core.exceptions import ApplicationError
 from app.services.evaluators.audio_evaluator import AudioEvaluator
 from app.services.evaluators.base import MetricEvaluator
 from app.services.evaluators.deepeval_evaluator import DeepEvalEvaluator
+from app.services.evaluators.drift_evaluator import DriftEvaluator
 from app.services.evaluators.garak_evaluator import GarakEvaluator
 from app.services.evaluators.inspect_ai_evaluator import InspectAIEvaluator
+from app.services.evaluators.langfuse_evaluator import LangfuseEvaluator
 from app.services.evaluators.mock import MockMetricEvaluator
 from app.services.evaluators.presidio_evaluator import PresidioEvaluator
 from app.services.evaluators.pyrit_evaluator import PyritEvaluator
@@ -24,11 +26,30 @@ EVALUATORS: dict[str, MetricEvaluator] = {
         InspectAIEvaluator(),
         VisionEvaluator(),
         AudioEvaluator(),
+        DriftEvaluator(),
+        LangfuseEvaluator(),
     )
 }
 
-# Metrics not yet backed by a real tool integration (langfuse, evidently,
-# promptfoo) are reported as skipped by the auto router (see below).
+# CM-030/031/032 were catalogued against `evidently` and skipped on every run for
+# want of an integration. They are now scored by DriftEvaluator, which probes the
+# target directly (evidently compares dataframes and cannot see a black-box
+# endpoint at all — see drift_evaluator's module docstring).
+#
+# The alias exists because the catalog YAML and the database disagree by design:
+# bootstrap SKIPS metric_configs rows that already exist, so every database
+# seeded before this change still carries tool_name="evidently" and would keep
+# routing to the skip branch below. Aliasing routes those rows to the real
+# evaluator with no re-seed and no migration, on every deployment, while fresh
+# installs pick up tool: drift from the YAML.
+EVALUATORS["evidently"] = EVALUATORS[DriftEvaluator.name]
+
+# langfuse now has a real evaluator (see langfuse_evaluator.py), but it only
+# scores CM-039 (trace_completeness) — the other three tool:langfuse metrics
+# (CM-040/041/044) need a workflow_db integration that does not exist, and get
+# a specific skip reason from that module rather than reaching the auto router
+# at all. Metrics on a tool with no evaluator entry here (promptfoo) still fall
+# through to the auto router (see below).
 AUTO_EVALUATOR_NAME = "auto"
 
 
@@ -53,8 +74,8 @@ def get_evaluator(evaluator_name: str) -> MetricEvaluator:
 class _AutoRoutingEvaluator:
     """Routes each metric to the real evaluator its own `tool_name` names.
 
-    Metrics whose tool has no real integration yet (langfuse, evidently,
-    promptfoo) are reported as SKIPPED with an explicit reason. They used to
+    Metrics whose tool has no real integration yet (langfuse, promptfoo) are
+    reported as SKIPPED with an explicit reason. They used to
     fall back to the threshold evaluator, which derived a score just below the
     threshold — fabricating a guaranteed "failed" result with no evidence
     behind it. Skipped keeps them visible (agents still investigate pending/

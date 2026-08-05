@@ -465,7 +465,9 @@ const TOOL_LABELS: Record<string, string> = {
   vision: "Visual content safety check",
   audio: "Voice & transcription check",
   langfuse: "Operational monitoring",
-  evidently: "Stability & drift monitoring",
+  drift: "Stability & drift probe",
+  // Legacy name for the same evaluator — pre-existing rows still carry it.
+  evidently: "Stability & drift probe",
   promptfoo: "Scenario prompt test",
 };
 

@@ -35,6 +35,7 @@ from app.services.model_clients.gateway import (
     start_log_capture,
 )
 from app.services.model_clients.registry import get_target_model_client_for_system
+from app.services.model_clients.target_modality import register_capability_modalities
 from app.services.run_validation import get_run_or_raise
 from app.services.specialist_agents.metric_plans import build_metric_plan
 
@@ -159,6 +160,12 @@ def run_metrics(
                 resolved_capabilities,
                 run.selected_capabilities or (),
             )
+            # Teach the gateway which endpoints are video, so its concurrency cap
+            # can serialise renders. Registered here because this is where the
+            # capabilities are loaded; the evaluators that probe a video endpoint
+            # (deepeval posts free text to whatever ref it is handed) have no idea
+            # they are doing it. See model_clients/target_modality.py.
+            register_capability_modalities(resolved_capabilities)
 
     evidence_records: list[EvidenceRecord] = []
     metric_results: list[MetricResult] = []

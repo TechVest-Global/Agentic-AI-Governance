@@ -43,6 +43,18 @@ def target_max_inflight() -> int:
     return max(1, settings.agent_target_max_inflight or settings.agent_probe_max_workers)
 
 
+def target_max_inflight_video() -> int:
+    """Ceiling on concurrent VIDEO requests into the audited system.
+
+    Independent of ``target_max_inflight`` because the provider's limit is on
+    simultaneously RUNNING jobs, which a request-count cap sized for text
+    cannot express. Never allowed to exceed the general cap: video requests
+    are a subset of all requests, so a larger value here would be meaningless.
+    """
+    settings = get_settings()
+    return max(1, min(settings.agent_target_max_inflight_video, target_max_inflight()))
+
+
 def target_quota_exhausted_seconds() -> float:
     """Retry-After above which a 429 means "out of quota", not "slow down"."""
     return get_settings().target_quota_exhausted_seconds
@@ -54,3 +66,11 @@ def metric_execution_max_workers() -> int:
 
 def metric_execution_budget_seconds() -> float:
     return get_settings().metric_execution_budget_seconds
+
+
+def garak_max_probe_prompts() -> int:
+    return max(1, get_settings().garak_max_probe_prompts)
+
+
+def garak_generations() -> int:
+    return max(1, get_settings().garak_generations)

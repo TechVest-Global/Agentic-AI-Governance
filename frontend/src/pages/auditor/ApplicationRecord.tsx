@@ -1066,6 +1066,7 @@ function displayToolName(tool: string | null | undefined): string {
 // "RAG probe") so the auditor reads the kind of evidence, not the vendor tool.
 const _EVIDENCE_TOOL_TOKENS = new Set([
   "deepeval", "ragas", "garak", "presidio", "pyrit", "langfuse", "evidently", "promptfoo", "inspect", "vision", "audio",
+  "drift",
 ]);
 function evidenceTypeLabel(sourceType: string): string {
   const parts = sourceType.split(/[_-]+/).filter(Boolean);
