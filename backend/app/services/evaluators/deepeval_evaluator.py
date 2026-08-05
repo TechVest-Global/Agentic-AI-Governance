@@ -33,7 +33,12 @@ import json
 import logging
 
 from app.models.enums import MetricResultStatus
-from app.services.evaluators.base import MetricEvaluationInput, MetricEvaluationResult
+from app.services.evaluators.base import (
+    MetricEvaluationInput,
+    MetricEvaluationResult,
+    grounding_probe_endpoint,
+    missing_grounding_corpus_reason,
+)
 from app.services.evaluators.probe_log import build_probe_log_entry
 from app.services.execution_artifacts import record_execution_artifacts
 from app.services.model_clients.base import GovernanceModelRequest, TargetModelRequest
@@ -339,7 +344,32 @@ class DeepEvalEvaluator:
         if deepeval_metric is None:
             return _skip_result(metric, reason=f"unsupported formula: {formula}")
 
-        endpoint_ref = evaluation_input.target_endpoint_ref
+        # A context-aware formula puts RETRIEVAL_CONTEXT in its evaluation_params,
+        # and deepeval rejects a test case whose retrieval_context is None before
+        # it ever calls the judge. On a system with nothing seeded that is every
+        # test case, so the metric raised MissingTestCaseParamsError mid-score and
+        # was reported as an opaque "scoring failed: 'retrieval_context' cannot be
+        # None for the 'ActionCompletion [GEval]' metric" — after a probe had
+        # already been sent to the target. It is unscoreable by construction here,
+        # which is a configuration gap to report up front, the way the missing-judge
+        # branch above and the ragas embeddings branch already do.
+        if formula in _CONTEXT_AWARE_FORMULAS and not _fetch_context_for_judge(evaluation_input):
+            return _skip_result(
+                metric,
+                reason=missing_grounding_corpus_reason(
+                    evaluation_input,
+                    what=f"'{formula}' judges an answer AGAINST the system's knowledge base",
+                ),
+            )
+
+        # A context-aware formula is judged against the knowledge base, so it must
+        # reach the grounded surface; every other formula probes the system's
+        # general text endpoint as resolved for the run.
+        endpoint_ref = (
+            grounding_probe_endpoint(evaluation_input)
+            if formula in _CONTEXT_AWARE_FORMULAS
+            else evaluation_input.target_endpoint_ref
+        )
 
         designed = _design_prompt(evaluation_input, formula, judge_client)
         if designed is None:

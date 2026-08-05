@@ -10,7 +10,12 @@ detection when the governance model returns non-JSON (e.g. mock mode).
 from app.models.enums import Severity
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import coverage_gap_finding, finding
+from app.services.agents.helpers import (
+    coverage_gap_finding,
+    finding,
+    metric_not_evaluated_finding,
+    split_attention_metrics,
+)
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 
 _BIAS_METRIC_IDS = {"CM-017", "CM-018", "CM-019", "CM-020", "CM-021"}
@@ -167,10 +172,18 @@ class BiasAuditorAgent(ModelBackedAgent):
                 parsed, context, tool_calls_payload, reviewed_metrics=bias_metrics
             )
 
-        # Fallback findings only for genuinely failed/pending metrics — never
-        # fabricate failures out of passing metrics under verification mode.
-        return coverage_gap + _deterministic_fallback(
-            attention_metrics, context, tool_calls_payload
+        # Fallback findings only for genuinely failed metrics — never fabricate
+        # failures out of passing metrics under verification mode, and never
+        # report a skipped/errored/pending metric (no real evidence either way)
+        # with the same "requires review" language as an actual failure.
+        genuinely_failed, never_evaluated = split_attention_metrics(attention_metrics)
+        return (
+            coverage_gap
+            + _deterministic_fallback(genuinely_failed, context, tool_calls_payload)
+            + [
+                metric_not_evaluated_finding(agent_name=self.name, metric=m)
+                for m in never_evaluated
+            ]
         )
 
 
@@ -221,6 +234,7 @@ def _findings_from_governance(
                 metric=metric,
                 tool_calls=tool_calls_payload,
                 evidence_ids=metric.evidence_ids if metric else reviewed_evidence_ids,
+                generated_by="governance_model",
             )
         )
     return results

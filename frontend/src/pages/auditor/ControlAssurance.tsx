@@ -39,7 +39,11 @@ const FRAMEWORK_DESCRIPTION: Record<FrameworkId, string> = {
   owasp_llm_top_10: "Security risk categories for LLM applications, including prompt injection, leakage, supply-chain, and agent risks.",
 };
 
-const NON_AUTOMATED_TOOLS = new Set(["langfuse", "evidently", "promptfoo"]);
+// "evidently" is deliberately absent: CM-030/031/032 are now scored by a real
+// perturbation experiment against the target, and databases seeded before that
+// change still store the old tool name. Listing it here would file automated
+// results under "manual review".
+const NON_AUTOMATED_TOOLS = new Set(["langfuse", "promptfoo"]);
 const STATUS_SORT: Record<CtrlStatus, number> = { failed: 0, needs_review: 1, manual: 2, passed: 3 };
 const FILTERS: Array<[StatusFilter, string]> = [
   ["all", "All controls"],

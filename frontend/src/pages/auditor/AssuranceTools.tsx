@@ -91,9 +91,16 @@ const FRAMING: Record<string, Framing> = {
     blurb: "Observes live production behaviour — escalations, human overrides and decision traces. Provided as operational evidence for review rather than an automated pass/fail test.",
     icon: Activity,
   },
+  drift: {
+    title: "Stability & drift probe",
+    blurb: "Asks the system the same thing under surface perturbations, on repeat, and under pressure to abandon its role — then compares the answers. Produces an automated pass/fail from probes actually sent to the system.",
+    icon: Activity,
+  },
+  // Legacy name for the drift probe above; results seeded before it became a
+  // real evaluator still carry it.
   evidently: {
-    title: "Stability & drift monitoring",
-    blurb: "Watches for performance drift and inconsistent behaviour over time, so degradations are surfaced for review. Provided as monitoring evidence rather than a one-off test.",
+    title: "Stability & drift probe",
+    blurb: "Asks the system the same thing under surface perturbations, on repeat, and under pressure to abandon its role — then compares the answers. Produces an automated pass/fail from probes actually sent to the system.",
     icon: Activity,
   },
 };

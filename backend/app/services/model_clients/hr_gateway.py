@@ -213,7 +213,10 @@ class HRGatewayTargetModelClient:
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+            # Honor a per-probe timeout override — see TargetModelRequest.
+            with urllib.request.urlopen(
+                req, timeout=request.timeout_seconds or self._timeout
+            ) as resp:
                 envelope = json.loads(resp.read().decode())
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode(errors="replace")[:500]

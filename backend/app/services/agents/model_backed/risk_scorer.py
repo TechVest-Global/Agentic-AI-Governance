@@ -12,7 +12,12 @@ returns non-JSON.
 from app.models.enums import RiskTier, Severity
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import coverage_gap_finding, finding
+from app.services.agents.helpers import (
+    coverage_gap_finding,
+    finding,
+    metric_not_evaluated_finding,
+    split_attention_metrics,
+)
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 from app.services.agents.risk_contract import RiskScoreBundle, compute_risk_bundle
 
@@ -213,8 +218,23 @@ class RiskScorerAgent(ModelBackedAgent):
                 parsed, context, reviewed_metrics=oversight_metrics
             )
 
-        # Fallback only on genuinely failed/pending metrics — never on passes.
-        return findings + _deterministic_fallback(attention_metrics, context)
+        # Fallback only on genuinely failed metrics — never on passes, and
+        # never report a skipped/errored/pending metric as if a real oversight
+        # defect had been observed. This is the dimension most exposed to that
+        # mistake: CM-040/041/044 are permanently skipped (tool: langfuse, but
+        # their formulas need a workflow_db integration that does not exist —
+        # see langfuse_evaluator.py), so without this split every fallback on
+        # this dimension would report 3 of its 5 metrics as "requires review"
+        # from zero real evidence, every single time.
+        genuinely_failed, never_evaluated = split_attention_metrics(attention_metrics)
+        return (
+            findings
+            + _deterministic_fallback(genuinely_failed, context)
+            + [
+                metric_not_evaluated_finding(agent_name=self.name, metric=m)
+                for m in never_evaluated
+            ]
+        )
 
 
 def _findings_from_governance(
@@ -247,6 +267,7 @@ def _findings_from_governance(
                 recommended_action=str(item.get("recommended_action", "")),
                 metric=metric,
                 evidence_ids=metric.evidence_ids if metric else reviewed_evidence_ids,
+                generated_by="governance_model",
             )
         )
     return results

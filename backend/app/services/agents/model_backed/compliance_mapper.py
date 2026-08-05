@@ -11,7 +11,12 @@ returns non-JSON.
 from app.models.enums import Severity
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import coverage_gap_finding, finding
+from app.services.agents.helpers import (
+    coverage_gap_finding,
+    finding,
+    metric_not_evaluated_finding,
+    split_attention_metrics,
+)
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 
 _TRANSPARENCY_METRIC_IDS = {"CM-035", "CM-036", "CM-037", "CM-038", "CM-039"}
@@ -168,8 +173,19 @@ class ComplianceMapperAgent(ModelBackedAgent):
                 parsed, context, reviewed_metrics=transparency_metrics
             )
 
-        # Fallback only on genuinely failed/pending metrics — never on passes.
-        return findings + _deterministic_fallback(attention_metrics, context)
+        # Fallback only on genuinely failed metrics — never on passes, and
+        # never report a skipped/errored/pending metric (e.g. CM-039 when
+        # Langfuse isn't configured for this deployment) as if a real
+        # transparency defect had been observed.
+        genuinely_failed, never_evaluated = split_attention_metrics(attention_metrics)
+        return (
+            findings
+            + _deterministic_fallback(genuinely_failed, context)
+            + [
+                metric_not_evaluated_finding(agent_name=self.name, metric=m)
+                for m in never_evaluated
+            ]
+        )
 
 
 def _findings_from_governance(
@@ -202,6 +218,7 @@ def _findings_from_governance(
                 recommended_action=str(item.get("recommended_action", "")),
                 metric=metric,
                 evidence_ids=metric.evidence_ids if metric else reviewed_evidence_ids,
+                generated_by="governance_model",
             )
         )
     return results

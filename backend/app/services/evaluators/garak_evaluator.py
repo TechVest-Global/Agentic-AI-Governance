@@ -9,12 +9,12 @@ guessed, so probe/detector pairing always matches garak's own intent.
 
 import io
 import logging
-import os
 import sys
 import threading
 from functools import lru_cache
 
 from app.models.enums import MetricResultStatus
+from app.services import concurrency_settings
 from app.services.evaluators.base import MetricEvaluationInput, MetricEvaluationResult
 from app.services.evaluators.probe_log import build_probe_log_entry
 from app.services.execution_artifacts import record_execution_artifacts
@@ -54,8 +54,11 @@ _FORMULA_PROBES = {
 # bounded, representative SAMPLE (1 generation) — enough for a real security
 # signal without a multi-hour run. The sample size is reported in the payload so
 # the result is honest about being a sample, not the exhaustive corpus.
-_MAX_PROBE_PROMPTS = int(os.getenv("GARAK_MAX_PROBE_PROMPTS", "10"))
-_GARAK_GENERATIONS = int(os.getenv("GARAK_GENERATIONS", "1"))
+#
+# Read via concurrency_settings (GARAK_MAX_PROBE_PROMPTS / GARAK_GENERATIONS),
+# not module-level os.getenv() — pydantic-settings loads .env without ever
+# touching os.environ, so the os.getenv() form silently ignored both knobs when
+# set in .env, exactly the anti-pattern documented at the top of core/config.py.
 
 # garak's probe/detector code reads `garak._config.transient.reportfile` /
 # `.hitlogfile` directly off the `garak._config` module at write time — that
@@ -102,8 +105,11 @@ def _garak_base_config():
     _config.load_base_config()
     # Cap generations-per-prompt so probes don't fan out to thousands of live
     # target calls (default is 5). One generation per sampled prompt is a
-    # sufficient governance signal.
-    _config.run.generations = _GARAK_GENERATIONS
+    # sufficient governance signal. Read once, at first use — this function is
+    # itself process-lifetime cached (see docstring), which is fine: it just
+    # needs to resolve through get_settings() rather than os.getenv() for the
+    # value to ever reflect .env at all.
+    _config.run.generations = concurrency_settings.garak_generations()
     return _config
 
 
@@ -202,19 +208,21 @@ class GarakEvaluator:
                 probe = probe_cls(config_root=config_root)
                 detector = _resolve_detector(probe_cls.primary_detector, config_root)
 
-                # Bound the live-target work: sample at most _MAX_PROBE_PROMPTS of
+                # Bound the live-target work: sample at most max_probe_prompts of
                 # the probe's corpus. Without this, HijackHateHumans (256 prompts)
                 # alone would make hundreds of target calls and stall the whole run.
+                max_probe_prompts = concurrency_settings.garak_max_probe_prompts()
+                generations = concurrency_settings.garak_generations()
                 full_prompt_count = len(getattr(probe, "prompts", []) or [])
                 sampled = full_prompt_count
-                if full_prompt_count > _MAX_PROBE_PROMPTS:
-                    probe.prompts = probe.prompts[:_MAX_PROBE_PROMPTS]
-                    sampled = _MAX_PROBE_PROMPTS
+                if full_prompt_count > max_probe_prompts:
+                    probe.prompts = probe.prompts[:max_probe_prompts]
+                    sampled = max_probe_prompts
 
                 generator = _build_generator(
                     evaluation_input.target_client, endpoint_ref, config_root, evaluation_input
                 )
-                generator.generations = _GARAK_GENERATIONS
+                generator.generations = generations
                 attempts = list(probe.probe(generator))
 
                 attack_label = _FORMULA_ATTACK_LABEL.get(formula, "a known attack pattern")
@@ -281,7 +289,7 @@ class GarakEvaluator:
                 "generation_count": len(all_scores),
                 "prompts_sampled": sampled,
                 "prompts_available": full_prompt_count,
-                "generations_per_prompt": _GARAK_GENERATIONS,
+                "generations_per_prompt": generations,
                 "attack_success_rate": attack_success_rate,
                 "probe_log": probe_log,
             },

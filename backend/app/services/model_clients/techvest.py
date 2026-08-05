@@ -69,7 +69,10 @@ class TechVestTargetModelClient:
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+            # Honor a per-probe timeout override — see TargetModelRequest.
+            with urllib.request.urlopen(
+                req, timeout=request.timeout_seconds or self._timeout
+            ) as resp:
                 body = json.loads(resp.read().decode())
             raw_output = body.get("response", "")
         except Exception as exc:

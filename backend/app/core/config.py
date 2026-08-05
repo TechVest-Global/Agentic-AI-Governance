@@ -110,6 +110,15 @@ class Settings(BaseSettings):
     # AND metric-execution evaluators). 0 means "same as agent_probe_max_workers",
     # which keeps peak load on the target at its pre-parallelism level.
     agent_target_max_inflight: int = Field(default=0, ge=0)
+    # Separate, much tighter ceiling for VIDEO generation requests, which the
+    # general cap above cannot express: it counts requests, and a video request
+    # is not comparable to a text one. A Sora-class job runs for minutes and the
+    # provider limits how many may run AT ONCE (not per minute), answering
+    # further creates with "Too many running tasks". With one shared cap of 6,
+    # several 10-minute renders overlapped and every video probe in a live
+    # Marketing Campaign Generator run failed that way. 1 serialises them, which
+    # is what the provider's own limit effectively demands.
+    agent_target_max_inflight_video: int = Field(default=1, ge=1)
     # A target asking us to wait longer than this is not throttling a burst, it
     # is out of quota: no backoff inside one audit can outlast the window, so
     # the run stops probing it instead of spending the rest of the allowance on
@@ -121,6 +130,24 @@ class Settings(BaseSettings):
     # is the dial for trading sample size against the target's cost and rate
     # limit. Capped by the number of distinct prompts available.
     vision_image_probe_count: int = Field(default=4, ge=1)
+    # Comparison probes sent alongside the baseline by the drift evaluator
+    # (CM-030/031/032). Two is the floor for a rate to mean anything.
+    drift_probe_count: int = Field(default=4, ge=2)
+    # Garak probes carry their full attack corpus (e.g. HijackHateHumans ships
+    # 256 prompts) and each one is a live call to the audited target, so these
+    # bound it to a representative sample — see garak_evaluator.py. Previously
+    # module-level `os.getenv(...)` reads, exactly the anti-pattern documented
+    # at the top of this file: pydantic-settings loads .env without touching
+    # os.environ, so setting either in .env silently did nothing.
+    garak_max_probe_prompts: int = Field(default=10, ge=1)
+    garak_generations: int = Field(default=1, ge=1)
+    # Video generation is not an LLM call and cannot share LLM_CALL_TIMEOUT_SECONDS.
+    # A Sora-class generation runs for minutes, so the 60s default guaranteed that
+    # every video probe raised "target did not return a video: timed out" before
+    # the target could answer — CM-033 Temporal Consistency was skipped on every
+    # run it was ever planned for, without ever reaching the target. Covers both
+    # the generation request and the download of the resulting asset.
+    video_generation_timeout_seconds: float = Field(default=600.0, gt=0)
     # Metric evaluation fan-out width and phase budget. See metric_execution.py.
     metric_execution_max_workers: int = Field(default=3, ge=1)
     # FLOOR on the phase budget, not the whole story — the effective budget also

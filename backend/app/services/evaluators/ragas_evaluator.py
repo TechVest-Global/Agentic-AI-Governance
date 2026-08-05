@@ -20,7 +20,12 @@ from sqlmodel import select
 
 from app.models.ai_system import RetrievalContextDocument
 from app.models.enums import MetricResultStatus
-from app.services.evaluators.base import MetricEvaluationInput, MetricEvaluationResult
+from app.services.evaluators.base import (
+    MetricEvaluationInput,
+    MetricEvaluationResult,
+    grounding_probe_endpoint,
+    missing_grounding_corpus_reason,
+)
 from app.services.evaluators.probe_log import build_probe_log_entry
 from app.services.model_clients.base import TargetModelRequest
 
@@ -310,10 +315,16 @@ class RagasEvaluator:
         )
         if not contexts:
             return _skip_result(
-                metric, reason="no retrieval context documents seeded for this AI system"
+                metric,
+                reason=missing_grounding_corpus_reason(
+                    evaluation_input,
+                    what=f"ragas {metric_spec[0]} scores an answer against a knowledge base",
+                ),
             )
 
-        endpoint_ref = evaluation_input.target_endpoint_ref
+        # Every ragas metric here scores against the seeded corpus, so probe the
+        # surface that actually reads it rather than the run's general endpoint.
+        endpoint_ref = grounding_probe_endpoint(evaluation_input)
 
         metric_class_name, invert = metric_spec
         if isolated_python is None:

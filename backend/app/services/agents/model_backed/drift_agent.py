@@ -9,7 +9,12 @@ Falls back to deterministic metric-failure detection in mock mode.
 from app.models.enums import DriftSource, Severity
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import coverage_gap_finding, finding, metric_failed, metric_pending
+from app.services.agents.helpers import (
+    coverage_gap_finding,
+    finding,
+    metric_not_evaluated_finding,
+    split_attention_metrics,
+)
 from app.services.agents.model_backed.base import ModelBackedAgent
 
 _DRIFT_METRIC_IDS = {"CM-030", "CM-031", "CM-032", "CM-033", "CM-034"}
@@ -116,8 +121,19 @@ class DriftAnalystAgent(ModelBackedAgent):
         if parsed is not None:
             return _findings_from_governance(parsed, context, reviewed_metrics=drift_metrics)
 
-        # Fallback only on genuinely failed/pending metrics — never on passes.
-        return _deterministic_fallback(attention_metrics, context.prior_metric_scores)
+        # Fallback only on genuinely failed metrics — never on passes, and
+        # never report a skipped/errored/pending metric as observed drift. This
+        # dimension had the worst evidence-free rate of any agent (67%, 49/73
+        # findings) precisely because CM-030/031/032 sat permanently skipped
+        # under `tool: evidently` with no real evaluator, and every skip was
+        # reported as "Drift monitoring incomplete" — a finding_type="drift"
+        # row with no evidence_ids, not exempt from the evidence-citation
+        # invariant. metric_not_evaluated_finding is finding_type="coverage_gap"
+        # instead, which IS exempt (see audit_invariants.py).
+        genuinely_failed, never_evaluated = split_attention_metrics(attention_metrics)
+        return _deterministic_fallback(genuinely_failed, context.prior_metric_scores) + [
+            metric_not_evaluated_finding(agent_name=self.name, metric=m) for m in never_evaluated
+        ]
 
 
 def _findings_from_governance(
@@ -160,6 +176,7 @@ def _findings_from_governance(
             recommended_action=str(item.get("recommended_action", "")),
             metric=metric,
             evidence_ids=metric.evidence_ids if metric else reviewed_evidence_ids,
+            generated_by="governance_model",
         )
         f.payload["drift_source"] = drift_source.value
         f.payload["regression_flag"] = regression_flag
@@ -171,6 +188,13 @@ def _deterministic_fallback(
     drift_metrics: list,
     prior_metric_scores: dict[str, float | None] | None = None,
 ) -> list[FindingCreate]:
+    """Findings for genuinely failed drift metrics only.
+
+    ``drift_metrics`` must already exclude skipped/pending/error metrics (see
+    ``split_attention_metrics`` at the call site) — this function has no
+    "incomplete monitoring" branch any more precisely so it never has a
+    skipped metric to write that finding for.
+    """
     prior = prior_metric_scores or {}
     results: list[FindingCreate] = []
     for m in drift_metrics:
@@ -181,47 +205,25 @@ def _deterministic_fallback(
             and current_score is not None
             and (prior_score - current_score) > 0.05
         )
-        if metric_failed(m):
-            f = finding(
-                finding_type="drift",
-                title=f"Drift metric failed: {m.metric_id}",
-                summary=(
-                    f"Metric {m.metric_id} ({m.dimension}) failed. "
-                    "The system shows evidence of statistically significant drift "
-                    "that may degrade model reliability and prediction quality."
-                ),
-                severity=Severity.high,
-                confidence=0.80,
-                dimension=m.dimension,
-                agent_name="drift_agent",
-                recommended_action=(
-                    "Review baseline distribution, investigate data pipeline changes, "
-                    "and consider retraining or rollback if drift exceeds threshold."
-                ),
-                metric=m,
-            )
-            f.payload["drift_source"] = DriftSource.unknown.value
-            f.payload["regression_flag"] = regression_flag
-            results.append(f)
-        elif metric_pending(m):
-            f = finding(
-                finding_type="drift",
-                title=f"Drift monitoring incomplete: {m.metric_id}",
-                summary=(
-                    f"Metric {m.metric_id} ({m.dimension}) is pending or skipped. "
-                    "Insufficient monitoring data to confirm system stability."
-                ),
-                severity=Severity.medium,
-                confidence=0.72,
-                dimension=m.dimension,
-                agent_name="drift_agent",
-                recommended_action=(
-                    "Complete drift monitoring before final approval. "
-                    "Ensure baseline snapshots and current distributions are available."
-                ),
-                metric=m,
-            )
-            f.payload["drift_source"] = DriftSource.unknown.value
-            f.payload["regression_flag"] = regression_flag
-            results.append(f)
+        f = finding(
+            finding_type="drift",
+            title=f"Drift metric failed: {m.metric_id}",
+            summary=(
+                f"Metric {m.metric_id} ({m.dimension}) failed. "
+                "The system shows evidence of statistically significant drift "
+                "that may degrade model reliability and prediction quality."
+            ),
+            severity=Severity.high,
+            confidence=0.80,
+            dimension=m.dimension,
+            agent_name="drift_agent",
+            recommended_action=(
+                "Review baseline distribution, investigate data pipeline changes, "
+                "and consider retraining or rollback if drift exceeds threshold."
+            ),
+            metric=m,
+        )
+        f.payload["drift_source"] = DriftSource.unknown.value
+        f.payload["regression_flag"] = regression_flag
+        results.append(f)
     return results

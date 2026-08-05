@@ -702,16 +702,26 @@ def _evaluate_temporal_consistency(
         or "default"
     )
 
+    settings = get_settings()
     try:
         response = evaluation_input.target_client.invoke(
             TargetModelRequest(
                 endpoint_ref=endpoint_ref,
                 prompt=_GENERATION_PROMPT_VIDEO,
                 capability_name=f"vision_{formula}",
+                # Minutes, not the 60s LLM default — a video generation is not a
+                # completion. See VIDEO_GENERATION_TIMEOUT_SECONDS.
+                timeout_seconds=settings.video_generation_timeout_seconds,
             )
         )
     except Exception as exc:  # noqa: BLE001 - a probe failure must skip, not crash the run
-        return _skip_result(metric, reason=f"target did not return a video: {exc}")
+        return _skip_result(
+            metric,
+            reason=(
+                f"target did not return a video within "
+                f"{settings.video_generation_timeout_seconds:.0f}s: {exc}"
+            ),
+        )
 
     video_asset = next(
         (
@@ -745,8 +755,11 @@ def _evaluate_temporal_consistency(
             ),
         )
 
-    settings = get_settings()
-    video_bytes = _video_bytes_from_asset(video_asset, timeout=settings.llm_call_timeout_seconds)
+    # Same budget as the generation: a freshly-rendered video can be large and is
+    # often served from cold storage, so the LLM call timeout is wrong here too.
+    video_bytes = _video_bytes_from_asset(
+        video_asset, timeout=settings.video_generation_timeout_seconds
+    )
     if video_bytes is None:
         return _skip_result(metric, reason="could not fetch the generated video's bytes")
 

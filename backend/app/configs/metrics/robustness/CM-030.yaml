@@ -22,7 +22,7 @@ thresholds:
     high: 0.83
     medium: 0.9
     low: 0.95
-tool: evidently
+tool: drift
 agent_owner: drift_analyst
 framework_mapping:
 - REQ_ROBUSTNESS_001
