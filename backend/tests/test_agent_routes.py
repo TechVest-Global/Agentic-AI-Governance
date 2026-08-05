@@ -239,12 +239,17 @@ def test_agent_failure_is_stored_as_degraded_execution(
 
     assert response.status_code == 201
     result = response.json()
-    assert result["findings_created"] == 0
+    # A failed agent now contributes ONE finding: the record that its dimension
+    # went unverified. It used to contribute none, which made a failure
+    # indistinguishable from a clean result in the evidence package — and the
+    # council counts findings, so silence read as "nothing wrong". See
+    # helpers.agent_failed_finding and test_agent_inputs_and_outputs.py.
+    assert result["findings_created"] == 1
     assert result["agents_run"] == [
         {
             "id": result["executions"][0]["id"],
             "agent_name": "failing_agent",
-            "finding_count": 0,
+            "finding_count": 1,
             "status": "failed",
         }
     ]
@@ -252,6 +257,10 @@ def test_agent_failure_is_stored_as_degraded_execution(
         "error_type": "RuntimeError",
         "message": "agent tool unavailable",
     }
+    # The failure is still recorded AS a failure, not laundered into a normal finding.
+    finding = result["findings"][0]
+    assert finding["payload"]["generated_by"] == "agent_failure"
+    assert finding["severity"] == "high"
 
     run_response = client.get(f"/api/v1/evaluation-runs/{run['id']}")
     assert run_response.status_code == 200

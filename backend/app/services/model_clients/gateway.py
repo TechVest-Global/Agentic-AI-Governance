@@ -360,23 +360,6 @@ def _retry_after_seconds(exc: BaseException) -> float | None:
     return max(0.0, min(requested, 30.0))
 
 
-def _describe_error(exc: BaseException | None) -> str | None:
-    """A one-line, storable reason a call failed.
-
-    Written to LLMCallLog.error_text so a failed row in the UI explains itself.
-    An HTTPError's code is included explicitly: str(HTTPError) renders as
-    "HTTP Error 429: Too Many Requests" for some servers but not all, and the
-    status is the single most useful field for triaging a failed probe.
-    """
-    if exc is None:
-        return None
-    name = type(exc).__name__
-    if isinstance(exc, urllib.error.HTTPError):
-        name = f"{name}[{exc.code}]"
-    detail = str(exc).strip()
-    return f"{name}: {detail}" if detail else name
-
-
 def _backoff(attempt: int, retry_after: float | None = None) -> None:
     wait = retry_after if retry_after is not None else 2 ** attempt  # 1s, 2s, 4s
     logger.warning("LLM Gateway: retrying in %.1fs (attempt %d)", wait, attempt + 1)
@@ -490,10 +473,10 @@ class GatewayGovernanceModelClient:
                     "policy_flags": [],
                     # Keep the prompt even though nothing came back: a failed
                     # governance call is exactly when a reviewer needs to see
-                    # what was asked, and error_text says why it didn't answer.
+                    # what was asked; error_type/error_detail say why it didn't
+                    # answer.
                     "prompt_text": request.prompt,
                     "response_text": None,
-                    "error_text": _describe_error(exc),
                 })
                 raise
 
@@ -520,7 +503,6 @@ class GatewayGovernanceModelClient:
             "policy_flags": [],
             "prompt_text": request.prompt,
             "response_text": None,
-            "error_text": _describe_error(last_exc),
         })
         raise last_exc  # type: ignore[misc]
 
@@ -755,7 +737,6 @@ class GatewayTargetModelClient:
                     # "metadata only" for precisely the calls worth inspecting.
                     "prompt_text": request.prompt,
                     "response_text": None,
-                    "error_text": _describe_error(exc),
                 })
                 raise
 
@@ -783,6 +764,5 @@ class GatewayTargetModelClient:
             "policy_flags": [],
             "prompt_text": request.prompt,
             "response_text": None,
-            "error_text": _describe_error(last_exc),
         })
         raise last_exc  # type: ignore[misc]

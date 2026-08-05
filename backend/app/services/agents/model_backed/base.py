@@ -313,9 +313,12 @@ class ModelBackedAgent:
         """
         chosen = self._choose_probes(fallback, context=context)
         plan = self._scale_to_budget(chosen, context=context)
-        # Record the real probe count for this agent (read by agent_execution
-        # and surfaced in the SSE "Probes Sent" tile).
-        context.probe_counts[self.name] = len(plan)
+        # PLANNED, not sent — probing has not happened yet. Writing this into
+        # probe_counts meant that if the probe run then raised (unreachable or
+        # out-of-quota target), the plan was reported as though it had been sent:
+        # a live run claimed 79 probes across five agents when 3 reached the
+        # target. _run_probes records the actual figure once it knows it.
+        context.probe_plan_counts[self.name] = len(plan)
         return plan
 
     def _design_probes_dynamically(
@@ -873,9 +876,10 @@ class ModelBackedAgent:
         *,
         context: AgentContext,
     ) -> list[tuple[str, str]]:
-        """Backward-compatible alias: scale a fixed probe set and record count."""
+        """Backward-compatible alias: scale a fixed probe set and record the plan."""
         plan = self._scale_to_budget(prompts, context=context)
-        context.probe_counts[self.name] = len(plan)
+        # Planned, not sent — see _select_probes above.
+        context.probe_plan_counts[self.name] = len(plan)
         return plan
 
     def _scale_to_budget(

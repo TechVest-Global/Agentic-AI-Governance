@@ -861,7 +861,6 @@ class LLMCallLogRead(APIModel):
     error_type: str | None = None
     error_detail: str | None = None
     attempts: int = 1
-    error_text: str | None = None
 
 
 class LLMCallLogSummary(APIModel):

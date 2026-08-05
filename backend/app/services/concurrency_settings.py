@@ -74,3 +74,24 @@ def garak_max_probe_prompts() -> int:
 
 def garak_generations() -> int:
     return max(1, get_settings().garak_generations)
+
+
+def metric_execution_budget_for(metric_count: int) -> float:
+    """Phase budget for a run of this size.
+
+    The budget used to be one flat number for every run, which meant it was
+    either too tight for a full-catalog audit or absurdly loose for a handful of
+    metrics. Measured against the live TechVest chatbot: ~6s per model call and
+    2-4 calls per metric, so 42 metrics need ~880s and were cut off at 600s —
+    and the metrics that never got their turn were recorded as
+    "evaluation exceeded the metric-execution time budget", which reads like a
+    tool failure rather than a clock running out.
+
+    Scales from a floor so small runs keep a generous fixed allowance and large
+    ones get room proportional to the work actually asked for.
+    """
+    settings = get_settings()
+    return max(
+        settings.metric_execution_budget_seconds,
+        settings.metric_execution_seconds_per_metric * max(0, metric_count),
+    )

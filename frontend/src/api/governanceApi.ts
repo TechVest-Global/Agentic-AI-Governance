@@ -1312,7 +1312,6 @@ export type LlmCall = {
   /** Physical HTTP requests this one logical call cost (retries included). */
   attempts?: number | null;
   /** Why a non-success call failed (status code / exception). */
-  error_text?: string | null;
 };
 
 export type LlmCallLog = {

@@ -93,26 +93,41 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     def _reconcile_interrupted_runs() -> None:
-        """Finalize runs orphaned by a prior worker restart.
+        """Finalize runs orphaned by a prior worker restart, OFF the startup path.
 
         The governance pipeline runs as a FastAPI BackgroundTask and does not
         survive a process restart, so any run mid-pipeline when the server
         stopped is left non-terminal with no task to finish it. Reconcile them
-        on startup so watchers stop hanging and the auditor/developer views show
-        the true final state.
+        so watchers stop hanging and the auditor/developer views show the true
+        final state.
+
+        On a background thread, because reconciliation RESUMES a run — real
+        probes against a real target, minutes of work. Run inline in this hook it
+        sat in front of the socket bind: uvicorn logged "Waiting for application
+        startup" and the port never opened, so every client saw a dead server
+        for the duration. Worse, if the process then died mid-resume (a throttled
+        target makes this slow enough to matter), the next start faced the same
+        unfinished run and did it all again — an unbounded restart loop that
+        never served a request. Daemon so it can never hold shutdown open.
         """
         import logging
+        import threading
 
         from sqlmodel import Session
 
         from app.db.session import engine as _engine
         from app.services.orchestration import reconcile_interrupted_runs
 
-        try:
-            with Session(_engine) as session:
-                reconcile_interrupted_runs(session)
-        except Exception:  # noqa: BLE001 — never block startup on reconciliation
-            logging.getLogger(__name__).exception("Startup run reconciliation failed")
+        def _reconcile() -> None:
+            try:
+                with Session(_engine) as session:
+                    reconcile_interrupted_runs(session)
+            except Exception:  # noqa: BLE001 — never take the app down over this
+                logging.getLogger(__name__).exception("Startup run reconciliation failed")
+
+        threading.Thread(
+            target=_reconcile, name="startup-run-reconciliation", daemon=True
+        ).start()
 
     return app
 
