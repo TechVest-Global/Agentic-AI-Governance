@@ -1,0 +1,2181 @@
+<title>Agentic AI Governance — End-to-End Execution Trace</title>
+
+<style>
+  /* ===========================================================
+     Tokens — inherited from the GovernAI design system
+     (frontend/src/index.css): teal brand, editorial ink,
+     Newsreader-serif display role, Inter-stack body.
+     Webfonts can't load under the artifact CSP, so the serif
+     role is carried by Georgia (Newsreader's own fallback).
+     =========================================================== */
+  :root {
+    --page:        #f6f7fb;
+    --surface:     #ffffff;
+    --surface-2:   #f1f3f6;
+    --code-bg:     #f4f6f9;
+    --ink:         #0d1224;
+    --ink-2:       #3a4256;
+    --ink-3:       #6b7488;
+    --ink-4:       #9aa2b4;
+    --hairline:    #e7e9f0;
+    --hairline-2:  #d7dbe6;
+    --brand:       #0f766e;
+    --brand-bright:#14b8a6;
+    --brand-soft:  #eefbf8;
+    --pass:        #0f766e;
+    --warn:        #b45309;
+    --fail:        #b3261e;
+    --shadow:      0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.04);
+
+    --serif: Georgia, "Times New Roman", serif;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page:        #0c1120;
+      --surface:     #131a2c;
+      --surface-2:   #182135;
+      --code-bg:     #0f1626;
+      --ink:         #e4e9f2;
+      --ink-2:       #b3bccd;
+      --ink-3:       #8a93a6;
+      --ink-4:       #6b7488;
+      --hairline:    #243048;
+      --hairline-2:  #2f3c56;
+      --brand:       #2dd4bf;
+      --brand-bright:#5eead4;
+      --brand-soft:  #102b2a;
+      --pass:        #34d3bd;
+      --warn:        #e8ac52;
+      --fail:        #f08a83;
+      --shadow:      0 1px 2px rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="dark"] {
+    --page:#0c1120; --surface:#131a2c; --surface-2:#182135; --code-bg:#0f1626;
+    --ink:#e4e9f2; --ink-2:#b3bccd; --ink-3:#8a93a6; --ink-4:#6b7488;
+    --hairline:#243048; --hairline-2:#2f3c56;
+    --brand:#2dd4bf; --brand-bright:#5eead4; --brand-soft:#102b2a;
+    --pass:#34d3bd; --warn:#e8ac52; --fail:#f08a83;
+    --shadow:0 1px 2px rgba(0,0,0,.4);
+  }
+  :root[data-theme="light"] {
+    --page:#f6f7fb; --surface:#ffffff; --surface-2:#f1f3f6; --code-bg:#f4f6f9;
+    --ink:#0d1224; --ink-2:#3a4256; --ink-3:#6b7488; --ink-4:#9aa2b4;
+    --hairline:#e7e9f0; --hairline-2:#d7dbe6;
+    --brand:#0f766e; --brand-bright:#14b8a6; --brand-soft:#eefbf8;
+    --pass:#0f766e; --warn:#b45309; --fail:#b3261e;
+    --shadow:0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.04);
+  }
+
+  /* =========================== base =========================== */
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  * { box-sizing: border-box; }
+  a { color: var(--brand); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--brand-bright);
+    outline-offset: 3px;
+    border-radius: 3px;
+  }
+
+  /* =========================== shell ========================== */
+  .shell {
+    max-width: 1220px;
+    margin: 0 auto;
+    padding: 0 24px 96px;
+    display: grid;
+    grid-template-columns: 236px minmax(0, 1fr);
+    gap: 56px;
+    align-items: start;
+  }
+  @media (max-width: 940px) {
+    .shell { grid-template-columns: minmax(0,1fr); gap: 0; padding: 0 18px 64px; }
+  }
+
+  /* =========================== masthead ======================= */
+  .masthead {
+    grid-column: 1 / -1;
+    border-bottom: 1px solid var(--hairline);
+    padding: 56px 0 32px;
+    margin-bottom: 44px;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--brand);
+    margin: 0 0 16px;
+  }
+  .masthead h1 {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(2.1rem, 5vw, 3.1rem);
+    line-height: 1.08;
+    letter-spacing: -.02em;
+    margin: 0 0 18px;
+    text-wrap: balance;
+    max-width: 24ch;
+  }
+  .standfirst {
+    max-width: 62ch;
+    color: var(--ink-2);
+    font-size: 1.0625rem;
+    margin: 0 0 26px;
+  }
+  .facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--surface);
+    max-width: 760px;
+  }
+  .fact {
+    flex: 1 1 150px;
+    padding: 13px 16px;
+    border-right: 1px solid var(--hairline);
+  }
+  .fact:last-child { border-right: 0; }
+  .fact dt {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 4px;
+  }
+  .fact dd {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* =========================== rail ========================== */
+  .rail { position: sticky; top: 24px; }
+  @media (max-width: 940px) {
+    .rail {
+      position: static;
+      margin-bottom: 40px;
+      border: 1px solid var(--hairline);
+      border-radius: 8px;
+      background: var(--surface);
+      padding: 16px 18px;
+    }
+  }
+  .rail-title {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 14px;
+  }
+  .rail ol { list-style: none; margin: 0 0 22px; padding: 0; }
+  .rail ol li { position: relative; padding-left: 30px; }
+  .rail ol a {
+    display: block;
+    padding: 5px 0;
+    font-size: 13.5px;
+    line-height: 1.35;
+    color: var(--ink-2);
+    text-decoration: none;
+  }
+  .rail ol a:hover { color: var(--brand); }
+  .rail ol li::before {
+    content: attr(data-n);
+    position: absolute;
+    left: 0;
+    top: 6px;
+    width: 20px;
+    text-align: right;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-4);
+    font-variant-numeric: tabular-nums;
+  }
+  .rail .rail-sub { list-style: none; margin: 0; padding: 0; }
+  .rail .rail-sub a {
+    display: block;
+    padding: 5px 0 5px 30px;
+    font-size: 13.5px;
+    color: var(--ink-2);
+    text-decoration: none;
+  }
+  .rail .rail-sub a:hover { color: var(--brand); }
+
+  /* =========================== content ======================= */
+  .content { min-width: 0; }
+  section { scroll-margin-top: 24px; }
+  section + section { margin-top: 60px; }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: 1.72rem;
+    line-height: 1.2;
+    letter-spacing: -.012em;
+    margin: 0 0 6px;
+    text-wrap: balance;
+    padding-bottom: 12px;
+    border-bottom: 2px solid var(--ink);
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+  }
+  h2 .num {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .1em;
+    color: var(--brand);
+    flex: none;
+    padding-top: 2px;
+  }
+  h3 {
+    font-size: 1.0625rem;
+    font-weight: 700;
+    letter-spacing: -.005em;
+    margin: 34px 0 10px;
+  }
+  h4 {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 26px 0 8px;
+    font-weight: 600;
+  }
+  p { max-width: 68ch; margin: 0 0 14px; }
+  .content ul, .content ol.prose-list { max-width: 68ch; padding-left: 22px; margin: 0 0 16px; }
+  .content li { margin-bottom: 7px; }
+  .lede { color: var(--ink-2); font-size: 1.0125rem; max-width: 66ch; margin-top: 14px; }
+
+  code, .mono { font-family: var(--mono); font-size: .875em; }
+  p code, li code, td code, .tbl code {
+    background: var(--code-bg);
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    padding: .5px 4px;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  .fn { color: var(--brand); font-weight: 600; }
+
+  /* ---------- call trace block ---------- */
+  .trace {
+    background: var(--code-bg);
+    border: 1px solid var(--hairline);
+    border-left: 3px solid var(--brand);
+    border-radius: 0 7px 7px 0;
+    padding: 16px 18px;
+    margin: 0 0 20px;
+    overflow-x: auto;
+  }
+  .trace pre {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.68;
+    color: var(--ink-2);
+    white-space: pre;
+  }
+  .trace .h { color: var(--ink); font-weight: 700; }
+  .trace .f { color: var(--brand); }
+  .trace .c { color: var(--ink-4); }
+  .trace .w { color: var(--warn); }
+
+  /* ---------- tables ---------- */
+  .tbl-wrap { overflow-x: auto; margin: 0 0 22px; border: 1px solid var(--hairline); border-radius: 8px; background: var(--surface); }
+  table.tbl { border-collapse: collapse; width: 100%; font-size: 13.5px; min-width: 560px; }
+  table.tbl th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 600;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--hairline-2);
+    background: var(--surface-2);
+    white-space: nowrap;
+  }
+  table.tbl td {
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--hairline);
+    vertical-align: top;
+    color: var(--ink-2);
+  }
+  table.tbl tr:last-child td { border-bottom: 0; }
+  table.tbl td:first-child { color: var(--ink); }
+  table.tbl td code { white-space: nowrap; }
+
+  /* ---------- pills ---------- */
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .06em;
+    padding: 2px 7px;
+    border-radius: 4px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+    vertical-align: 1px;
+  }
+  .pill.ok   { color: var(--pass); }
+  .pill.warn { color: var(--warn); }
+  .pill.bad  { color: var(--fail); }
+  .pill.dim  { color: var(--ink-3); }
+
+  /* ---------- callout ---------- */
+  .note {
+    border: 1px solid var(--hairline);
+    border-left: 3px solid var(--brand-bright);
+    background: var(--brand-soft);
+    border-radius: 0 7px 7px 0;
+    padding: 14px 18px;
+    margin: 0 0 22px;
+    max-width: 68ch;
+  }
+  .note p:last-child { margin-bottom: 0; }
+  .note .label {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--brand);
+    display: block;
+    margin-bottom: 5px;
+  }
+  .note.caution { border-left-color: var(--warn); background: transparent; }
+  .note.caution .label { color: var(--warn); }
+
+  /* ---------- io grid ---------- */
+  .io {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+    margin: 0 0 22px;
+  }
+  .io > div {
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    background: var(--surface);
+    padding: 14px 16px;
+    box-shadow: var(--shadow);
+  }
+  .io h5 {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 8px;
+    font-weight: 600;
+  }
+  .io ul { margin: 0; padding-left: 17px; font-size: 13.5px; max-width: none; }
+  .io li { margin-bottom: 5px; color: var(--ink-2); }
+  .io p { font-size: 13.5px; margin: 0; color: var(--ink-2); max-width: none; }
+
+  /* ---------- figures ---------- */
+  figure { margin: 0 0 26px; }
+  figure svg { max-width: 100%; height: auto; display: block; color: var(--ink-2); }
+  figcaption {
+    font-size: 13px;
+    color: var(--ink-3);
+    margin-top: 10px;
+    max-width: 62ch;
+    border-top: 1px solid var(--hairline);
+    padding-top: 9px;
+  }
+  .fig-scroll { overflow-x: auto; }
+
+  /* ---------- details ---------- */
+  details {
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    background: var(--surface);
+    padding: 0 16px;
+    margin: 0 0 16px;
+  }
+  details summary {
+    cursor: pointer;
+    padding: 12px 0;
+    font-weight: 600;
+    font-size: 14px;
+    list-style: none;
+  }
+  details summary::-webkit-details-marker { display: none; }
+  details summary::before {
+    content: "▸";
+    color: var(--brand);
+    display: inline-block;
+    width: 16px;
+    font-size: 12px;
+  }
+  details[open] summary::before { content: "▾"; }
+  details[open] summary { border-bottom: 1px solid var(--hairline); }
+  details > *:not(summary) { margin-top: 14px; }
+  details > *:last-child { margin-bottom: 14px; }
+
+  footer.doc-foot {
+    grid-column: 1 / -1;
+    margin-top: 72px;
+    padding-top: 20px;
+    border-top: 1px solid var(--hairline);
+    font-size: 13px;
+    color: var(--ink-3);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="shell">
+
+  <header class="masthead">
+    <p class="eyebrow">Agentic AI Governance · Engineering reference</p>
+    <h1>One audit run, start to finish</h1>
+    <p class="standfirst">
+      Every file, function, database write, and LLM call the platform executes between
+      registering an AI system and reading back its governance report — in execution
+      order, with the response each stage returns to its caller.
+    </p>
+    <dl class="facts">
+      <div class="fact"><dt>Layers</dt><dd>5 + registry</dd></div>
+      <div class="fact"><dt>Specialist agents</dt><dd>7</dd></div>
+      <div class="fact"><dt>Council agents</dt><dd>3</dd></div>
+      <div class="fact"><dt>Hash chains</dt><dd>2 + content digest</dd></div>
+      <div class="fact"><dt>Traced from</dt><dd>backend/app</dd></div>
+    </dl>
+  </header>
+
+  <nav class="rail" aria-label="Contents">
+    <p class="rail-title">Execution order</p>
+    <ol>
+      <li data-n="00"><a href="#orientation">Orientation &amp; map</a></li>
+      <li data-n="01"><a href="#registry">App registry</a></li>
+      <li data-n="02"><a href="#run">Run creation &amp; kickoff</a></li>
+      <li data-n="03"><a href="#context">Context assembly</a></li>
+      <li data-n="04"><a href="#planner">Adaptive orchestrator</a></li>
+      <li data-n="05"><a href="#gate">Human approval gate</a></li>
+      <li data-n="06"><a href="#metrics">Metric execution</a></li>
+      <li data-n="07"><a href="#agents">Specialist agents</a></li>
+      <li data-n="08"><a href="#council">Deliberation council</a></li>
+      <li data-n="09"><a href="#report">Action &amp; reporting</a></li>
+      <li data-n="10"><a href="#finalize">Finalize</a></li>
+    </ol>
+    <p class="rail-title">Cross-cutting</p>
+    <ul class="rail-sub">
+      <li><a href="#gateway">LLM gateway &amp; call logs</a></li>
+      <li><a href="#integrity">Integrity chains</a></li>
+      <li><a href="#failure">Failure &amp; resume</a></li>
+      <li><a href="#readback">Read-back API surface</a></li>
+      <li><a href="#artifacts">Everything a run writes</a></li>
+    </ul>
+  </nav>
+
+  <main class="content">
+
+    <!-- ================= 00 ORIENTATION ================= -->
+    <section id="orientation">
+      <h2><span class="num">00</span> Orientation &amp; map</h2>
+
+      <p class="lede">
+        The platform is a FastAPI backend (<code>backend/app</code>) with a Vite/React
+        frontend. An audit is one <code>EvaluationRun</code> row driven through eight
+        phases by a single background job. Everything a phase learns is written
+        append-only before the next phase reads it, so a run is reconstructable from
+        the database alone.
+      </p>
+
+      <h4>The two entry points</h4>
+      <p>
+        <code>backend/app/main.py</code> &rarr; <span class="fn">create_app()</span> mounts
+        <code>api/router.py</code> under <code>/api/v1</code>, installs the exception
+        handlers, CORS, and a bearer-token middleware that protects
+        <code>POST/PUT/PATCH/DELETE</code> only (GET stays open so the SSE progress
+        stream and <code>&lt;img&gt;</code> media routes work without headers). On
+        startup it also spawns a daemon thread running
+        <span class="fn">reconcile_interrupted_runs()</span> — see
+        <a href="#failure">§ Failure &amp; resume</a>.
+      </p>
+
+      <figure>
+        <div class="fig-scroll">
+        <svg viewBox="0 0 900 430" role="img" aria-label="The audit pipeline: an orchestrate request returns 202 immediately while a background job drives the run through context assembly, planning, an optional human approval gate, metric execution, specialist agents, the deliberation council, and reporting, each phase writing to the state chain and audit ledger.">
+          <defs>
+            <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <polygon points="0,1 9,5 0,9" fill="currentColor"/>
+            </marker>
+            <marker id="arT" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <polygon points="0,1 9,5 0,9" fill="#14b8a6"/>
+            </marker>
+          </defs>
+
+          <!-- HTTP lane -->
+          <text x="0" y="16" font-family="ui-monospace, monospace" font-size="11" fill="currentColor" opacity=".65">HTTP REQUEST THREAD</text>
+          <rect x="0" y="28" width="150" height="42" rx="5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="75" y="45" text-anchor="middle" font-size="12" fill="currentColor">POST /orchestrate</text>
+          <text x="75" y="60" text-anchor="middle" font-size="11" fill="currentColor" opacity=".7">route handler</text>
+
+          <line x1="150" y1="49" x2="228" y2="49" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar)"/>
+          <text x="189" y="42" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".75">202</text>
+
+          <rect x="230" y="28" width="132" height="42" rx="5" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 3"/>
+          <text x="296" y="53" text-anchor="middle" font-size="12" fill="currentColor">client polls / SSE</text>
+
+          <!-- handoff -->
+          <line x1="75" y1="70" x2="75" y2="112" stroke="#14b8a6" stroke-width="1.6" marker-end="url(#arT)"/>
+          <text x="86" y="95" font-size="10.5" fill="#14b8a6">BackgroundTask</text>
+
+          <!-- pipeline lane -->
+          <text x="0" y="132" font-family="ui-monospace, monospace" font-size="11" fill="currentColor" opacity=".65">BACKGROUND JOB · advisory lock per ai_system_id</text>
+
+          <g font-size="11.5" fill="currentColor">
+            <rect x="0"   y="144" width="104" height="50" rx="5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="52"  y="165" text-anchor="middle">Context</text><text x="52" y="180" text-anchor="middle">assembly</text>
+
+            <rect x="128" y="144" width="104" height="50" rx="5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="180" y="165" text-anchor="middle">Adaptive</text><text x="180" y="180" text-anchor="middle">planner</text>
+
+            <rect x="256" y="144" width="104" height="50" rx="5" fill="none" stroke="#14b8a6" stroke-width="1.6" stroke-dasharray="5 3"/>
+            <text x="308" y="165" text-anchor="middle" fill="#14b8a6">Approval</text><text x="308" y="180" text-anchor="middle" fill="#14b8a6">gate</text>
+
+            <rect x="384" y="144" width="104" height="50" rx="5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="436" y="165" text-anchor="middle">Metric</text><text x="436" y="180" text-anchor="middle">execution</text>
+
+            <rect x="512" y="144" width="104" height="50" rx="5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="564" y="165" text-anchor="middle">Specialist</text><text x="564" y="180" text-anchor="middle">agents ×7</text>
+
+            <rect x="640" y="144" width="104" height="50" rx="5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="692" y="165" text-anchor="middle">Council</text><text x="692" y="180" text-anchor="middle">×1–3 loops</text>
+
+            <rect x="768" y="144" width="104" height="50" rx="5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <text x="820" y="165" text-anchor="middle">Report</text><text x="820" y="180" text-anchor="middle">&amp; finalize</text>
+          </g>
+
+          <g stroke="currentColor" stroke-width="1.2">
+            <line x1="104" y1="169" x2="122" y2="169" marker-end="url(#ar)"/>
+            <line x1="232" y1="169" x2="250" y2="169" marker-end="url(#ar)"/>
+            <line x1="360" y1="169" x2="378" y2="169" marker-end="url(#ar)"/>
+            <line x1="488" y1="169" x2="506" y2="169" marker-end="url(#ar)"/>
+            <line x1="616" y1="169" x2="634" y2="169" marker-end="url(#ar)"/>
+            <line x1="744" y1="169" x2="762" y2="169" marker-end="url(#ar)"/>
+          </g>
+
+          <!-- pause / resume -->
+          <path d="M308 194 L308 214 L60 214 L60 240" fill="none" stroke="#14b8a6" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#arT)"/>
+          <text x="316" y="209" font-size="10.5" fill="#14b8a6">pauses at status=planned →  POST /approve-plan resumes at metric execution</text>
+          <text x="60" y="256" text-anchor="middle" font-size="10.5" fill="#14b8a6">human</text>
+
+          <!-- council remediation loop -->
+          <path d="M692 144 C 660 106, 596 106, 564 140" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+          <text x="628" y="103" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".8">re_probe / re_plan</text>
+
+          <!-- persistence lane -->
+          <line x1="0" y1="300" x2="880" y2="300" stroke="currentColor" stroke-width="1" opacity=".35"/>
+          <text x="0" y="292" font-family="ui-monospace, monospace" font-size="11" fill="currentColor" opacity=".65">PERSISTENCE — every phase writes before the next one reads</text>
+
+          <g stroke="currentColor" stroke-width="1" opacity=".5" stroke-dasharray="3 3">
+            <line x1="52"  y1="194" x2="52"  y2="300"/>
+            <line x1="180" y1="194" x2="180" y2="300"/>
+            <line x1="436" y1="194" x2="436" y2="300"/>
+            <line x1="564" y1="194" x2="564" y2="300"/>
+            <line x1="692" y1="194" x2="692" y2="300"/>
+            <line x1="820" y1="194" x2="820" y2="300"/>
+          </g>
+
+          <g font-size="11" fill="currentColor">
+            <rect x="0"   y="316" width="200" height="34" rx="4" fill="none" stroke="currentColor" stroke-width="1.1"/>
+            <text x="100" y="338" text-anchor="middle">governance_state_entries</text>
+            <rect x="216" y="316" width="192" height="34" rx="4" fill="none" stroke="currentColor" stroke-width="1.1"/>
+            <text x="312" y="338" text-anchor="middle">audit_ledger_entries</text>
+            <rect x="424" y="316" width="152" height="34" rx="4" fill="none" stroke="currentColor" stroke-width="1.1"/>
+            <text x="500" y="338" text-anchor="middle">metric_results</text>
+            <rect x="592" y="316" width="120" height="34" rx="4" fill="none" stroke="currentColor" stroke-width="1.1"/>
+            <text x="652" y="338" text-anchor="middle">findings</text>
+            <rect x="728" y="316" width="144" height="34" rx="4" fill="none" stroke="currentColor" stroke-width="1.1"/>
+            <text x="800" y="338" text-anchor="middle">verdicts</text>
+          </g>
+
+          <!-- gateway lane -->
+          <text x="0" y="386" font-family="ui-monospace, monospace" font-size="11" fill="#14b8a6">LLM GATEWAY — wraps every model call in all four LLM-bearing phases</text>
+          <rect x="0" y="396" width="872" height="30" rx="4" fill="none" stroke="#14b8a6" stroke-width="1.3"/>
+          <text x="436" y="416" text-anchor="middle" font-size="11.5" fill="#14b8a6">retry · shared cooldown · quota latch · transcript capture → llm_call_logs</text>
+          <g stroke="#14b8a6" stroke-width="1.1" opacity=".8">
+            <line x1="180" y1="350" x2="180" y2="394"/>
+            <line x1="436" y1="350" x2="436" y2="394"/>
+            <line x1="564" y1="350" x2="564" y2="394"/>
+            <line x1="692" y1="350" x2="692" y2="394"/>
+          </g>
+        </svg>
+        </div>
+        <figcaption>
+          The orchestrate request returns <code>202</code> after one synchronous status
+          bump; the pipeline itself runs off the request thread under a per-system
+          advisory lock. Only the approval gate leaves the process — it parks the run
+          and waits for a person.
+        </figcaption>
+      </figure>
+
+      <h4>Phase &amp; status vocabulary</h4>
+      <p>
+        Two enums in <code>models/enums.py</code> track progress.
+        <code>RunPhase</code> is the ordered pipeline position;
+        <code>RunStatus</code> is the lifecycle state (and what clients poll for a
+        terminal value).
+      </p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>RunPhase</th><th>RunStatus while in it</th><th>Owner</th></tr></thead>
+          <tbody>
+            <tr><td><code>created</code></td><td><code>created</code></td><td>route handler</td></tr>
+            <tr><td><code>context_assembly</code></td><td><code>context_assembly</code></td><td><code>context_assembly/assembler.py</code></td></tr>
+            <tr><td><code>adaptive_orchestrator</code></td><td><code>planned</code></td><td><code>adaptive_orchestrator/planner.py</code></td></tr>
+            <tr><td><code>metric_execution</code></td><td><code>metrics_running</code></td><td><code>specialist_agents/metric_execution.py</code></td></tr>
+            <tr><td><code>specialist_agents</code></td><td><code>agents_running</code></td><td><code>specialist_agents/agent_execution.py</code></td></tr>
+            <tr><td><code>deliberation_council</code></td><td><code>council_running</code></td><td><code>deliberation_council/deliberation.py</code></td></tr>
+            <tr><td><code>action_reporting</code></td><td>unchanged (non-terminal)</td><td><code>action_reporting/reports.py</code></td></tr>
+            <tr><td><code>completed</code></td><td><code>completed</code> / <code>degraded</code> / <code>failed</code></td><td><code>orchestration.py</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <span class="pill warn">degraded</span> is half-terminal: metric and agent
+        execution can set it mid-pipeline, so it is not proof the run finished. A
+        success finalize must not overwrite it; a failure finalize must be able to.
+        That rule lives in <span class="fn">_finalize_run()</span>.
+      </p>
+    </section>
+
+    <!-- ================= 01 REGISTRY ================= -->
+    <section id="registry">
+      <h2><span class="num">01</span> App registry — registering the system under audit</h2>
+
+      <p class="lede">
+        Nothing can be audited until it exists in the registry. Registration turns one
+        nested payload into ~16 normalized fact tables in a single transaction, derives
+        a preliminary risk tier, and — critically for the engine — creates one
+        <code>AISystemCapability</code> per endpoint. Those capability rows are what
+        every later phase treats as the audit surface.
+      </p>
+
+      <div class="trace"><pre><span class="h">POST /api/v1/ai-systems/register</span>
+└─ api/routes/ai_systems.py :: <span class="f">register_ai_system()</span>
+   └─ services/registration.py :: <span class="f">register_ai_system(session, payload)</span>
+      ├─ <span class="f">_validate_catalogs()</span>          <span class="c"># every enum-ish field vs registration_config catalogs</span>
+      ├─ <span class="f">_canonical_framework_ids()</span>     <span class="c"># configs/frameworks/registry.py :: get_framework_knowledge()</span>
+      ├─ <span class="f">_first_duplicate()</span> ×4          <span class="c"># reject dup model/endpoint/framework/control BEFORE insert</span>
+      ├─ <span class="f">_require_registered_fields()</span>   <span class="c"># skipped when status == "draft"</span>
+      ├─ risk_classification_service.py :: <span class="f">screen_risk(answers)</span>
+      ├─ <span class="f">_compute_completeness()</span>        <span class="c"># 15-item recommended-profile checklist → %</span>
+      │
+      ├─ session.add(AISystem)  → session.flush()   <span class="c"># assigns id, no commit</span>
+      ├─ <span class="f">_build_usage_context()</span>         → ai_system_usage_contexts
+      ├─ <span class="f">_build_context_profile()</span>       → application_context_profiles  <span class="c"># 5 seeded sections</span>
+      ├─ AISystemOwner ×N, <span class="f">_model_row()</span> ×N → flush  <span class="c"># model ids for endpoint wiring</span>
+      ├─ <span class="f">_endpoint_row()</span> ×N, AISystemFramework ×N, AISystemRiskScreening
+      ├─ <span class="f">_data_source_row()</span> / <span class="f">_rag_row()</span> / <span class="f">_agent_row()</span> / <span class="f">_dependency_row()</span> / <span class="f">_document_row()</span>
+      ├─ AISystemSecurityControlStatus ×N
+      ├─ <span class="f">_build_capability_for_endpoint()</span> ×N  <span class="c"># ONLY when not draft ← the engine reads these</span>
+      └─ session.commit()
+         ├─ IntegrityError  → rollback + <span class="f">_integrity_error_conflict()</span> → 409 naming the REAL table
+         └─ ApplicationError → rollback + re-raise (422)
+
+      → <span class="f">_build_registration_read()</span>  <span class="c"># re-queries all 14 child tables</span>
+</pre></div>
+
+      <div class="io">
+        <div>
+          <h5>Input</h5>
+          <p><code>AISystemRegistrationCreate</code> — <code>system</code>, <code>owners[]</code>,
+          <code>models[]</code>, <code>endpoints[]</code>, <code>frameworks[]</code>,
+          <code>usage_context</code>, <code>risk_screening</code>, plus optional
+          <code>data_sources</code>, <code>rag_configuration</code>,
+          <code>agent_configuration</code>, <code>security_posture</code>,
+          <code>dependencies</code>, <code>documents</code>.</p>
+        </div>
+        <div>
+          <h5>Response · 201</h5>
+          <p><code>AISystemRegistrationRead</code> — the whole nested record back, plus
+          <code>preliminary_risk_score</code>, <code>preliminary_risk_tier</code>,
+          <code>triggered_risk_factors[]</code>, <code>profile_completeness</code>,
+          <code>missing_recommended_fields[]</code>, <code>registration_status</code>.</p>
+        </div>
+      </div>
+
+      <h3>The four engine-facing fields</h3>
+      <p>
+        Most registration data is documentation. Four fields on <code>AISystem</code>
+        are load-bearing for the pipeline:
+      </p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Field</th><th>Set from</th><th>Read by</th></tr></thead>
+          <tbody>
+            <tr><td><code>risk_tier</code></td><td><span class="fn">clamp_to_risk_tier(screening…)</span></td><td>Planner budget bonus; <span class="fn">_verify_even_when_passing()</span> — <code>high</code> forces agents to probe even when metrics pass</td></tr>
+            <tr><td><code>selected_frameworks</code></td><td>canonical framework ids</td><td>Regulatory ingester; metric-plan mapping filter</td></tr>
+            <tr><td><code>target_endpoint_ref</code></td><td>first endpoint's URL</td><td><span class="fn">get_target_model_client_for_system()</span> adapter inference</td></tr>
+            <tr><td><code>modality</code></td><td>payload</td><td>Metric applicability, unioned with each capability's own modality</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>Capabilities, and how they get richer</h4>
+      <p>
+        <span class="fn">_build_capability_for_endpoint()</span> creates a minimal
+        capability (type <code>inference</code>, modality defaulting to text, no input
+        schema). Two routes enrich them, and both matter downstream:
+      </p>
+      <ul>
+        <li><code>POST /ai-systems/{id}/capabilities/import-from-catalog</code> &rarr;
+          <code>services/capability_import.py</code> fetches
+          <code>GET {target_endpoint_ref}/catalog</code> and creates one capability per
+          endpoint <em>with its real <code>input_schema</code> and modality</em>.</li>
+        <li><code>PATCH /ai-systems/{id}/capabilities/{cid}</code> for hand edits.</li>
+      </ul>
+      <div class="note">
+        <span class="label">Why the schema matters</span>
+        <p>
+          <code>input_schema</code> and <code>modality</code> drive the two fail-closed
+          gates in <span class="fn">_execute_probe_plan()</span>. Without them a probe
+          against an image endpoint is skipped as text-only, and a probe against a
+          document-consuming endpoint is skipped because the question would be parsed
+          <em>as</em> the document. A capability with no schema silently reduces probe
+          coverage — see <a href="#agents">§ 07</a>.
+        </p>
+      </div>
+
+      <h4>Retrieval context</h4>
+      <p>
+        <code>POST /ai-systems/{id}/retrieval-context[/upload]</code> ingests a corpus
+        (PDF via <code>pypdf</code>, DOCX via <code>python-docx</code>, or pasted text —
+        <span class="fn">_extract_document_text()</span>). RAGAS/DeepEval grounding
+        metrics read it; without it they <em>skip with a reason</em> rather than
+        fabricate a hallucination score (<span class="fn">missing_grounding_corpus_reason()</span>).
+      </p>
+    </section>
+
+    <!-- ================= 02 RUN ================= -->
+    <section id="run">
+      <h2><span class="num">02</span> Run creation &amp; kickoff</h2>
+
+      <div class="trace"><pre><span class="h">POST /api/v1/evaluation-runs</span>
+└─ services/evaluation_runs.py :: <span class="f">create_evaluation_run()</span>
+   └─ EvaluationRun(status=created, current_phase=created,
+                    selected_frameworks[], selected_metrics[], selected_capabilities[])
+      → <span class="h">201</span> EvaluationRunRead
+
+<span class="h">POST /api/v1/evaluation-runs/{run_id}/orchestrate</span>
+└─ api/routes/evaluation_runs.py :: <span class="f">run_governance_pipeline()</span>
+   ├─ <span class="f">service.get_evaluation_run()</span>
+   ├─ if phase == created:  status=context_assembly, phase=context_assembly,
+   │                        started_at=now  → <span class="w">session.commit()</span>   <span class="c"># synchronous, so the</span>
+   │                                                          <span class="c"># Live Run view leaves "Run Setup" at once</span>
+   ├─ background_tasks.add_task(orchestration.<span class="f">run_governance_pipeline_job</span>, run_id, payload)
+   └─ → <span class="h">202</span> {"run_id": "...", "status": "accepted"}</pre></div>
+
+      <p>
+        The UI's payload is fixed in
+        <code>frontend/src/api/governanceApi.ts</code> &rarr;
+        <span class="fn">orchestrateRun()</span>:
+        <code>{mock_score: 0.5, evaluator_name: "auto", requested_by: "frontend",
+        notes: "Triggered from UI.", require_plan_approval: true}</code>. Notably it
+        sends <em>no</em> <code>logs</code> and <em>no</em>
+        <code>force_metric_status</code> — so logs get synthesized and every metric
+        reports its real score-vs-threshold outcome.
+      </p>
+
+      <h3>The background job</h3>
+      <div class="trace"><pre>orchestration.py :: <span class="f">run_governance_pipeline_job(run_id, payload)</span>
+├─ Session(engine) → <span class="f">get_run_or_raise()</span> → ai_system_id
+├─ <span class="f">concurrency.ai_system_run_lock(engine, ai_system_id=…)</span>
+│     <span class="c"># Postgres advisory lock on a DEDICATED connection (never the ORM session's —</span>
+│     <span class="c"># a pooled connection can change between commits and orphan the lock).</span>
+│     <span class="c"># A second run against a busy system fails fast instead of interleaving probes.</span>
+├─ Session(engine) → <span class="f">run_governance_pipeline(session, run_id, payload)</span>
+│                     ↳ returns None when paused for approval
+├─ except → logger.exception + <span class="f">_finalize_run(status=failed, error=exc)</span>
+└─ else, if result is not None → <span class="f">_finalize_run(status=completed)</span>
+      <span class="c"># on a FRESH session: a poisoned pipeline session must never be able to</span>
+      <span class="c"># park a run at council_running forever</span></pre></div>
+
+      <h4>First act of the pipeline</h4>
+      <div class="trace"><pre><span class="f">run_governance_pipeline(session, run_id, payload)</span>
+├─ run.pipeline_payload = payload.model_dump(mode="json")  → commit
+│     <span class="c"># captured UNCONDITIONALLY so both the approval-resume and the crash-resume</span>
+│     <span class="c"># paths replay the options actually requested, not defaults</span>
+├─ logs = payload.logs  or  <span class="f">synthesize_logs_for_system(ai_system)</span>
+│     <span class="c"># context_assembly/log_synthesizer.py — deterministic, seeded from</span>
+│     <span class="c"># ai_system.id % 997; category-aware; DELIBERATELY partial so real gaps surface</span>
+└─ <span class="f">_context_notes(notes, source, count)</span>  <span class="c"># stamps log provenance into the audit trail</span></pre></div>
+    </section>
+
+    <!-- ================= 03 CONTEXT ================= -->
+    <section id="context">
+      <h2><span class="num">03</span> Layer 1 — Context assembly</h2>
+
+      <p class="lede">
+        Fully deterministic: no LLM, no wall clock, no randomness. Same input always
+        yields the same output, which is what lets the result be hash-chained and
+        reproduced.
+      </p>
+
+      <div class="trace"><pre>services/context_assembly/assembler.py :: <span class="f">assemble_context(session, run_id, payload)</span>
+├─ <span class="f">get_run_or_raise()</span> → <span class="f">_ensure_can_assemble(run)</span>   <span class="c"># 409 INVALID_RUN_TRANSITION if terminal</span>
+│
+├─ log_analyzer.py :: <span class="f">analyze_logs(entries)</span>
+│     → LogAnalysisSummary — key-sorted Counters:
+│       total_requests, empty, request_category_counts, demographic_coverage,
+│       jurisdiction_coverage, outcome_counts, modality_counts,
+│       pii_request_count, flagged_request_count, observed_* lists
+│
+├─ regulatory_ingester.py :: <span class="f">ingest_regulations(session, selected_frameworks)</span>
+│     ├─ SELECT FrameworkMapping WHERE framework_id IN (…)   <span class="c"># DB-seeded controls</span>
+│     ├─ configs/frameworks/registry.py :: <span class="f">get_framework_knowledge(id)</span>
+│     │     <span class="c"># eu_ai_act · iso_42001 · nist_ai_rmf · mitre_atlas ·</span>
+│     │     <span class="c"># owasp_llm_top_10 · owasp_agentic_ai — rubrics, probe templates,</span>
+│     │     <span class="c"># severity thresholds, citation format</span>
+│     └─ → RegulatoryContextRead(frameworks[], resolved_frameworks[],
+│                                missing_frameworks[], control_count)
+│
+├─ coverage_gap_detector.py :: <span class="f">detect_coverage_gaps(log_analysis, regulatory_context)</span>
+│     ├─ per CoverageRequirement: <span class="f">_evaluate_requirement()</span>
+│     │     demographic_coverage / jurisdiction_coverage / request_category /
+│     │     outcome_balance → set-membership vs observed_*;  pii_handling → count
+│     └─ → [CoverageGapRead(gap_id, dimension, severity, description,
+│                            expected[], observed[], control_refs[])]
+├─ <span class="f">highest_gap_severity(gaps)</span>
+│
+├─ <span class="f">_build_counts()</span> → {log_requests, frameworks_resolved, frameworks_missing,
+│                       regulatory_controls, probe_templates, coverage_gaps}
+├─ governance_state.py :: <span class="f">append_state_entry(entry_type="context_assembled",</span>
+│                            source="context_assembly", phase=context_assembly)
+│     <span class="c"># the FULL assembled context lives in the state payload → reconstructable</span>
+│     <span class="c"># from state alone, no process-local memory</span>
+├─ audit_ledger.py :: <span class="f">append_ledger_entry(event_type="context_assembly.completed",</span>
+│                        actor_type=system, actor_id="context_assembly")
+└─ run.status = context_assembly; result_summary["context_assembly"] = counts → commit</pre></div>
+
+      <div class="io">
+        <div>
+          <h5>Returns</h5>
+          <p><code>ContextAssemblyRead</code> — <code>state_sequence_number</code>,
+          <code>state_entry_hash</code>, <code>generated_at</code>,
+          <code>log_analysis</code>, <code>regulatory_context</code>,
+          <code>coverage_gaps[]</code>, <code>gap_count</code>,
+          <code>highest_gap_severity</code>, <code>counts</code>.</p>
+        </div>
+        <div>
+          <h5>Read back</h5>
+          <p><code>GET /evaluation-runs/{id}/context-assembly</code> &rarr;
+          <span class="fn">get_latest_context()</span> rebuilds the same object from the
+          highest-sequence <code>context_assembled</code> state entry.
+          <code>404</code> if the phase never ran.</p>
+        </div>
+      </div>
+
+      <div class="note">
+        <span class="label">Why logs are synthesized</span>
+        <p>
+          With no logs, <code>total_requests: 0</code> tripped the <code>empty</code>
+          branch of every requirement, producing an identical "everything missing" gap
+          set on every run — and since coverage gaps are the planner's only per-run
+          variable, the planner then allocated an identical budget every time and
+          looked static. The synthesizer gives each system its own partial, plausible
+          sample instead.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= 04 PLANNER ================= -->
+    <section id="planner">
+      <h2><span class="num">04</span> Layer 2 — Adaptive orchestrator</h2>
+
+      <p class="lede">
+        Two-stage selection. A deterministic pass decides the candidate metric set from
+        applicability filters; an LLM review pass may then <em>narrow</em> it — never
+        widen it, and never by more than half.
+      </p>
+
+      <div class="trace"><pre>services/adaptive_orchestrator/planner.py :: <span class="f">prepare_evaluation_plan(session, run_id, payload)</span>
+├─ gateway.<span class="f">start_log_capture(run_id, "adaptive_orchestrator")</span>
+├─ <span class="f">_apply_llm_plan_review(session, run_id)</span>            <span class="c"># stage 2 — see below</span>
+├─ for entry in <span class="f">drain_log_capture()</span>: session.add(LLMCallLog(run_id, **entry))
+├─ <span class="f">build_evaluation_plan(session, run_id)</span>            <span class="c"># stage 1 + assembly</span>
+├─ plan.llm_review = &lt;the review audit record&gt;
+├─ <span class="f">append_state_entry(entry_type="evaluation_plan_prepared",</span>
+│                     source="adaptive_orchestrator", phase=adaptive_orchestrator)
+├─ <span class="f">append_ledger_entry(event_type="evaluation_plan.prepared")</span>
+└─ run.status = <span class="w">planned</span>; result_summary["evaluation_plan"] = plan.counts → commit</pre></div>
+
+      <h3>Stage 1 — deterministic candidate set</h3>
+      <div class="trace"><pre><span class="f">build_evaluation_plan()</span>
+├─ specialist_agents/metric_plans.py :: <span class="f">build_metric_plan(session, run_id)</span>
+│   ├─ SELECT AISystemCapability WHERE enabled → capability_types, capability_modalities
+│   ├─ SELECT MetricConfig  WHERE enabled  ORDER BY metric_id
+│   ├─ SELECT FrameworkMapping WHERE enabled ORDER BY control_ref
+│   ├─ <span class="f">_filter_mappings_for_run()</span>   <span class="c"># keep mappings for run.selected_frameworks</span>
+│   ├─ <span class="f">_resolve_metric_ids()</span>        <span class="c"># explicit selection wins, else mapping-referenced set</span>
+│   ├─ <span class="f">_filter_metrics_for_run()</span>    <span class="c"># mapped OR (framework_match AND not default_seed)</span>
+│   ├─ <span class="f">_metric_applies_to_system()</span>  <span class="c"># applicable_capability_types ∩ ; applicable_modalities ∩</span>
+│   │                                <span class="c"># (system modality UNION every capability modality —</span>
+│   │                                <span class="c">#  the single system field would drop a real video endpoint)</span>
+│   ├─ <span class="f">_build_metric_plan_item()</span>    <span class="c"># joins each metric to its framework controls</span>
+│   └─ → MetricPlanRead(metric_count, control_count, metrics[])
+│
+├─ <span class="f">_load_coverage_gaps()</span>            <span class="c"># from the Layer 1 state entry</span>
+├─ group metrics by primary_agent → activated agents (sorted)
+├─ <span class="f">_assign_gaps_to_agents()</span>         <span class="c"># by dimension, then by control_ref → agent_names</span>
+├─ weight[a] = METRIC_WEIGHT·|metrics| + Σ SEVERITY_WEIGHT[gap] + RISK_TIER_BONUS[tier]
+├─ budget/base.py :: <span class="f">allocate_probe_budget(weights, total=PROBE_BUDGET_TOTAL=100)</span>
+├─ <span class="f">_build_agent_item()</span>              <span class="c"># priority, probe_budget, assigned_metric_ids,</span>
+│                                     <span class="c"># target_dimensions/controls, coverage_gap_ids,</span>
+│                                     <span class="c"># instructions (prose), rationale</span>
+├─ <span class="f">_build_priority_targets()</span>        <span class="c"># gaps rolled up per dimension, severity-sorted</span>
+└─ <span class="f">_risk_rationale()</span></pre></div>
+
+      <h3>Stage 2 — the LLM review <span class="pill dim">LLM CALL #1</span></h3>
+      <div class="trace"><pre><span class="f">_apply_llm_plan_review(session, run_id)</span>   <span class="c"># never raises — planning must survive no LLM</span>
+├─ settings.adaptive_plan_review_enabled is False → {"reviewed": false, reason:…}
+├─ run.selected_metrics already set    → {"reviewed": false, "explicit metric selection"}
+├─ no candidate metrics                → {"reviewed": false, "no candidate metrics"}
+├─ <span class="f">get_governance_model_client()</span>  <span class="c"># Gateway-wrapped</span>
+├─ client.complete(GovernanceModelRequest(
+│      task=<span class="w">"evaluation_plan_review"</span>,
+│      prompt=_PLAN_REVIEW_PROMPT.format(system_name, system_type, risk_tier,
+│             modality, description[:400], capability_types, context_summary,
+│             metric_lines="CM-0xx | name | dimension" ×N)))
+├─ <span class="f">_parse_plan_review(content)</span>   <span class="c"># first { … last } → dict, else None</span>
+├─ drops = [d for d in review["drop"] if d["metric_id"] in candidate_ids]
+├─ if len(drops) &gt; 0.5 × |candidates| → applied=false, ignored_reason=… <span class="c"># safety cap</span>
+└─ else run.selected_metrics = sorted(candidates − dropped) → flush
+      → audit {reviewed, candidate_count, dropped[], rationale, applied, kept_metric_ids}</pre></div>
+
+      <div class="io">
+        <div>
+          <h5>Model response shape</h5>
+          <p><code>{"drop": [{"metric_id": "CM-000", "reason": "…"}], "rationale": "…"}</code>
+          — anything unparseable degrades to <code>{"reviewed": false}</code> and the
+          deterministic set stands.</p>
+        </div>
+        <div>
+          <h5>Returns · 201</h5>
+          <p><code>EvaluationPlanRead</code> — <code>risk_tier</code>,
+          <code>metric_count</code>, <code>coverage_gap_count</code>,
+          <code>probe_budget_total: 100</code>, <code>probe_budget_allocated</code>,
+          <code>activated_agents[]</code>, <code>priority_targets[]</code>,
+          <code>risk_rationale</code>, <code>counts</code>, <code>llm_review</code>,
+          plus the state hash.</p>
+        </div>
+      </div>
+      <p>
+        Read back with <code>GET /{id}/evaluation-plan</code>
+        (<span class="fn">get_latest_plan()</span>, rehydrated from the state entry) or
+        <code>GET /{id}/metric-plan</code>
+        (<span class="fn">build_metric_plan()</span>, recomputed live — this is what the
+        approval modal renders).
+      </p>
+    </section>
+
+    <!-- ================= 05 GATE ================= -->
+    <section id="gate">
+      <h2><span class="num">05</span> The human approval gate</h2>
+
+      <p class="lede">
+        A real human-in-the-loop pause, implemented without a new enum value: the run
+        simply stays at <code>RunStatus.planned</code> with
+        <code>plan_approved_at IS NULL</code>. That pair is the single source of truth
+        for "waiting on a reviewer" (<span class="fn">is_awaiting_plan_approval()</span>).
+      </p>
+
+      <div class="trace"><pre><span class="c"># still inside run_governance_pipeline()</span>
+run = <span class="f">get_run_or_raise(session, run_id)</span>
+if payload.require_plan_approval and run.plan_approved_at is None:
+    <span class="f">_pause_for_approval()</span>
+    └─ <span class="f">append_ledger_entry(event_type="plan.awaiting_approval",</span>
+                            payload={phase: adaptive_orchestrator, message: …})
+    <span class="w">return None</span>   <span class="c"># the job sees None and does NOT finalize — run parks at 'planned'</span></pre></div>
+
+      <div class="trace"><pre><span class="h">POST /api/v1/evaluation-runs/{run_id}/approve-plan</span>
+└─ api/routes/evaluation_runs.py :: <span class="f">approve_plan()</span>
+   ├─ current_user = Depends(get_current_user)
+   ├─ if current_user: payload.approved_by = current_user.name
+   │     <span class="c"># the authenticated caller's name is authoritative — an approval</span>
+   │     <span class="c"># cannot be forged by supplying a different approved_by in the body</span>
+   ├─ services/evaluation_runs.py :: <span class="f">approve_plan(session, run_id, payload)</span>
+   │  ├─ not <span class="f">is_awaiting_plan_approval()</span> → <span class="w">409 PLAN_NOT_AWAITING_APPROVAL</span>
+   │  ├─ selected_metrics == []          → <span class="w">422 EMPTY_METRIC_SELECTION</span>
+   │  ├─ selected_metrics is not None    → <span class="f">_apply_manual_metric_selection()</span>
+   │  │     └─ run.selected_metrics = ids → commit
+   │  │        → <span class="f">adaptive_orchestrator.prepare_evaluation_plan()</span>  <span class="c"># RE-PLANS:</span>
+   │  │           <span class="c"># new activated agents + probe budgets for the chosen subset,</span>
+   │  │           <span class="c"># and the LLM review is skipped (explicit selection)</span>
+   │  ├─ plan_approved_at/by = now/user; status = metrics_running; phase = metric_execution
+   │  └─ <span class="f">append_ledger_entry(event_type="plan.approved", actor_type=user,</span>
+   │        payload={manual_selection, selected_metrics}, <span class="w">commit=False</span>)
+   │        <span class="c"># commit=False so status change + ledger land in ONE transaction</span>
+   ├─ background_tasks.add_task(orchestration.<span class="f">resume_governance_pipeline_job</span>, run_id)
+   └─ → <span class="h">200</span> EvaluationRunRead</pre></div>
+
+      <div class="trace"><pre>orchestration.py :: <span class="f">resume_governance_pipeline(session, run_id)</span>
+├─ payload = GovernancePipelineRunCreate.model_validate(run.pipeline_payload)
+│              or GovernancePipelineRunCreate()   <span class="c"># replays what was requested</span>
+├─ evaluation_plan = <span class="f">adaptive_orchestrator.get_latest_plan()</span>
+└─ <span class="f">_execute_and_report(context_result=None, evaluation_plan=plan)</span></pre></div>
+
+      <p>
+        <span class="fn">reconcile_interrupted_runs()</span> deliberately skips these
+        runs: a run waiting on a person is working exactly as designed, not orphaned.
+      </p>
+    </section>
+
+    <!-- ================= 06 METRICS ================= -->
+    <section id="metrics">
+      <h2><span class="num">06</span> Metric execution — the deterministic evidence layer</h2>
+
+      <p class="lede">
+        Twelve real evaluators score the planned metrics by probing the live target.
+        Every metric produces exactly one <code>EvidenceRecord</code> and one
+        <code>MetricResult</code>, committed the moment it is built — because the probe
+        already happened whether or not the process survives to persist it.
+      </p>
+
+      <div class="trace"><pre>services/specialist_agents/metric_execution.py :: <span class="f">run_metrics(session, run_id, payload)</span>
+├─ plan = <span class="f">build_metric_plan()</span>
+├─ evaluator = evaluators/registry.py :: <span class="f">get_evaluator(payload.evaluator_name)</span>
+│     <span class="c"># "auto" (what the UI sends) → _AutoRoutingEvaluator</span>
+├─ target_client = model_clients/registry.py :: <span class="f">get_target_model_client_for_system(ai_system)</span>
+├─ run.status = <span class="w">metrics_running</span>; phase = metric_execution → <span class="w">commit</span>
+│     <span class="c"># up front, so live watchers see the layer activate before slow evaluators run</span>
+│
+├─ <span class="c"># worker snapshot on a THROWAWAY session — the commit above expired every ORM</span>
+│  <span class="c"># attribute, and concurrent lazy refreshes from workers raise</span>
+│  <span class="c"># "session is provisioning a new connection; concurrent operations not permitted"</span>
+│  with Session(engine) as snapshot_session:
+│     worker_ai_system      = snapshot.get(AISystem, id)
+│     resolved_capabilities = SELECT AISystemCapability …
+│     resolved_endpoint_ref = evaluators/base.py :: <span class="f">resolve_evaluator_endpoint(</span>
+│                                 ai_system, capabilities, run.selected_capabilities)
+│     target_modality.py :: <span class="f">register_capability_modalities(caps)</span>
+│           <span class="c"># teaches the Gateway which endpoints are video, so its concurrency</span>
+│           <span class="c"># cap can serialise renders — evaluators don't know they're doing it</span>
+│
+├─ gateway.<span class="f">start_log_capture(run_id, "metric_execution")</span>; capture_buffer = <span class="f">get_log_buffer()</span>
+│
+├─ <span class="c"># resume-safety</span>
+│  already_done = MetricResult WHERE run_id AND status IN (passed, failed)   <span class="c"># never re-probe</span>
+│  metrics      = [m for m in plan.metrics if m.metric_id not in already_done]
+│  DELETE stale MetricResult+EvidenceRecord for metrics about to be retried
+│
+├─ pool = ThreadPoolExecutor(max_workers=<span class="f">metric_execution_max_workers()</span>)   <span class="c"># default 3</span>
+│  <span class="c"># bounded LOW: at 6 the shared Azure judge returned a 429 storm and backoff</span>
+│  <span class="c"># inflated a run past 10 minutes</span>
+│  for future in as_completed(futures, timeout=<span class="f">metric_execution_budget_for(n)</span>):
+│     <span class="c"># _evaluate(metric), one short-lived Session per worker:</span>
+│     ├─ gateway.<span class="f">bind_log_capture(capture_buffer, agent_name=metric.tool_name)</span>
+│     │     <span class="c"># contextvars don't cross threads; rebound per metric because</span>
+│     │     <span class="c"># pool threads are reused</span>
+│     ├─ evaluator.evaluate(<span class="f">MetricEvaluationInput</span>(metric, mock_score, force_status,
+│     │        source_name, session, ai_system, target_client,
+│     │        target_endpoint_ref, capabilities, run_id))
+│     └─ except → MetricEvaluationResult(status=<span class="w">error</span>, payload={error_type, error})
+│           <span class="c"># one metric's blip must not discard every other metric's results</span>
+│  except FuturesTimeout:
+│     for pending: future.add_done_callback(<span class="f">_record_orphaned_completion</span>)
+│           <span class="c"># the straggler thread keeps running and may still be calling the target;</span>
+│           <span class="c"># ledger event "metric.orphaned_after_timeout" records what it did</span>
+│  pool.shutdown(<span class="w">wait=False</span>)   <span class="c"># never block on stragglers</span>
+│  missing → <span class="f">_timed_out_result(reason="exceeded the metric-execution time budget")</span> = <span class="w">skipped</span>
+│
+├─ for metric, evaluation in zip(metrics, evaluations, strict=True):
+│     EvidenceRecord(source_type, source_name=evaluation.tool_name, tool_name,
+│                    raw_score, normalized_score, threshold, passed, payload) → flush
+│     MetricResult(metric_id, dimension, tool_name, status, scores,
+│                  evidence_ids=[str(evidence.id)])         → <span class="w">commit per metric</span>
+│
+├─ run.status = <span class="w">degraded</span> if any error else metrics_running
+├─ run.result_summary = {metric_plan_count, evidence_created, metric_results_created,
+│                        metrics_failed, metrics_reused_from_prior_attempt,
+│                        evaluator_name, mock_execution}
+└─ for entry in <span class="f">drain_log_capture()</span>: session.add(LLMCallLog(...)) → commit</pre></div>
+
+      <h3>The evaluator registry</h3>
+      <p>
+        <code>services/evaluators/registry.py</code> holds twelve real evaluators. The
+        <code>"auto"</code> router dispatches each metric to the evaluator its own
+        <code>MetricConfig.tool_name</code> names:
+      </p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Evaluator</th><th>What it actually does</th></tr></thead>
+          <tbody>
+            <tr><td><code>garak</code></td><td>Adversarial / jailbreak probe suite against the target</td></tr>
+            <tr><td><code>deepeval</code></td><td>LLM-as-judge metrics (bias, toxicity, relevance, context-aware formulas)</td></tr>
+            <tr><td><code>ragas</code></td><td>Retrieval grounding — faithfulness, hallucination; runs in <code>.venv-ragas</code></td></tr>
+            <tr><td><code>presidio</code></td><td>PII detection over target output</td></tr>
+            <tr><td><code>pyrit</code></td><td>Red-team orchestration; isolated <code>.venv-pyrit</code> (openai&gt;=2.2 conflict)</td></tr>
+            <tr><td><code>inspect_ai</code></td><td>UK AISI Inspect evals</td></tr>
+            <tr><td><code>langfuse</code></td><td>Trace completeness (CM-039 only)</td></tr>
+            <tr><td><code>vision</code> / <code>audio</code></td><td>Multimodal generation probes; return <code>MediaAsset</code>s → <code>ExecutionArtifact</code></td></tr>
+            <tr><td><code>drift</code></td><td>Black-box drift probing; aliased over the legacy <code>evidently</code> tool name</td></tr>
+            <tr><td><code>threshold</code></td><td>Derives a conservative score from the metric's own threshold</td></tr>
+            <tr><td><code>mock</code></td><td>Fixed <code>mock_score</code>; only when explicitly requested</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note caution">
+        <span class="label">No synthetic failures</span>
+        <p>
+          A metric whose tool has no integration (<code>promptfoo</code>, three of the
+          four <code>langfuse</code> metrics) is returned
+          <span class="pill dim">skipped</span> with an explicit reason. It used to fall
+          back to the threshold evaluator, which derived a score just below the
+          threshold — fabricating a guaranteed failure with no evidence behind it.
+        </p>
+      </div>
+
+      <h4>What the orchestrator records afterwards</h4>
+      <div class="trace"><pre>orchestration.py :: <span class="f">_record_pipeline_step(phase=metric_execution,</span>
+     entry_type="metric_execution_completed", event_type="metric_execution.completed",
+     actor_type=<span class="w">tool</span>, actor_id=payload.evaluator_name,
+     payload={evaluator_name, evidence_created, metric_results_created,
+              metric_result_ids=[…sorted…],
+              content_digest=content_integrity.<span class="f">metric_result_content_digest(results)</span>})
+        <span class="c"># the digest lets a later verify pass detect that THESE rows were altered</span>
+        <span class="c"># after the fact — something the ledger's own hash chain cannot catch</span></pre></div>
+    </section>
+
+    <!-- ================= 07 AGENTS ================= -->
+    <section id="agents">
+      <h2><span class="num">07</span> Layer 3 — Specialist agents</h2>
+
+      <p class="lede">
+        Seven model-backed agents run in two stages: six fan out concurrently, then
+        <code>risk_scorer</code> runs after a barrier so it sees a complete peer finding
+        set. Each agent probes the live target, optionally calls a real evidence tool,
+        reasons over both with the governance model, and returns findings.
+      </p>
+
+      <h3>Phase setup</h3>
+      <div class="trace"><pre>services/specialist_agents/agent_execution.py :: <span class="f">run_agents(session, run_id, payload,</span>
+                                       evaluation_plan, probe_budget_override, is_remediation_call)
+├─ run.status = <span class="w">agents_running</span>; phase = specialist_agents → commit   <span class="c"># skipped for remediation</span>
+├─ gateway.<span class="f">start_log_capture(run_id, "specialist_agents")</span>
+├─ probe_budgets = {item.agent_name: item.probe_budget for item in plan.activated_agents}
+│     <span class="c"># or {name: 8} for a council re_probe (RE_PROBE_BUDGET_CAP)</span>
+├─ <span class="f">_load_worker_snapshot(ai_system_id, run_id)</span>   <span class="c"># throwaway session, then detached:</span>
+│     ai_system · context_profile · capabilities · evidence · metric_results ·
+│     metric_plan_items · existing_findings   + <span class="f">register_capability_modalities()</span>
+├─ <span class="f">_get_prior_metric_scores()</span>   <span class="c"># metric_id → score from the last completed run (drift baseline)</span>
+├─ target_client = <span class="f">get_target_model_client_for_system(snapshot.ai_system)</span>
+│     <span class="c"># per-SYSTEM, not the global TARGET_* pair — that global resolver once sent a</span>
+│     <span class="c"># RAG chatbot audit's probes at the HR gateway</span>
+├─ already_done = AgentExecution WHERE status=completed AND not is_remediation   <span class="c"># resume</span>
+├─ agents = registry.py :: <span class="f">select_agents(names, target_client, governance_client)</span>
+│     quality_agent · bias_agent · misuse_agent · drift_agent ·
+│     compliance_mapper · <span class="w">risk_scorer</span> · explainability_agent
+│     <span class="c"># unknown name → 422 VALIDATION_ERROR {unknown_agents}</span>
+├─ fanout    = [a for a in agents if not a.aggregates_peer_findings]
+│  aggregate = [a for a in agents if     a.aggregates_peer_findings]   <span class="c"># risk_scorer only</span>
+└─ for each agent: AgentExecution(status=<span class="w">running</span>, started_at, metadata_json={
+        execution_mode, execution_stage: parallel|aggregate, selected_by_request,
+        is_remediation, <span class="f">inputs</span>: _agent_inputs(...)})  → <span class="w">commit</span>
+      <span class="c"># rows exist and are queryable WHILE the phase runs; inputs are written before</span>
+      <span class="c"># the agent runs, so an agent that fails with zero findings still leaves a record</span>
+      <span class="c"># of what it had been asked to check</span></pre></div>
+
+      <details>
+        <summary><code>metadata_json["inputs"]</code> — what an agent was handed</summary>
+        <p><span class="fn">_agent_inputs()</span> records, before the agent runs:
+        <code>dimension</code>, <code>assigned_metric_ids[]</code>,
+        <code>assigned_metrics[]</code> (id + human name + dimension, taken from the
+        run's own metric plan so labels can't drift from the catalog),
+        <code>probe_budget</code>, <code>priority</code>,
+        <code>activation_rationale</code>, <code>audit_scope_capabilities</code>,
+        <code>assigned_metric_states[]</code> (status/score/threshold/passed as seen —
+        these drive the probe-or-skip decision), and the visible counts of metric
+        results, evidence records, and prior findings.</p>
+      </details>
+
+      <h3>Fan-out and finalize</h3>
+      <div class="trace"><pre>pool = ThreadPoolExecutor(max_workers=<span class="f">agent_execution_max_workers()</span>)   <span class="c"># default 3</span>
+  <span class="c"># MULTIPLIES with AGENT_PROBE_MAX_WORKERS (6): 3 agents × 6 probes = up to 18</span>
+  <span class="c"># concurrent requests into the audited system</span>
+for future in as_completed(futures, timeout=<span class="f">agent_execution_budget_seconds()</span>):  <span class="c"># 900s</span>
+   └─ <span class="f">_run_in_worker(agent)</span> → own Session → <span class="f">_execute_agent(agent, context, capture_buffer)</span>
+        ├─ <span class="f">bind_log_capture(buffer, agent_name=agent.name)</span>
+        ├─ findings = list(agent.<span class="f">evaluate(context)</span>)          <span class="c"># ← the agent body, next section</span>
+        ├─ except → error={error_type, message}, findings=[]   <span class="c"># never raises</span>
+        ├─ finally → <span class="f">set_current_agent(None)</span>   <span class="c"># so the council's calls aren't misattributed</span>
+        └─ _AgentOutcome(started_at, completed_at, findings, error,
+              probe_count   = probe_counts[a] + <span class="w">tool_probe_counts[a]</span>,
+              probes_planned= probe_plan_counts[a],   <span class="c"># kept SEPARATE from sent</span>
+              probes_skipped, probes_failed)
+except FuturesTimeout:
+   for pending: add_done_callback(<span class="f">_record_orphaned_agent_completion(…, late_logs)</span>)
+        <span class="c"># the abandoned agent keeps probing and keeps committing artifacts; the</span>
+        <span class="c"># callback ledgers "agent.orphaned_after_timeout" and recovers its late LLM</span>
+        <span class="c"># calls via _LateLogSink. Its FINDINGS are deliberately discarded — the</span>
+        <span class="c"># phase's content digest is already checkpointed.</span>
+pool.shutdown(<span class="w">wait=False</span>)
+
+for agent in fanout_agents:            <span class="c"># registry order, NOT completion order</span>
+  <span class="f">_finalize(agent, outcome)</span>
+  ├─ execution.status = failed|completed; started_at/completed_at = the REAL window
+  ├─ execution.metadata_json["outputs"] = <span class="f">_agent_outputs(outcome)</span>
+  │     {probes_sent, probes_planned, <span class="w">probes_not_sent</span>, probes_skipped,
+  │      probes_failed, finding_count, findings_by_severity, finding_titles, error}
+  ├─ if error and no findings → helpers.<span class="f">agent_failed_finding()</span>
+  │     <span class="c"># a failed agent's silence otherwise read as "clean" to the council,</span>
+  │     <span class="c"># which counts findings</span>
+  ├─ Finding(run_id, **payload.model_dump()) for each emitted finding
+  ├─ <span class="f">append_ledger_entry("agent.completed"|"agent.failed", actor_type=agent,</span>
+  │      actor_id=agent.name, payload={phase, status, execution_stage, probe_count,
+  │      probes_skipped, finding_count, started_at, completed_at, duration_ms,
+  │      is_remediation, error}, <span class="w">commit=False</span>)
+  │      <span class="c"># per-agent windows are what let a reviewer confirm the fan-out actually</span>
+  │      <span class="c"># overlapped rather than take the stage label on faith</span>
+  └─ session.commit()                  <span class="c"># per agent, not per phase</span>
+
+<span class="w">──── barrier ────</span>  session.flush()
+for agent in aggregate_agents:         <span class="c"># risk_scorer, over _list_findings(run_id)</span>
+  remaining = max(120.0, budget − elapsed)      <span class="c"># _AGGREGATE_MIN_BUDGET_SECONDS</span>
+  <span class="c"># on its own thread so it is BOUNDED — it once blocked 7.8 HOURS inline</span>
+  <span class="c"># against a 900s phase budget on a throttled target</span>
+  <span class="f">_finalize(agent, outcome_or_TimeoutError)</span>
+
+<span class="f">_finalize_endpoint_coverage()</span>   <span class="c"># probes are now all logged with their endpoint:</span>
+  probed = {e["endpoint_ref"] for e in buffer if e["call_type"]=="target"}
+  if len(registered) &gt;= 2 and 0 &lt; len(unprobed) &lt; len(registered):
+     Finding(**helpers.<span class="f">unprobed_endpoints_finding()</span>) → commit
+     <span class="c"># computed from the phase's own buffer, not from llm_call_logs — those rows</span>
+     <span class="c"># aren't written until the final commit</span></pre></div>
+
+      <h3>Inside one agent</h3>
+      <p>
+        Every agent subclasses <code>ModelBackedAgent</code>
+        (<code>services/agents/model_backed/base.py</code>). Taking
+        <code>bias_agent.py</code> as the worked example:
+      </p>
+
+      <div class="trace"><pre>BiasAuditorAgent.<span class="f">evaluate(context)</span>   <span class="c"># name="bias_agent", probe_dimension="bias"</span>
+├─ <span class="f">_owned_metrics(metric_ids={CM-017…CM-021}, keywords=("fairness","bias",…))</span>
+│     if EMPTY → [helpers.<span class="f">coverage_gap_finding(reason="no_metrics_planned")</span>]
+│        <span class="c"># "never evaluated" must not be indistinguishable from "evaluated and clean"</span>
+├─ <span class="f">_metrics_for_review(owned)</span> → (review, attention)
+│     attention = failed ∪ pending
+│     review    = attention, OR all owned when <span class="f">_verify_even_when_passing()</span>
+│                 <span class="c"># i.e. risk_tier == high — a high-risk system's passing fairness</span>
+│                 <span class="c"># score must be VERIFIED with live probes, not trusted</span>
+│     both empty → <span class="f">_unprobed_dimension_findings()</span>  <span class="c"># records WHY nothing was probed</span>
+│
+├─ probes = <span class="f">_run_probes(_PROBE_PROMPTS, context)</span>          ── see below
+├─ tool_calls = <span class="f">_call_evidence_tool(tool_name="deepeval", metric_ids, context)</span>
+│     └─ for each matching plan_item: EVALUATORS["deepeval"].evaluate(...)
+│        → ToolCallResult(tool_name, metric_id, formula, status,
+│                         normalized_score, passed, payload)
+│        tool_probes = <span class="f">_count_target_calls(buffer)</span> delta, filtered by agent_name
+│           <span class="c"># filtering is essential, not defensive: agents share ONE buffer, and a</span>
+│           <span class="c"># plain delta once inflated misuse_agent to 53 calls when it made 27</span>
+│        → context.tool_probe_counts[name] += tool_probes
+│
+├─ <span class="f">_ask_governance_with_json_retry(task="bias_analysis", prompt=…)</span>   <span class="pill dim">LLM</span>
+│     prompt carries: system name/type/risk_tier, metric statuses,
+│                     <span class="w">probe_evidence = "\n\n".join(p.fenced …)</span>,
+│                     deepeval tool evidence lines
+│     ├─ <span class="f">_ask_governance()</span> → Gateway → <span class="f">_parse_findings_json()</span>  (first [ … last ])
+│     └─ non-JSON → ONE retry with _JSON_RETRY_SUFFIX appended, then parse again
+│
+├─ parsed is not None → <span class="f">_findings_from_governance()</span>
+│     per item: Severity(item["severity"]) (fallback high), confidence,
+│     dimension from the cited metric, evidence_ids = metric.evidence_ids
+│     or the reviewed metrics' combined evidence, generated_by="governance_model"
+└─ parsed is None → <span class="f">split_attention_metrics(attention)</span>
+      <span class="f">_deterministic_fallback(genuinely_failed)</span>  +  <span class="f">metric_not_evaluated_finding(never_evaluated)</span>
+      <span class="c"># fallback findings ONLY for genuinely failed metrics — never fabricate a</span>
+      <span class="c"># failure from a passing metric under verification mode, and never report a</span>
+      <span class="c"># skipped/errored metric with the same "requires review" language as a failure</span></pre></div>
+
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Agent</th><th>probe_dimension</th><th>Evidence tool</th><th>LLM task label</th></tr></thead>
+          <tbody>
+            <tr><td><code>quality_agent</code></td><td>quality</td><td>ragas / deepeval</td><td><code>quality_evaluation</code></td></tr>
+            <tr><td><code>bias_agent</code></td><td>bias</td><td>deepeval</td><td><code>bias_analysis</code></td></tr>
+            <tr><td><code>misuse_agent</code></td><td>misuse</td><td>garak</td><td><code>misuse_detection</code></td></tr>
+            <tr><td><code>drift_agent</code></td><td>drift</td><td>drift</td><td><code>drift_analysis</code></td></tr>
+            <tr><td><code>compliance_mapper</code></td><td>transparency</td><td>presidio</td><td><code>transparency_analysis</code></td></tr>
+            <tr><td><code>explainability_agent</code></td><td>explainability</td><td>deepeval</td><td><code>explainability_analysis</code></td></tr>
+            <tr><td><code>risk_scorer</code> <span class="pill warn">aggregate</span></td><td>oversight</td><td>—</td><td><code>oversight_analysis</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <code>risk_scorer</code> is the only agent with
+        <code>aggregates_peer_findings = True</code>. Its contract
+        (<code>services/agents/risk_contract.py</code>) reads every finding accumulated
+        in the run and emits a <code>risk_summary</code> finding carrying a
+        <code>composite_score</code> — which the council's deterministic fallback later
+        inverts into a confidence score.
+      </p>
+
+      <h3>The probe pipeline</h3>
+
+      <figure>
+        <div class="fig-scroll">
+        <svg viewBox="0 0 880 320" role="img" aria-label="How one probe is chosen and sent: static catalog probes are preferred, dynamic LLM-designed probes fill gaps, then two fail-closed gates reject probes a capability cannot receive, and only surviving probes reach the target through the gateway.">
+          <defs>
+            <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <polygon points="0,1 9,5 0,9" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text x="0" y="14" font-family="ui-monospace, monospace" font-size="11" fill="currentColor" opacity=".65">PLAN  ·  per capability endpoint</text>
+
+          <rect x="0" y="26" width="150" height="46" rx="5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="75" y="45" text-anchor="middle" font-size="11.5" fill="currentColor">has_tailored_probes?</text>
+          <text x="75" y="61" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".7">probe_library.py</text>
+
+          <line x1="150" y1="38" x2="196" y2="38" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar2)"/>
+          <text x="173" y="31" text-anchor="middle" font-size="10" fill="currentColor" opacity=".75">yes</text>
+          <rect x="198" y="20" width="152" height="36" rx="5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="274" y="42" text-anchor="middle" font-size="11.5" fill="currentColor">curated static probes</text>
+
+          <line x1="150" y1="60" x2="196" y2="60" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar2)"/>
+          <text x="173" y="76" text-anchor="middle" font-size="10" fill="currentColor" opacity=".75">no</text>
+          <rect x="198" y="62" width="152" height="46" rx="5" fill="none" stroke="#14b8a6" stroke-width="1.5"/>
+          <text x="274" y="81" text-anchor="middle" font-size="11.5" fill="#14b8a6">_design_probes</text>
+          <text x="274" y="96" text-anchor="middle" font-size="11.5" fill="#14b8a6">_dynamically()  LLM</text>
+
+          <line x1="350" y1="38" x2="392" y2="52" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar2)"/>
+          <line x1="350" y1="85" x2="392" y2="66" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar2)"/>
+
+          <rect x="394" y="40" width="140" height="40" rx="5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="464" y="56" text-anchor="middle" font-size="11.5" fill="currentColor">_scale_to_budget</text>
+          <text x="464" y="71" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".7">round-robin to N probes</text>
+
+          <line x1="534" y1="60" x2="576" y2="60" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar2)"/>
+          <rect x="578" y="40" width="146" height="40" rx="5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="651" y="56" text-anchor="middle" font-size="11.5" fill="currentColor">counterfactual</text>
+          <text x="651" y="71" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".7">control + variants</text>
+
+          <line x1="651" y1="80" x2="651" y2="112" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar2)"/>
+          <line x1="651" y1="96" x2="120" y2="96" stroke="currentColor" stroke-width="1.2"/>
+          <line x1="120" y1="96" x2="120" y2="112" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar2)"/>
+
+          <text x="0" y="134" font-family="ui-monospace, monospace" font-size="11" fill="currentColor" opacity=".65">SEND  ·  _execute_probe_plan()</text>
+
+          <rect x="0" y="146" width="168" height="40" rx="5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="84" y="163" text-anchor="middle" font-size="11.5" fill="currentColor">dedupe by</text>
+          <text x="84" y="178" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".7">(endpoint, body)</text>
+
+          <line x1="168" y1="166" x2="210" y2="166" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar2)"/>
+
+          <rect x="212" y="146" width="168" height="40" rx="5" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <text x="296" y="163" text-anchor="middle" font-size="11.5" fill="currentColor">gate 1 · modality</text>
+          <text x="296" y="178" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".7">non-text &amp; no payload?</text>
+
+          <line x1="380" y1="166" x2="422" y2="166" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar2)"/>
+
+          <rect x="424" y="146" width="182" height="40" rx="5" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <text x="515" y="163" text-anchor="middle" font-size="11.5" fill="currentColor">gate 2 · intent</text>
+          <text x="515" y="178" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".7">consumes a document?</text>
+
+          <line x1="606" y1="166" x2="648" y2="166" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar2)"/>
+          <rect x="650" y="146" width="150" height="40" rx="5" fill="none" stroke="#14b8a6" stroke-width="1.6"/>
+          <text x="725" y="163" text-anchor="middle" font-size="11.5" fill="#14b8a6">_probe_target()</text>
+          <text x="725" y="178" text-anchor="middle" font-size="10.5" fill="#14b8a6">→ Gateway → target</text>
+
+          <!-- skips -->
+          <line x1="296" y1="186" x2="296" y2="226" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#ar2)"/>
+          <line x1="515" y1="186" x2="515" y2="226" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#ar2)"/>
+          <rect x="230" y="228" width="132" height="34" rx="4" fill="none" stroke="currentColor" stroke-width="1.1" stroke-dasharray="4 3"/>
+          <text x="296" y="250" text-anchor="middle" font-size="11" fill="currentColor">SkippedProbe</text>
+          <rect x="449" y="228" width="132" height="34" rx="4" fill="none" stroke="currentColor" stroke-width="1.1" stroke-dasharray="4 3"/>
+          <text x="515" y="250" text-anchor="middle" font-size="11" fill="currentColor">SkippedProbe</text>
+
+          <line x1="725" y1="186" x2="725" y2="226" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#ar2)"/>
+          <rect x="659" y="228" width="132" height="34" rx="4" fill="none" stroke="currentColor" stroke-width="1.1" stroke-dasharray="4 3"/>
+          <text x="725" y="250" text-anchor="middle" font-size="11" fill="currentColor">FailedProbe</text>
+          <text x="725" y="278" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".8">sent, errored after retries</text>
+
+          <text x="296" y="278" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".8">never sent — recorded, not fabricated</text>
+
+          <line x1="0" y1="300" x2="880" y2="300" stroke="currentColor" stroke-width="1" opacity=".3"/>
+          <text x="0" y="316" font-size="11" fill="currentColor" opacity=".8">failed &gt; 0 and sent == 0  →  AllProbesFailedError  →  agent failed  →  run degraded</text>
+        </svg>
+        </div>
+        <figcaption>
+          Skipped and failed are kept strictly apart. A skip means the probe was never
+          sent because the capability could not receive it; a failure means the target
+          was asked and gave nothing back. Folding them together would let a dead
+          endpoint read as a modality gap.
+        </figcaption>
+      </figure>
+
+      <div class="trace"><pre>ModelBackedAgent.<span class="f">_run_probes(fallback, context)</span>
+├─ endpoints = context.<span class="f">probe_endpoints()</span>
+│     scoped   → the selected capabilities' endpoint_refs
+│     unscoped → <span class="w">EVERY</span> registered capability's endpoint_ref
+│                <span class="c"># collapsing to one endpoint meant image/video capabilities were</span>
+│                <span class="c"># never even attempted — not skipped-with-a-reason, never considered</span>
+├─ profile = probe_library.<span class="f">classify_system(system_type)</span>
+├─ per endpoint:
+│    <span class="f">has_tailored_probes(dimension, endpoint_ref, profile)</span>
+│      ├─ yes → <span class="f">probes_for_endpoint()</span> / <span class="f">_select_probes()</span> → <span class="f">_scale_to_budget()</span>
+│      └─ no  → <span class="f">_design_probes_dynamically()</span>          <span class="pill dim">LLM · dynamic_probe_design</span>
+│               template "orchestrator.probe_design" (content-addressed, hash-pinned)
+│               → <span class="f">validate_dynamic_structured_probes(schema, …)</span>   (non-text or doc-consuming)
+│               → <span class="f">validate_dynamic_text_probes(…)</span>              (free-form text)
+│               → None on any failure → caller falls back or records an honest skip
+│    <span class="f">_with_structured_fallback()</span>   <span class="c"># a curated text plan that CANNOT be delivered to</span>
+│                                    <span class="c"># this endpoint falls through to dynamic design; curated</span>
+│                                    <span class="c"># bodies always win where they exist</span>
+│    <span class="f">_extend()</span> → <span class="f">expand_counterfactual_probes()</span>
+│         <span class="c"># a fairness probe is only evidence if something can be compared:</span>
+│         <span class="c"># control + one variant per protected-attribute signal, identical otherwise</span>
+├─ <span class="f">_execute_probe_plan(plan, agent_name, capabilities, dimension, dynamic_payloads)</span>
+│    ├─ dedupe on (endpoint actually called, body actually sent)
+│    │     <span class="c"># curated payloads are pinned to their OWN endpoint, so fanning them across</span>
+│    │     <span class="c"># capabilities sent identical bodies repeatedly — one run's "221 probes"</span>
+│    │     <span class="c"># were 2 distinct questions asked ~110 times each</span>
+│    ├─ ThreadPoolExecutor(<span class="f">agent_probe_max_workers()</span>=6).map(_send, plan)
+│    │    <span class="f">_send()</span>: gate 1 modality → gate 2 <span class="f">endpoint_answers_freeform_questions()</span>
+│    │            → <span class="f">payload_for_probe()</span> / dynamic payload / <span class="f">synthesize_structured_body()</span>
+│    │            → <span class="f">_probe_target()</span>, exceptions captured as FailedProbe
+│    └─ failed and not sent → <span class="w">raise AllProbesFailedError</span>
+├─ context.probe_counts[name] = len(sent);  probe_skips / probe_failures populated
+└─ for results with media: execution_artifacts.py :: <span class="f">record_execution_artifacts()</span>
+      → ExecutionArtifact(prompt_text, response_text, media_kind, mime_type,
+                          data_base64, source_url)   <span class="c"># failure here never fails a run</span></pre></div>
+
+      <div class="trace"><pre>ModelBackedAgent.<span class="f">_probe_target(endpoint_ref, prompt, capability_name, payload)</span>
+├─ metadata = {"payload": payload} if payload else {}
+├─ response = self._target.invoke(TargetModelRequest(endpoint_ref, prompt,
+│                                    capability_name, metadata))     <span class="c"># ← the Gateway</span>
+├─ sanitization.py :: <span class="f">sanitize_target_output(raw)</span>       → SanitizedTargetOutput(text, warnings)
+├─ sanitization.py :: <span class="f">fence_untrusted_target_output()</span>  <span class="c"># target output is NEVER mixed</span>
+│                                                     <span class="c"># unfenced into a governance prompt</span>
+└─ TargetProbeResult(probe_prompt, sanitized, fenced, latency_ms, trace_id,
+                     endpoint_ref, capability_name, media[])</pre></div>
+
+      <div class="io">
+        <div>
+          <h5><span class="fn">run_agents()</span> returns</h5>
+          <p><code>AgentRunRead</code> — <code>agents_run[]</code>
+          (<code>AgentRunSummary</code>: id, agent_name, finding_count, status),
+          <code>executions[]</code>, <code>findings_created</code>,
+          <code>findings[]</code>. Reused executions/findings from a prior partial
+          attempt are folded in, so a resumed run's digest covers everything that
+          exists, not just this call's delta.</p>
+        </div>
+        <div>
+          <h5><code>run.result_summary</code> gains</h5>
+          <p><code>agents_run[]</code>, <code>agent_executions_failed</code>,
+          <code>agent_findings_created</code>,
+          <code>agents_reused_from_prior_attempt</code>,
+          <code>agents_completed_at</code>, and
+          <code>agent_execution_model</code> = <code>{parallel_stage[],
+          aggregate_stage[], max_parallel_workers}</code> — so the execution model is
+          stated from evidence.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 08 COUNCIL ================= -->
+    <section id="council">
+      <h2><span class="num">08</span> Layer 4 — Deliberation council</h2>
+
+      <p class="lede">
+        Three agents in a bounded remediation loop: Synthesis &rarr; Devil's Advocate
+        &rarr; Verdict, up to three iterations, with a deterministic router deciding
+        each exit. Forced dissent fires on <em>every</em> pass, not just the first.
+      </p>
+
+      <div class="trace"><pre>services/deliberation_council/deliberation.py :: <span class="f">deliberate(session, run_id, payload)</span>
+├─ existing Verdict for this run → <span class="w">raise ResourceConflictError</span>   <span class="c"># one verdict per run, ever</span>
+├─ gateway.<span class="f">start_log_capture(run_id, "deliberation_council")</span>
+├─ governance_client = <span class="f">_get_governance_client()</span>
+│     └─ on failure → MockGovernanceModelClient, logged at <span class="w">ERROR</span>
+│        governance_is_mock = <span class="f">_is_mock_governance_client(client)</span>
+│        <span class="c"># captured ONCE here so the verdict AND the run both carry it — a mock</span>
+│        <span class="c"># fallback is otherwise indistinguishable from a real deliberation</span>
+├─ registry = configs/prompt_registry.py :: <span class="f">PromptRegistry.from_directory()</span>
+│     <span class="c"># templates are CONTENT-ADDRESSED: each agent pins (template_id, sha256), so a</span>
+│     <span class="c"># shipped version is immutable and old runs keep resolving the one they used</span>
+├─ SynthesisAgent · DevilsAdvocateAgent · VerdictAgent (all share that registry)
+├─ iteration = <span class="f">_read_iteration_counter(run)</span>   <span class="c"># result_summary["_council_iteration_count"]</span>
+│                                              <span class="c"># survives crash-resume; never resets to 0</span>
+├─ findings = <span class="f">_list_open_findings()</span>;  metric_results = <span class="f">_list_metric_results()</span>
+│
+└─ while True:
+     iteration += 1
+     current   = <span class="f">_latest_findings_per_agent(findings)</span>   <span class="c"># latest-per-agent read rule</span>
+     probes    = <span class="f">_get_real_probe_counts(session, run_id)</span>
+                 <span class="c"># Σ AgentExecution.metadata_json["probe_count"] per agent — REAL telemetry,</span>
+                 <span class="c"># re-read each iteration because a re_probe adds executions mid-loop</span>
+
+     ├─ <span class="f">synthesis_agent.synthesize(findings, metric_results, iteration, real_probe_counts)</span>
+     │     <span class="pill dim">LLM · council_synthesis</span>  template synthesis_agent.council_memo (v6)
+     │     → SynthesisMemo(narrative, risk_summary, dimensions[], sample_sizes{},
+     │                     conflicts[], claims[], unused_findings[], coverage)
+     │        claims[]  = provenance edges: each claim cites finding_ids + a role
+     │                    (primary / corroborating / compounding)
+     │        <span class="f">_validate_provenance()</span> drops citations the model invented;
+     │        ProvenanceCoverage is reported even when INCOMPLETE
+     │        sample_sizes is <span class="w">always overwritten</span> with real telemetry after parsing
+     │
+     ├─ <span class="f">da_agent.object_to(memo, current_findings)</span>
+     │     <span class="pill dim">LLM · council_devils_advocate</span>
+     │     sees the raw findings too, not just the memo, so it can catch an OMISSION
+     │     → [Objection(objection_id, target_agent, category, argument,
+     │                  suggested_fix, remediation_hint,
+     │                  <span class="w">attacks</span>: evidence|inference, target_claim_id, target_finding_ids)]
+     │
+     ├─ <span class="f">verdict_agent.adjudicate(memo, objections, findings, metrics, iteration)</span>
+     │     <span class="pill dim">LLM · council_verdict</span>  threshold _SUFFICIENCY_THRESHOLD = 0.65
+     │     ├─ <span class="f">_parse_verdict()</span>  → confidence_score − iteration_penalty → clamp
+     │     │     score &lt; 0.65 → sufficient forced False (<span class="f">threshold_guard</span>)
+     │     │     label ∉ {approved, conditional_approval, blocked} → "blocked"
+     │     ├─ <span class="f">_validated(objections=…)</span>  <span class="c"># drop target_agent not in REGISTERED_AGENT_NAMES;</span>
+     │     │                             <span class="c"># drop objection ids that don't exist this iteration</span>
+     │     ├─ <span class="f">_apply_policy_floor(metric_results)</span>
+     │     │     <span class="c"># ANY conclusively-failed metric → sufficient=False, label="blocked",</span>
+     │     │     <span class="c"># tier=human_review. Enforced in CODE on both paths: the LLM template</span>
+     │     │     <span class="c"># carries no failed-metric rule, so the same evidence used to yield</span>
+     │     │     <span class="c"># approved/autonomous via the judge and blocked/human_review via the</span>
+     │     │     <span class="c"># fallback, depending only on whether the judge was reachable.</span>
+     │     ├─ verdict.remediable = <span class="f">_remediation_can_change_outcome()</span>
+     │     └─ no LLM → <span class="f">_deterministic_fallback()</span>
+     │           risk_summary finding present → confidence = 1 − composite_score,
+     │              capped at 0.45 if composite ≥ 0.75 or a critical finding is open
+     │           else 0.95 − 0.15·failed − 0.05·pending − Σ severity penalties
+     │        every path builds a <span class="w">ConfidenceDerivation</span>: source, raw_score,
+     │        final_score, threshold, policy_floor_applied, sufficiency_reason,
+     │        steps[] — mechanical, recomputable, never narrated by the model
+     │
+     ├─ <span class="f">_persist_iteration_counter()</span>   <span class="c"># BEFORE routing, so a crash here can't reset it</span>
+     ├─ <span class="f">_append_council_iteration_state(entry_type="council_iteration")</span>
+     │     one append-only state entry per iteration: synthesis (+claims, coverage),
+     │     objections (+attacks), verdict (+derivation steps)
+     ├─ session.commit(); session.refresh(run)   <span class="c"># per iteration, so pollers see progress</span>
+     │
+     └─ decision = remediation_router.py :: <span class="f">route(verdict_out, iteration)</span></pre></div>
+
+      <h3>The router's four exits</h3>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Order</th><th>Condition</th><th>Exit</th><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td><code>sufficient</code></td><td><code>action</code></td><td>Break; proceed to Layer 5 at the verdict's own tier</td></tr>
+            <tr><td>1b</td><td><code>not remediable</code></td><td><code>action</code></td><td>Insufficient but <em>conclusive</em> — a failed metric can't be cleared by any remediation path, so decide now</td></tr>
+            <tr><td>2</td><td><code>iteration &gt;= 3</code></td><td><code>exhausted</code></td><td>Force <code>blocked</code> / <code>human_review</code> + <span class="fn">build_exhaustion_memo()</span></td></tr>
+            <tr><td>3</td><td>otherwise</td><td><code>remediate</code></td><td><code>re_deliberate</code> · <code>re_probe</code> · <code>re_plan</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note">
+        <span class="label">Why exit 1b exists</span>
+        <p>
+          No remediation path re-runs metric execution, so once a metric has
+          conclusively failed the sufficiency gate (<code>failed == 0</code>) can never
+          be satisfied. The loop used to run to its cap anyway and stamp the verdict
+          with a memo reading "unresolved uncertainty: the Council lacked enough
+          evidence to decide" — the opposite of the truth. Exit 1b decides in one
+          iteration and says so positively:
+          <em>DECIDED ON CONCLUSIVE EVIDENCE</em>. An <code>error</code> metric stays
+          remediable, because there the evidence is <em>missing</em>, not negative.
+        </p>
+      </div>
+
+      <h4>Remediation</h4>
+      <div class="trace"><pre><span class="f">_apply_remediation(remediation_type, target_agent, objections, objections_upheld)</span>
+├─ re_plan → <span class="f">_resolve_re_plan_target()</span>
+│     match upheld objection text against DIMENSION_TO_AGENT_NAME, excluding agents
+│     that already completed this run → activate a DORMANT specialist, or no-op
+├─ re_probe / re_plan with a target:
+│     parent_buffer = <span class="f">get_log_buffer()</span>       <span class="c"># run_agents() does its own start/drain</span>
+│     <span class="f">run_agents(agent_names=[target], probe_budget_override=8, is_remediation_call=True)</span>
+│     ledger "remediation.re_plan_activated" | "remediation.{type}_failed"
+│     finally: <span class="f">bind_log_capture(parent_buffer)</span>
+│        <span class="c"># without the restore, every council LLM call AFTER this point vanished —</span>
+│        <span class="c"># _append_log() no-ops when the buffer is None</span>
+└─ re-read open findings + metric results → next iteration</pre></div>
+
+      <h4>Persisting the verdict</h4>
+      <div class="trace"><pre><span class="f">_persist_verdict()</span> → Verdict(run_id <span class="w">UNIQUE</span>, confidence_score, action_tier, label,
+                                synthesis=memo.narrative, objections[], reasoning,
+                                required_actions[])
+├─ required_actions: exhaustion → one human_reviewer action;
+│                    otherwise one per open finding's recommended_action
+│                    <span class="c"># deterministic, derived from findings — not from the LLM's verdict text</span>
+└─ reasoning gains a bracketed audit tail:
+     [Council iterations: N | iteration_penalty applied: … | LOOP EXHAUSTION: … |
+      DECIDED ON CONCLUSIVE EVIDENCE: … | <span class="w">NOT EVIDENTIAL</span>: no live governance model
+      was available, so this verdict was deliberated by the MOCK council client …]
+     <span class="c"># stated on the verdict itself, not only in result_summary — the reasoning text</span>
+     <span class="c"># is what gets read, quoted, and exported into reports</span>
+
+<span class="f">_update_run()</span> → result_summary += {council_label, council_confidence_score,
+      council_deliberated_at, council_iterations, council_exhausted,
+      council_governance_is_mock}
+<span class="f">_append_council_ledger("council_deliberation.completed")</span>   <span class="c"># payload.phase set so the</span>
+      <span class="c"># Runtime Event Stream renders it on the Council layer</span>
+for entry in <span class="f">drain_log_capture()</span>: session.add(LLMCallLog(...)) → commit</pre></div>
+
+      <div class="io">
+        <div>
+          <h5>Returns</h5>
+          <p><code>CouncilDeliberationRead</code> — <code>verdict</code>,
+          <code>finding_count</code>, <code>open_finding_count</code>,
+          <code>metric_result_count</code>, <code>failed_metric_count</code>,
+          <code>pending_metric_count</code>, <code>highest_severity</code>,
+          <code>created_verdict</code>.</p>
+        </div>
+        <div>
+          <h5>Action tiers</h5>
+          <p><code>approved</code>&rarr;<span class="pill ok">autonomous</span>,
+          <code>conditional_approval</code>&rarr;<span class="pill warn">supervised</span>,
+          <code>blocked</code>&rarr;<span class="pill bad">human_review</span>
+          (<span class="fn">_safe_action_tier()</span>; unknown labels map to
+          <code>human_review</code>).</p>
+        </div>
+      </div>
+
+      <h4>What the pipeline does with a council failure</h4>
+      <div class="trace"><pre><span class="c"># orchestration.py :: _execute_and_report()</span>
+try:    council_result = council.<span class="f">deliberate(...)</span>
+except <span class="w">ResourceConflictError</span>:            <span class="c"># a Verdict already exists</span>
+   if not verdicts.py :: <span class="f">council_produced_verdict(session, run_id)</span>:
+      raise ApplicationError(409, <span class="w">"VERDICT_NOT_COUNCIL_PRODUCED"</span>)
+      <span class="c"># a verdict written through the public route before the run reached the council</span>
+      <span class="c"># used to be adopted as the council's own outcome and exported as though the</span>
+      <span class="c"># council had reasoned its way to it. The LEDGER is the provenance record.</span>
+   council_result = <span class="f">council.get_existing_deliberation()</span>   <span class="c"># created_verdict=False</span>
+except Exception as exc:
+   council_error = {error_type, message}
+   <span class="w">session.rollback()</span>      <span class="c"># deliberate() may have left the session dirty; earlier</span>
+                          <span class="c"># phases already committed, so only council partials are lost</span>
+   <span class="f">_record_pipeline_step(event_type="council_deliberation.failed")</span>
+   <span class="c"># the run continues → report + terminal status, degraded with council_failure</span></pre></div>
+    </section>
+
+    <!-- ================= 09 REPORT ================= -->
+    <section id="report">
+      <h2><span class="num">09</span> Layer 5 — Action &amp; reporting</h2>
+
+      <div class="trace"><pre><span class="c"># phase moves first, so the Action &amp; Reporting stage actually activates in the UI;</span>
+<span class="c"># status stays non-terminal (report_ready would stop the frontend poll early)</span>
+run.current_phase = action_reporting → commit
+
+services/action_reporting/reports.py :: <span class="f">build_governance_report(session, run_id)</span>
+├─ run · ai_system  <span class="c"># missing AISystem → 404 ResourceNotFoundError</span>
+├─ ApplicationContextProfile · AISystemCapability[]     (created_at ASC)
+├─ EvidenceRecord[] · MetricResult[] · AgentExecution[] · Finding[]   (created_at ASC)
+├─ Verdict  <span class="c"># .first() — a MISSING verdict does not prevent a report; that is the</span>
+│           <span class="c"># whole point of degrading rather than failing. The audit record survives.</span>
+├─ governance_state.py :: <span class="f">verify_state_chain(run_id)</span>
+├─ audit_ledger.py    :: <span class="f">verify_ledger_chain(run_id)</span>
+├─ content_integrity.py :: <span class="f">verify_content_integrity(run_id)</span>
+│     → AuditLedgerChainVerification(valid, entry_count, failed_entry_id, reason,
+│                                    content_valid, content_checks)
+├─ <span class="f">build_metric_plan()</span>            <span class="c"># recomputed, so the report states its own plan</span>
+└─ endpoint_coverage.py :: <span class="f">build_endpoint_coverage(run_id)</span>
+      per endpoint: probes_sent · probes_failed · probes_skipped · requests_made ·
+                    agents{} · error_types{} · sample_error
+      <span class="c"># a probe is one logical question (one call-log row); a REQUEST is one HTTP</span>
+      <span class="c"># round trip. The Gateway retries, so a throttled probe can be 3 requests.</span>
+      <span class="c"># Both are reported, separately and labelled.</span></pre></div>
+
+      <div class="io">
+        <div>
+          <h5>Returns <code>GovernanceReportRead</code></h5>
+          <p><code>run</code>, <code>ai_system</code>, <code>context_profile</code>,
+          <code>capabilities[]</code>, <code>metric_plan</code>,
+          <code>agent_executions[]</code>, <code>evidence[]</code>,
+          <code>metric_results[]</code>, <code>findings[]</code>,
+          <code>verdict</code>, <code>state_chain</code>, <code>ledger_chain</code>,
+          <code>endpoint_coverage</code>, <code>counts</code>.</p>
+        </div>
+        <div>
+          <h5><code>counts</code></h5>
+          <p><code>capabilities</code>, <code>planned_metrics</code>,
+          <code>planned_controls</code>, <code>evidence</code>,
+          <code>metric_results</code>, <code>agent_executions</code>,
+          <code>findings</code>, <code>state_entries</code>,
+          <code>endpoints_registered</code>, <code>endpoints_unprobed</code>.</p>
+        </div>
+      </div>
+
+      <p>
+        The report is read-only and idempotent —
+        <code>GET /evaluation-runs/{id}/report</code> recomputes it on demand, including
+        both chain verifications. A sibling route,
+        <code>GET /{id}/framework-map</code>
+        (<code>action_reporting/framework_maps.py</code>), projects the same evidence
+        onto per-framework control coverage.
+      </p>
+    </section>
+
+    <!-- ================= 10 FINALIZE ================= -->
+    <section id="finalize">
+      <h2><span class="num">10</span> Finalize — how a run reaches a terminal status</h2>
+
+      <div class="trace"><pre><span class="c"># tail of _execute_and_report()</span>
+failed_executions = [e for e in agent_result.executions if e.status == failed]
+degraded = {}
+├─ failed_executions → degraded["specialist_agent_failure"] = {message, failed_agents[]}
+├─ council_error     → degraded["council_failure"]          = {message, error}
+│     "…this run carries NO governance decision. The metric results and specialist
+│      findings it did collect are preserved and reported; re-run the council…"
+└─ report_error      → degraded["report_failure"]           = {message, error}
+
+<span class="c"># collected TOGETHER, so a run that lost an agent AND the verdict reports both —</span>
+<span class="c"># dropping one would understate how incomplete the audit is</span>
+run.status = <span class="w">degraded</span> if degraded else <span class="w">completed</span>
+run.error_summary = {degraded_reason: "a,b,c", message: "&lt;flat one-liner&gt;", **degraded}
+run.current_phase = <span class="w">completed</span>;  completed_at = completed_at or now  → commit
+
+→ GovernancePipelineRunRead(run_id, context_assembly, evaluation_plan,
+                            metric_execution, agent_run, council, report)</pre></div>
+
+      <div class="trace"><pre>orchestration.py :: <span class="f">_finalize_run(run_id, status, error=None)</span>   <span class="c"># own session</span>
+├─ run.status in {completed, failed, cancelled} → <span class="w">return</span>   <span class="c"># already terminal</span>
+├─ run.status == degraded and status != failed  → <span class="w">return</span>
+│     <span class="c"># a success finalize must NOT overwrite degraded — the pipeline decided the run</span>
+│     <span class="c"># was degraded and that decision stands. A FAILURE finalize must be able to:</span>
+│     <span class="c"># a run that degraded in the agent phase and then genuinely crashed in the</span>
+│     <span class="c"># council was otherwise left at "degraded" with no error_summary and no</span>
+│     <span class="c"># completed_at, and — being absent from _INTERRUPTED_STATUSES — was never</span>
+│     <span class="c"># revisited by startup reconciliation either. The misreport was permanent.</span>
+├─ status == completed → current_phase = completed
+├─ error → error_summary MERGED (not replaced) with {error_type, error_code, message}
+│            <span class="c"># error_code = ApplicationError.code — without it the only record is prose,</span>
+│            <span class="c"># which callers end up string-matching on</span>
+├─ completed_at = completed_at or now → commit
+└─ try: <span class="f">append_ledger_entry(event_type="run.finalized",</span>
+             payload={status, error_type, message})
+   except: log only   <span class="c"># a ledger failure must never block finalization</span></pre></div>
+    </section>
+
+    <!-- ================= GATEWAY ================= -->
+    <section id="gateway">
+      <h2><span class="num">·</span> LLM gateway &amp; call logs</h2>
+
+      <p class="lede">
+        Every model call in the platform — target probes and governance reasoning
+        alike — passes through <code>services/model_clients/gateway.py</code>. It is
+        the only place that retries, throttles, and records.
+      </p>
+
+      <figure>
+        <div class="fig-scroll">
+        <svg viewBox="0 0 860 300" role="img" aria-label="How one LLM call is captured: the gateway appends an entry to a per-run contextvar buffer, which immediately writes a row to llm_call_logs on its own session, emits a Langfuse span, and is drained at phase end with already-persisted entries filtered out.">
+          <defs>
+            <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <polygon points="0,1 9,5 0,9" fill="currentColor"/>
+            </marker>
+            <marker id="ar3t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <polygon points="0,1 9,5 0,9" fill="#14b8a6"/>
+            </marker>
+          </defs>
+
+          <rect x="0" y="46" width="140" height="52" rx="5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="70" y="66" text-anchor="middle" font-size="11.5" fill="currentColor">agent / evaluator</text>
+          <text x="70" y="82" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".7">worker thread</text>
+
+          <line x1="140" y1="72" x2="186" y2="72" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar3)"/>
+
+          <rect x="188" y="34" width="176" height="76" rx="5" fill="none" stroke="#14b8a6" stroke-width="1.6"/>
+          <text x="276" y="55" text-anchor="middle" font-size="12" fill="#14b8a6">Gateway wrapper</text>
+          <text x="276" y="72" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".8">quota latch → cooldown</text>
+          <text x="276" y="87" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".8">→ target_slot → invoke</text>
+          <text x="276" y="102" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".8">→ retry ×3</text>
+
+          <line x1="364" y1="60" x2="410" y2="60" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar3)"/>
+          <rect x="412" y="42" width="120" height="36" rx="5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="472" y="65" text-anchor="middle" font-size="11.5" fill="currentColor">target / judge</text>
+
+          <line x1="276" y1="110" x2="276" y2="140" stroke="#14b8a6" stroke-width="1.4" marker-end="url(#ar3t)"/>
+          <text x="286" y="130" font-size="10.5" fill="#14b8a6">_append_log(entry)</text>
+
+          <rect x="188" y="142" width="176" height="46" rx="5" fill="none" stroke="#14b8a6" stroke-width="1.4"/>
+          <text x="276" y="161" text-anchor="middle" font-size="11.5" fill="#14b8a6">_CaptureBuffer</text>
+          <text x="276" y="176" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".8">contextvar · run_id · phase</text>
+
+          <!-- three consumers -->
+          <line x1="364" y1="152" x2="452" y2="152" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar3)"/>
+          <text x="408" y="145" text-anchor="middle" font-size="10" fill="currentColor" opacity=".75">now</text>
+          <rect x="454" y="134" width="180" height="38" rx="5" fill="none" stroke="currentColor" stroke-width="1.3"/>
+          <text x="544" y="150" text-anchor="middle" font-size="11.5" fill="currentColor">_persist_now()</text>
+          <text x="544" y="164" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".75">own short-lived session</text>
+
+          <line x1="364" y1="178" x2="452" y2="212" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#ar3)"/>
+          <text x="392" y="207" font-size="10" fill="currentColor" opacity=".75">always</text>
+          <rect x="454" y="196" width="180" height="38" rx="5" fill="none" stroke="currentColor" stroke-width="1.1" stroke-dasharray="4 3"/>
+          <text x="544" y="212" text-anchor="middle" font-size="11.5" fill="currentColor">langfuse_tracer</text>
+          <text x="544" y="226" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".75">no-op when unconfigured</text>
+
+          <line x1="276" y1="188" x2="276" y2="256" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar3)"/>
+          <text x="286" y="248" font-size="10.5" fill="currentColor" opacity=".8">drain_log_capture() at phase end</text>
+          <rect x="188" y="258" width="176" height="34" rx="5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          <text x="276" y="279" text-anchor="middle" font-size="11" fill="currentColor">filters _persisted</text>
+
+          <line x1="634" y1="153" x2="700" y2="153" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar3)"/>
+          <line x1="364" y1="275" x2="700" y2="275" stroke="currentColor" stroke-width="1.2"/>
+          <line x1="700" y1="275" x2="738" y2="180" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar3)"/>
+
+          <rect x="702" y="130" width="150" height="46" rx="5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <text x="777" y="150" text-anchor="middle" font-size="11.5" fill="currentColor">llm_call_logs</text>
+          <text x="777" y="165" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".75">one row per call</text>
+
+          <text x="0" y="20" font-family="ui-monospace, monospace" font-size="11" fill="currentColor" opacity=".65">bind_log_capture(buffer, agent_name) — contextvars do not cross thread boundaries</text>
+        </svg>
+        </div>
+        <figcaption>
+          Two write paths to one table. <span class="fn">_persist_now()</span> makes each
+          call queryable the instant it finishes; the phase-end drain writes only what
+          the immediate path missed, so the log can only ever be <em>more</em> complete,
+          never double-inserted.
+        </figcaption>
+      </figure>
+
+      <h3>Retry, throttle, and quota</h3>
+      <div class="trace"><pre>GatewayTargetModelClient.<span class="f">invoke(request)</span>
+for attempt in range(3):
+  ├─ <span class="f">_check_quota(endpoint)</span>     <span class="c"># latched TargetQuotaExhausted → raise, NO request sent</span>
+  ├─ <span class="f">_await_cooldown(endpoint)</span>  <span class="c"># shared instance-level cooldown, before taking a slot</span>
+  ├─ with target_throttle.<span class="f">target_slot(target_modality.modality_for(endpoint))</span>:
+  │       response = self._inner.invoke(request)
+  │       <span class="c"># ONE process-wide slot per ATTEMPT, around the network call only, so a</span>
+  │       <span class="c"># backoff sleep never occupies a slot. Video gets its own cap (default 1).</span>
+  ├─ <span class="f">_append_log</span>({task=<span class="f">_probe_name(capability_name)</span>, call_type="target", endpoint_ref,
+  │      attempts, model, deployment_name, client_mode, routed_via, token counts,
+  │      estimated_cost_usd, latency_ms, status="success", request/response_chars,
+  │      trace_id, policy_flags, <span class="w">prompt_text</span>, <span class="w">response_text</span>})
+  └─ except exc:
+       <span class="f">_is_retryable(exc)</span>:
+         TargetQuotaExhausted           → False   <span class="c"># retrying spends a refused allowance</span>
+         exc.terminal_refusal            → False   <span class="c"># moderation/content-policy block arrives</span>
+                                                   <span class="c"># as the target's own 502; deterministic</span>
+         RateLimitError|APIConnection|APITimeout → True
+         HTTPError.code ∈ {408,425,429,500,502,503,504} → True
+         URLError | TimeoutError         → True
+       <span class="f">_is_rate_limit(exc)</span>: 429, OR a 429 <span class="w">tunnelled</span> inside the target's own 502
+              <span class="c"># "Sora create failed [429]: Too many running tasks" — keying only on</span>
+              <span class="c"># exc.code read that as a server error, so no cooldown was published and</span>
+              <span class="c"># every worker kept firing into the same limit</span>
+       ├─ <span class="f">_quota_exhaustion(exc)</span>: Retry-After &gt; 300s → <span class="f">_enter_quota_exhausted()</span>, break
+       ├─ else <span class="f">_enter_cooldown(retry_after or 2**attempt)</span>   <span class="c"># EXTENDS, never shortens</span>
+       └─ non-retryable → <span class="f">_append_log(status="error"|"rate_limited", attempts=0 if</span>
+              quota-latched else attempt+1, error_type, error_detail,
+              <span class="w">prompt_text kept</span>, response_text=None) → raise</pre></div>
+
+      <p>
+        <span class="fn">GatewayGovernanceModelClient.complete()</span> mirrors this
+        without the throttle/cooldown, logging <code>call_type: "governance"</code> and
+        keeping <code>prompt_text</code> even when the call fails — a failed governance
+        call is exactly when a reviewer needs to see what was asked.
+      </p>
+
+      <h3><code>llm_call_logs</code> — the row</h3>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Column</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>run_id</code>, <code>agent_name</code>, <code>phase</code></td><td>Who and which layer. <code>phase</code> is stamped from the buffer, not per call site, so nothing can forget it</td></tr>
+            <tr><td><code>task</code></td><td>The probe name (endpoint tag stripped) or the governance task label; <code>NOT NULL</code>, coalesced to <code>"target_probe"</code></td></tr>
+            <tr><td><code>call_type</code></td><td><code>target</code> or <code>governance</code></td></tr>
+            <tr><td><code>endpoint_ref</code></td><td><em>Which</em> audited surface (target calls only) — indexed, because every per-endpoint rollup groups on it</td></tr>
+            <tr><td><code>attempts</code></td><td>Physical HTTP requests this one logical call cost</td></tr>
+            <tr><td><code>model</code>, <code>deployment_name</code>, <code>client_mode</code>, <code>routed_via</code></td><td><code>live</code> vs <code>mock</code>; LiteLLM proxy vs direct</td></tr>
+            <tr><td><code>prompt_tokens</code>…<code>estimated_cost_usd</code></td><td>Cost via <span class="fn">_estimate_cost_usd()</span> against the <code>_COST_TABLE</code></td></tr>
+            <tr><td><code>latency_ms</code>, <code>status</code></td><td>Measured, not assumed. <code>success</code> / <code>rate_limited</code> / <code>error</code></td></tr>
+            <tr><td><code>error_type</code>, <code>error_detail</code></td><td><code>error_detail</code> carries the target's own response body — where an audited system explains itself behind a 502</td></tr>
+            <tr><td><code>prompt_text</code>, <code>response_text</code></td><td>Full transcript, both call types, kept on failures too</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="trace"><pre><span class="h">GET /api/v1/evaluation-runs/{run_id}/llm-calls</span>
+└─ services/llm_gateway/call_log.py :: <span class="f">get_llm_call_log_summary()</span>
+   └─ SELECT LLMCallLog WHERE run_id ORDER BY created_at ASC
+      → LLMCallLogSummary(call_count, total_prompt_tokens, total_completion_tokens,
+           total_tokens, estimated_total_cost_usd, live_call_count, mock_call_count,
+           error_count, calls[])
+      <span class="c"># frontend: CallTranscripts.tsx renders these per agent</span></pre></div>
+
+      <h3>Client resolution</h3>
+      <div class="trace"><pre>model_clients/registry.py
+<span class="f">get_target_model_client_for_system(ai_system)</span>   <span class="c"># per-SYSTEM — always prefer this</span>
+├─ <span class="f">_infer_target_kind()</span>: metadata catalog_url | x-api-key | "/api/v1/ai" → hr_gateway
+│                        x-functions-key | rag/chat system_type        → techvest
+├─ same host as the configured HR gateway → hr_gateway
+├─ hr_gateway  → HRGatewayTargetModelClient
+├─ techvest    → TechVestTargetModelClient
+├─ any registered http(s) endpoint → GenericHTTPTargetModelClient.<span class="f">for_system()</span>
+└─ else → <span class="f">get_target_model_client()</span>: TARGET_* → LiteLLM → Azure OpenAI → <span class="w">Mock</span>
+
+<span class="f">get_governance_model_client()</span>: LiteLLM proxy → Azure OpenAI → <span class="w">Mock</span>
+<span class="c"># every branch returns a Gateway-wrapped client, which is why _probe_target()</span>
+<span class="c"># does not acquire a throttle slot itself</span></pre></div>
+    </section>
+
+    <!-- ================= INTEGRITY ================= -->
+    <section id="integrity">
+      <h2><span class="num">·</span> Integrity — two hash chains and a content digest</h2>
+
+      <div class="io">
+        <div>
+          <h5>State chain</h5>
+          <p><code>governance_state_entries</code> — one entry per phase artifact.
+          <span class="fn">append_state_entry()</span> hashes
+          <code>{run_id, sequence_number, entry_type, source, phase, payload,
+          previous_hash}</code> as canonical JSON (sorted keys, compact separators).
+          <code>UNIQUE(run_id, sequence_number)</code>.</p>
+        </div>
+        <div>
+          <h5>Audit ledger</h5>
+          <p><code>audit_ledger_entries</code> — one entry per governance event.
+          <span class="fn">append_ledger_entry()</span> hashes
+          <code>{run_id, event_type, actor_type, actor_id, payload,
+          previous_hash}</code>. <code>commit=False</code> folds an entry into a
+          caller's transaction.</p>
+        </div>
+        <div>
+          <h5>Content digest</h5>
+          <p><code>services/content_integrity.py</code> — SHA-256 over the exact
+          <code>Finding</code> / <code>MetricResult</code> rows a ledger entry
+          summarized, at write time. The chains prove the <em>ledger rows</em> weren't
+          altered; the digest catches changes to the ordinary mutable tables they
+          describe.</p>
+        </div>
+      </div>
+
+      <p>
+        Both verifiers walk the whole chain unpaginated and return the first breach:
+        <code>sequence_gap</code>, <code>previous_hash_mismatch</code>, or
+        <code>entry_hash_mismatch</code>. There is a matching invariant suite in
+        <code>services/audit_invariants.py</code>.
+      </p>
+
+      <h4>Every ledger event a full run can emit</h4>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>event_type</th><th>actor_type / actor_id</th><th>Written by</th></tr></thead>
+          <tbody>
+            <tr><td><code>context_assembly.completed</code></td><td>system / context_assembly</td><td><code>assembler.py</code></td></tr>
+            <tr><td><code>evaluation_plan.prepared</code></td><td>system / adaptive_orchestrator</td><td><code>planner.py</code></td></tr>
+            <tr><td><code>plan.awaiting_approval</code></td><td>system / orchestrator</td><td><span class="fn">_pause_for_approval()</span></td></tr>
+            <tr><td><code>plan.approved</code></td><td><strong>user</strong> / approver</td><td><span class="fn">approve_plan()</span></td></tr>
+            <tr><td><code>metric_execution.completed</code></td><td><strong>tool</strong> / evaluator_name</td><td><span class="fn">_record_pipeline_step()</span></td></tr>
+            <tr><td><code>metric.orphaned_after_timeout</code></td><td>system / metric_execution</td><td>straggler callback</td></tr>
+            <tr><td><code>agent.completed</code> · <code>agent.failed</code></td><td><strong>agent</strong> / agent_name</td><td><span class="fn">_finalize()</span>, one per agent</td></tr>
+            <tr><td><code>agent.orphaned_after_timeout</code></td><td>system / agent_execution</td><td>straggler callback</td></tr>
+            <tr><td><code>agent_execution.completed</code></td><td>agent / agent_orchestrator</td><td><span class="fn">_record_pipeline_step()</span> + digest</td></tr>
+            <tr><td><code>council_deliberation.completed</code></td><td>system / deliberation_council</td><td><span class="fn">_append_council_ledger()</span></td></tr>
+            <tr><td><code>council_deliberation.failed</code></td><td>system / council_service</td><td><span class="fn">_execute_and_report()</span></td></tr>
+            <tr><td><code>remediation.re_plan_activated</code></td><td>system / deliberation_council</td><td><span class="fn">_apply_remediation()</span></td></tr>
+            <tr><td><code>remediation.{type}_failed</code></td><td>system / deliberation_council</td><td><span class="fn">_apply_remediation()</span></td></tr>
+            <tr><td><code>governance_report.generated</code></td><td>system / report_service</td><td><span class="fn">_record_pipeline_step()</span></td></tr>
+            <tr><td><code>run.finalized</code></td><td>system / orchestrator</td><td><span class="fn">_finalize_run()</span></td></tr>
+            <tr><td><code>run.reconcile_failed</code></td><td>system / orchestrator</td><td><span class="fn">reconcile_interrupted_runs()</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Every payload carries <code>phase</code> — the Live Run view's Runtime Event
+        Stream filters on it, so an event without it exists but renders on no layer.
+      </p>
+    </section>
+
+    <!-- ================= FAILURE ================= -->
+    <section id="failure">
+      <h2><span class="num">·</span> Failure, degradation, and resume</h2>
+
+      <h4>The degradation ladder</h4>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>What fails</th><th>Consequence</th><th>Recorded as</th></tr></thead>
+          <tbody>
+            <tr><td>One probe</td><td>Sibling probes still land</td><td><code>FailedProbe</code> in <code>metadata_json.probes_failed</code></td></tr>
+            <tr><td>All of an agent's probes</td><td>Agent fails</td><td><code>AllProbesFailedError</code> → <code>agent.failed</code> + synthetic coverage finding</td></tr>
+            <tr><td>One metric</td><td>Others persist</td><td><code>MetricResult.status = error</code>, run <span class="pill warn">degraded</span></td></tr>
+            <tr><td>One agent</td><td>Phase continues</td><td><code>AgentExecution.status = failed</code>, run <span class="pill warn">degraded</span></td></tr>
+            <tr><td>Metric phase budget</td><td>Unfinished metrics skipped</td><td><code>metric.orphaned_after_timeout</code></td></tr>
+            <tr><td>Agent phase budget</td><td>Stragglers abandoned, findings discarded</td><td><code>agent.orphaned_after_timeout</code> + late-log recovery</td></tr>
+            <tr><td>Council</td><td>Report still built, no verdict</td><td><code>council_failure</code> in <code>error_summary</code></td></tr>
+            <tr><td>Report</td><td>Run still reaches terminal</td><td><code>report_failure</code> in <code>error_summary</code></td></tr>
+            <tr><td>Anything unhandled</td><td>Run marked failed</td><td><code>_finalize_run(failed)</code> + <code>run.finalized</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>Startup reconciliation</h4>
+      <div class="trace"><pre>main.py @app.on_event("startup") → daemon thread → <span class="f">reconcile_interrupted_runs(session)</span>
+  <span class="c"># On a THREAD because reconciliation RESUMES a run — real probes, minutes of work.</span>
+  <span class="c"># Inline it sat in front of the socket bind ("Waiting for application startup",</span>
+  <span class="c"># port never opened), and a mid-resume death faced the next boot with the same</span>
+  <span class="c"># unfinished run — an unbounded restart loop that never served a request.</span>
+
+SELECT EvaluationRun WHERE status IN (_INTERRUPTED_STATUSES + degraded)
+   _INTERRUPTED_STATUSES = created · context_assembly · planned ·
+                           metrics_running · agents_running · council_running
+for run in stuck:
+├─ degraded and <span class="f">_is_interrupted_degraded(run)</span> is False → skip
+│     <span class="c"># degraded + current_phase == completed means the run genuinely finished;</span>
+│     <span class="c"># the phase is what tells the two kinds of degraded apart</span>
+├─ <span class="f">is_awaiting_plan_approval(run)</span> → <span class="w">skip</span>   <span class="c"># waiting on a person, not a crash</span>
+├─ a Verdict exists → the council was reached → mark completed (or keep degraded),
+│                     phase=completed, result_summary["reconciled"]
+├─ status ∈ {created, context_assembly} → <span class="f">run_governance_pipeline()</span> from scratch
+│     <span class="c"># no plan was ever persisted; context assembly makes no target calls, so</span>
+│     <span class="c"># retrying it has no side effects</span>
+├─ otherwise → <span class="f">resume_governance_pipeline()</span>
+│     <span class="c"># run_metrics skips already passed/failed metrics; run_agents skips</span>
+│     <span class="c"># already-completed non-remediation agents — no probe is repeated</span>
+└─ resume itself raised → status=failed, error_summary["context"] = "Resume attempt
+     after worker restart failed." + ledger "run.reconcile_failed"</pre></div>
+    </section>
+
+    <!-- ================= READBACK ================= -->
+    <section id="readback">
+      <h2><span class="num">·</span> Read-back API surface</h2>
+
+      <p class="lede">
+        What the frontend calls while a run is in flight and after it lands. All GET,
+        all unauthenticated by design (the auth middleware protects mutations only, so
+        SSE and <code>&lt;img&gt;</code> sources work without headers).
+      </p>
+
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Route</th><th>Service</th><th>Returns</th></tr></thead>
+          <tbody>
+            <tr><td><code>GET /evaluation-runs/{id}</code></td><td><span class="fn">get_evaluation_run</span></td><td>Status, phase, <code>result_summary</code>, <code>error_summary</code>, <code>plan_approved_at</code></td></tr>
+            <tr><td><code>GET /{id}/progress/stream</code></td><td>SSE, 2 s tick</td><td><code>{status, current_phase, progress %, agents[], probe_count, finding_count, result_summary}</code>; closes on a terminal status</td></tr>
+            <tr><td><code>GET /{id}/context-assembly</code></td><td><span class="fn">get_latest_context</span></td><td><code>ContextAssemblyRead</code> from the state chain</td></tr>
+            <tr><td><code>GET /{id}/evaluation-plan</code></td><td><span class="fn">get_latest_plan</span></td><td><code>EvaluationPlanRead</code> from the state chain</td></tr>
+            <tr><td><code>GET /{id}/metric-plan</code></td><td><span class="fn">build_metric_plan</span></td><td><code>MetricPlanRead</code>, recomputed — the approval modal's source</td></tr>
+            <tr><td><code>GET /{id}/agents/executions</code></td><td><span class="fn">list_agent_executions</span></td><td>Rows with <code>metadata_json.inputs</code> / <code>.outputs</code></td></tr>
+            <tr><td><code>GET /{id}/findings</code></td><td><code>routes/findings.py</code></td><td>Findings with severity, confidence, <code>evidence_ids</code></td></tr>
+            <tr><td><code>GET /{id}/evidence</code></td><td><code>routes/evidence.py</code></td><td><code>EvidenceRecord</code>s + raw tool payloads</td></tr>
+            <tr><td><code>GET /{id}/llm-calls</code></td><td><span class="fn">get_llm_call_log_summary</span></td><td>Token/cost totals + every transcript</td></tr>
+            <tr><td><code>GET /{id}/endpoint-coverage</code></td><td><span class="fn">build_endpoint_coverage</span></td><td>Per-endpoint probes sent / failed / skipped / requests</td></tr>
+            <tr><td><code>GET /{id}/execution-artifacts</code></td><td><span class="fn">list_execution_artifacts</span></td><td>Metadata only (<code>has_media</code>), so the list stays light</td></tr>
+            <tr><td><code>GET /{id}/execution-artifacts/{aid}/media</code></td><td>base64 → bytes</td><td>Raw bytes with the real <code>Content-Type</code></td></tr>
+            <tr><td><code>GET /{id}/ledger</code> · <code>/state</code></td><td><code>audit_ledger.py</code> · <code>governance_state.py</code></td><td>Paginated chains, filterable by event/actor/phase/source</td></tr>
+            <tr><td><code>GET /{id}/report</code></td><td><span class="fn">build_governance_report</span></td><td>The full package + both chain verifications</td></tr>
+            <tr><td><code>GET /{id}/framework-map</code></td><td><span class="fn">build_framework_compliance_map</span></td><td>Evidence projected onto framework controls</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note caution">
+        <span class="label">One SSE subtlety</span>
+        <p>
+          Each 2-second tick opens its <em>own</em> short-lived session. Looping on the
+          request-scoped session made its identity map keep returning the first
+          snapshot of the run row — status and phase never advanced, the progress bar
+          froze at whatever phase the stream connected during, a terminal status was
+          never observed, and a pool connection stayed pinned for the run's lifetime.
+        </p>
+      </div>
+
+      <p>
+        Frontend consumers: <code>hooks/useEvaluationRunner.ts</code> (create &rarr;
+        orchestrate &rarr; poll), <code>hooks/useRunProgress.ts</code> (SSE),
+        <code>components/execution/*</code> (one panel per layer,
+        <code>CallTranscripts.tsx</code> for LLM logs,
+        <code>MetricPlanApprovalModal.tsx</code> for the gate,
+        <code>RuntimeEventStream.tsx</code> for the ledger,
+        <code>CouncilProvenance.tsx</code> for claims and objections).
+      </p>
+    </section>
+
+    <!-- ================= ARTIFACTS ================= -->
+    <section id="artifacts">
+      <h2><span class="num">·</span> Everything one run writes</h2>
+
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Table</th><th>Rows per run</th><th>Written by</th></tr></thead>
+          <tbody>
+            <tr><td><code>evaluation_runs</code></td><td>1, mutated through every phase</td><td>All phases</td></tr>
+            <tr><td><code>governance_state_entries</code></td><td>~5 + 1 per council iteration</td><td><span class="fn">append_state_entry()</span></td></tr>
+            <tr><td><code>audit_ledger_entries</code></td><td>~8 + 1 per agent + remediation/orphan events</td><td><span class="fn">append_ledger_entry()</span></td></tr>
+            <tr><td><code>evidence_records</code></td><td>1 per evaluated metric</td><td><span class="fn">run_metrics()</span></td></tr>
+            <tr><td><code>metric_results</code></td><td>1 per evaluated metric</td><td><span class="fn">run_metrics()</span></td></tr>
+            <tr><td><code>agent_executions</code></td><td>1 per agent (+1 per remediation call)</td><td><span class="fn">run_agents()</span></td></tr>
+            <tr><td><code>findings</code></td><td>N per agent + coverage-gap findings</td><td><span class="fn">_finalize()</span>, <span class="fn">_finalize_endpoint_coverage()</span></td></tr>
+            <tr><td><code>verdicts</code></td><td>Exactly 1 (<code>UNIQUE run_id</code>), or 0 if the council failed</td><td><span class="fn">_persist_verdict()</span></td></tr>
+            <tr><td><code>llm_call_logs</code></td><td>1 per model call, all four LLM-bearing phases</td><td>Gateway <span class="fn">_append_log()</span></td></tr>
+            <tr><td><code>execution_artifacts</code></td><td>1 per probe response carrying media</td><td><span class="fn">record_execution_artifacts()</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>Tuning knobs</h4>
+      <p>
+        All resolve through <code>services/concurrency_settings.py</code> at call time —
+        never <code>os.getenv</code> at import. The app reads <code>&lt;repo&gt;/.env</code>
+        via pydantic-settings, which never populates <code>os.environ</code>, so the
+        documented <code>.env</code> overrides used to do nothing at all.
+      </p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Setting</th><th>Default</th><th>Bounds</th></tr></thead>
+          <tbody>
+            <tr><td><code>METRIC_EXECUTION_MAX_WORKERS</code></td><td>3</td><td>Concurrent metric evaluations. Was 6 until the shared judge returned a 429 storm</td></tr>
+            <tr><td><code>METRIC_EXECUTION_BUDGET_SECONDS</code></td><td>600</td><td>Scaled by metric count; unfinished metrics → <code>skipped</code></td></tr>
+            <tr><td><code>AGENT_EXECUTION_MAX_WORKERS</code></td><td>3</td><td>Concurrent agents. <em>Multiplies</em> with the probe width</td></tr>
+            <tr><td><code>AGENT_EXECUTION_BUDGET_SECONDS</code></td><td>900</td><td>Shared by fan-out and aggregate; aggregate floor 120 s</td></tr>
+            <tr><td><code>AGENT_PROBE_MAX_WORKERS</code></td><td>6</td><td>Concurrent probes within one agent</td></tr>
+            <tr><td><code>AGENT_TARGET_MAX_INFLIGHT</code></td><td>= probe width</td><td>Process-wide ceiling on requests into the target</td></tr>
+            <tr><td><code>AGENT_TARGET_MAX_INFLIGHT_VIDEO</code></td><td>1</td><td>Providers limit simultaneously <em>running</em> render jobs</td></tr>
+            <tr><td><code>TARGET_QUOTA_EXHAUSTED_SECONDS</code></td><td>300</td><td>A named wait above this is exhaustion, not throttling</td></tr>
+            <tr><td><code>LLM_CALL_TIMEOUT_SECONDS</code></td><td>60</td><td>Per call; video generation gets 600</td></tr>
+            <tr><td><code>ADAPTIVE_PLAN_REVIEW_ENABLED</code></td><td>true</td><td>Off = evaluate the full applicable catalog</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>Ten LLM call sites in one full run</h4>
+      <ol class="prose-list">
+        <li><code>evaluation_plan_review</code> — planner narrows the metric set</li>
+        <li><code>dynamic_probe_design</code> — per capability with no tailored probe (0…N)</li>
+        <li>Evidence-tool judge calls inside <code>deepeval</code> / <code>ragas</code> / <code>garak</code></li>
+        <li>–8. One reasoning call per specialist agent (<code>bias_analysis</code>, <code>misuse_detection</code>, <code>quality_evaluation</code>, <code>drift_analysis</code>, <code>transparency_analysis</code>, <code>explainability_analysis</code>, <code>oversight_analysis</code>) — doubled on a non-JSON retry</li>
+        <li><code>council_synthesis</code> + <code>council_devils_advocate</code> + <code>council_verdict</code>, once per iteration (×1–3)</li>
+        <li>Plus every target probe, logged as <code>call_type: "target"</code></li>
+      </ol>
+    </section>
+
+  </main>
+
+  <footer class="doc-foot">
+    Traced from <code>backend/app</code> and <code>frontend/src</code> on the
+    <code>feature/p2-run-pipeline-fixes-and-ui</code> branch. Companion docs:
+    <code>docs/SPEC.md</code>, <code>docs/ARCHITECTURE.md</code>,
+    <code>docs/DATA_MODEL.md</code>, <code>docs/API_CONTRACTS.md</code>,
+    <code>docs/RUNBOOK.md</code>.
+  </footer>
+
+</div>

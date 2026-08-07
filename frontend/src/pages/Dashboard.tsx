@@ -33,6 +33,7 @@ import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { useAppStore } from "@/store/useAppStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { personaForRole } from "@/lib/persona";
+import { isRunActive } from "@/lib/runStatus";
 import { useDashboardData, type DashboardData } from "@/hooks/useDashboardData";
 import { useChartTheme } from "@/hooks/useChartTheme";
 
@@ -42,7 +43,6 @@ type DashboardTab = "Overview" | "Compliance" | "Risk Analysis" | "Agent Perform
 // deeper metric/source plumbing remains developer-only.
 const AUDITOR_TABS: DashboardTab[] = ["Overview", "Compliance", "Risk Analysis", "Agent Performance"];
 const DEVELOPER_TABS: DashboardTab[] = ["Overview", "Compliance", "Risk Analysis", "Agent Performance", "Metrics & Sources"];
-const DASHBOARD_TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
 
 export function Dashboard() {
   const [activeTab, setActiveTab] = useState<DashboardTab>("Overview");
@@ -324,7 +324,7 @@ function ComplianceTab({ data }: { data: DashboardData }) {
 function RiskAnalysisTab({ data }: { data: DashboardData }) {
   const openFindings = data.findings.filter((f) => f.status === "open");
   const atRiskFrameworks = data.frameworkCoverage.filter((row) => row.status === "At Risk" || row.status === "Partial");
-  const activeRuns = data.runs.filter((run) => !DASHBOARD_TERMINAL_STATUSES.has(run.status));
+  const activeRuns = data.runs.filter((run) => isRunActive(run.status));
   return (
     <div className="space-y-5">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

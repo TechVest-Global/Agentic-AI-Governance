@@ -1,21 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  AlertTriangle,
-  BarChart3,
-  ChevronDown,
-  ChevronRight,
-  Clock,
-  ClipboardCheck,
-  ExternalLink,
-  FileText,
-  FlaskConical,
-  Layers,
-  Loader2,
-  MessageSquare,
-  SearchCheck,
-  Terminal,
-  Wrench,
-} from "lucide-react";
+import { AlertTriangle, BarChart3, ChevronDown, ChevronRight, ClipboardCheck, Clock, ExternalLink, FileText, FlaskConical, Gauge, Layers, Loader2, MessageSquare, SearchCheck, Server, Terminal, Wrench } from "lucide-react";
 import clsx from "clsx";
 import { useAppStore } from "@/store/useAppStore";
 import {
@@ -28,6 +12,7 @@ import {
   type LlmCall,
 } from "@/api/governanceApi";
 import { metricBlurb, metricName } from "@/data/metricCatalog";
+import { mediaFromResponseText } from "@/lib/probeMedia";
 import {
   experimentFor,
   parseRankingScores,
@@ -36,7 +21,14 @@ import {
   type ProbeExperiment,
 } from "@/data/probeMeta";
 
-export type AgentTab = "Overview" | "Probes" | "Evidence" | "Frameworks" | "Remediation" | "Runtime";
+export type AgentTab =
+  | "Overview"
+  | "Inputs & Outputs"
+  | "Probes"
+  | "Evidence"
+  | "Frameworks"
+  | "Remediation"
+  | "Runtime";
 
 export type IntelligenceAgent = {
   id: string;
@@ -55,9 +47,26 @@ export type IntelligenceAgent = {
   remediation: string[];
   timeline: Array<{ label: string; status: "complete" | "running" | "waiting"; detail: string }>;
   toolCalls: FindingToolCall[];
+  /** What the backend handed this agent, recorded before it ran — so an agent
+   *  that failed or exited early still shows what it was asked to check. */
+  inputs: AgentIo | null;
+  /** What it came back with, including "nothing, and here is why". */
+  outputs: AgentIo | null;
+  errorSummary: Record<string, unknown> | null;
 };
 
-export const AGENT_TABS: AgentTab[] = ["Overview", "Probes", "Evidence", "Frameworks", "Remediation", "Runtime"];
+/** Free-form record straight off AgentExecution.metadata_json. */
+type AgentIo = Record<string, unknown>;
+
+export const AGENT_TABS: AgentTab[] = [
+  "Overview",
+  "Inputs & Outputs",
+  "Probes",
+  "Evidence",
+  "Frameworks",
+  "Remediation",
+  "Runtime",
+];
 
 /**
  * Turn a raw probe identifier into a readable title, keeping the pass number as
@@ -196,9 +205,11 @@ function describeContextLoad(assembly: ContextAssemblyRead | null): string {
 function describeProbeDesign(plan: AgentPlanItem | null): string {
   if (!plan) return "No evaluation plan entry recorded for this agent on this run.";
   if (!plan.activated) return `Not activated for this run. ${plan.rationale}`.trim();
+  // Name first, id in parentheses: "CM-017" identifies a metric but does not
+  // describe one, and this sentence is read by people, not looked up by them.
   const metrics = plan.assigned_metric_ids.length
     ? `Assigned metric${plan.assigned_metric_ids.length === 1 ? "" : "s"}: ${plan.assigned_metric_ids
-        .map((id) => (metricName(id) !== id ? `${id} (${metricName(id)})` : id))
+        .map((id) => (metricName(id) !== id ? `${metricName(id)} (${id})` : id))
         .join(", ")}.`
     : "No metrics assigned.";
   return `Priority ${plan.priority} · probe budget ${plan.probe_budget}. ${metrics} ${plan.rationale}`.trim();
@@ -327,6 +338,9 @@ export function buildAgentsFromBackend(
       remediation: realActions.length ? realActions : meta.remediation,
       timeline: buildTimeline(execution.status, plan, contextAssembly, agentCalls, agentFindings),
       toolCalls,
+      inputs: (execution.metadata_json?.inputs as AgentIo | undefined) ?? null,
+      outputs: (execution.metadata_json?.outputs as AgentIo | undefined) ?? null,
+      errorSummary: (execution.error_summary as Record<string, unknown> | null) ?? null,
     };
   });
 }
@@ -380,6 +394,10 @@ function ExpandedTab({
 }) {
   if (tab === "Runtime") {
     return <RuntimeTab agent={agent} runId={runId} />;
+  }
+
+  if (tab === "Inputs & Outputs") {
+    return <InputsOutputsTab agent={agent} />;
   }
 
   if (tab === "Overview") {
@@ -521,6 +539,45 @@ function ProbesTab({ agent, runId }: { agent: IntelligenceAgent; runId: string |
     return order.map((id) => byId.get(id)!);
   }, [targetCalls]);
 
+  // On a multi-endpoint system the experiment grouping alone leaves the
+  // transcript looking scattered: probes for different audited surfaces sit
+  // interleaved with nothing saying which surface each one hit. Endpoint is the
+  // outer axis in that case. A single-endpoint system renders exactly as before
+  // — one section, no extra chrome for a distinction that doesn't exist.
+  const endpointSections = useMemo(() => {
+    const order: string[] = [];
+    const byEndpoint = new Map<string, { call: LlmCall; number: number }[]>();
+    targetCalls.forEach((call, i) => {
+      const key = call.endpoint_ref ?? "";
+      if (!byEndpoint.has(key)) {
+        byEndpoint.set(key, []);
+        order.push(key);
+      }
+      byEndpoint.get(key)!.push({ call, number: i + 1 });
+    });
+    return order.map((endpoint) => {
+      const entries = byEndpoint.get(endpoint)!;
+      const groupOrder: string[] = [];
+      const groups = new Map<string, { experiment: ProbeExperiment; calls: { call: LlmCall; number: number }[] }>();
+      entries.forEach((entry) => {
+        const experiment = experimentFor(entry.call.task);
+        if (!groups.has(experiment.id)) {
+          groups.set(experiment.id, { experiment, calls: [] });
+          groupOrder.push(experiment.id);
+        }
+        groups.get(experiment.id)!.calls.push(entry);
+      });
+      return {
+        endpoint,
+        total: entries.length,
+        errors: entries.filter((e) => e.call.status !== "success").length,
+        groups: groupOrder.map((id) => groups.get(id)!),
+      };
+    });
+  }, [targetCalls]);
+
+  const multiEndpoint = endpointSections.length > 1;
+
   return (
     <div className="space-y-5">
       {/* Probe methods header */}
@@ -571,7 +628,39 @@ function ProbesTab({ agent, runId }: { agent: IntelligenceAgent; runId: string |
             </p>
           </div>
         )}
-        {!loading && targetCalls.length > 0 && (
+        {!loading && targetCalls.length > 0 && multiEndpoint && (
+          <div className="space-y-5">
+            {endpointSections.map((section) => (
+              <div key={section.endpoint || "unattributed"} className="space-y-2">
+                {/* Which audited surface the probes below were sent to. */}
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-900">
+                  <Server className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                  {/* Monospaced and lowercase — a URL, not a title. */}
+                  <span className="break-all font-mono text-[11.5px] lowercase text-slate-700 dark:text-slate-200">
+                    {section.endpoint || "no endpoint recorded"}
+                  </span>
+                  <span className="ml-auto shrink-0 text-[10px] text-slate-400 dark:text-slate-500">
+                    {section.total} probe{section.total === 1 ? "" : "s"}
+                    {section.errors > 0 && (
+                      <span className="text-red-500 dark:text-red-400"> · {section.errors} error{section.errors === 1 ? "" : "s"}</span>
+                    )}
+                  </span>
+                </div>
+                <div className="space-y-4 border-l-2 border-slate-200 pl-3 dark:border-slate-700">
+                  {section.groups.map((group) => (
+                    <ProbeExperimentGroup
+                      key={group.experiment.id}
+                      group={group}
+                      expanded={expanded}
+                      onToggle={(id) => setExpanded(expanded === id ? null : id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {!loading && targetCalls.length > 0 && !multiEndpoint && (
           <div className="space-y-5">
             {probeGroups.map((group) => (
               <div key={group.experiment.id} className="space-y-2">
@@ -591,7 +680,7 @@ function ProbesTab({ agent, runId }: { agent: IntelligenceAgent; runId: string |
                 </div>
                 <div className="space-y-2">
                   {group.calls.map(({ call, number }) => (
-                    <ProbeRow
+                    <CallTranscriptRow
                       key={call.id}
                       call={call}
                       number={number}
@@ -609,10 +698,312 @@ function ProbesTab({ agent, runId }: { agent: IntelligenceAgent; runId: string |
   );
 }
 
-// One probe row: header + "why this probe" caption, expanding to the full
-// prompt/response transcript, a disparity strip for ranking probes, and a note
-// on what a failure means.
-function ProbeRow({
+/** One experiment's header plus its probes. Shared by the flat (single-endpoint)
+ *  transcript and the endpoint-grouped one, so the two cannot drift apart. */
+function ProbeExperimentGroup({
+  group,
+  expanded,
+  onToggle,
+}: {
+  group: { experiment: ProbeExperiment; calls: { call: LlmCall; number: number }[] };
+  expanded: string | null;
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <FlaskConical className="h-4 w-4 text-brand-600 dark:text-brand-400" />
+          <p className="text-[12px] font-semibold text-slate-900 dark:text-white">{group.experiment.title}</p>
+          <span className="rounded bg-brand-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-brand-700 dark:bg-brand-900/30 dark:text-brand-300">
+            {group.experiment.method}
+          </span>
+          <span className="ml-auto text-[10px] text-slate-400 dark:text-slate-500">
+            {group.calls.length} probe{group.calls.length === 1 ? "" : "s"}
+          </span>
+        </div>
+        <p className="mt-1 text-[11px] leading-5 text-slate-500 dark:text-slate-400">{group.experiment.description}</p>
+      </div>
+      <div className="space-y-2">
+        {group.calls.map(({ call, number }) => (
+          <CallTranscriptRow
+            key={call.id}
+            call={call}
+            number={number}
+            open={expanded === call.id}
+            onToggle={() => onToggle(call.id)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Inputs & Outputs Tab ──────────────────────────────────────────────────
+
+/**
+ * What the agent was handed, and what it returned.
+ *
+ * The other tabs all render things an agent produces by CALLING something —
+ * probes, transcripts, tool invocations. An agent that legitimately makes no
+ * calls (its metrics passed) or fails before its first call therefore showed
+ * empty tab after empty tab, with no way to tell what it had been asked to
+ * check. Both halves are read off the execution row, so they are present while
+ * the agent is still running and survive a failure that produces no output.
+ */
+function InputsOutputsTab({ agent }: { agent: IntelligenceAgent }) {
+  const { inputs, outputs, errorSummary } = agent;
+
+  if (!inputs && !outputs) {
+    return (
+      <p className="text-[12px] text-slate-500 dark:text-slate-400">
+        This run predates per-agent input/output capture. Re-run to record what each agent
+        was given and what it returned.
+      </p>
+    );
+  }
+
+  const metricStates = (inputs?.assigned_metric_states as MetricState[] | undefined) ?? [];
+  const bySeverity = (outputs?.findings_by_severity as Record<string, number> | undefined) ?? {};
+  const titles = (outputs?.finding_titles as string[] | undefined) ?? [];
+
+  return (
+    <div className="space-y-5">
+      {errorSummary && (
+        <div className="rounded border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 px-3 py-2.5">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-3.5 w-3.5 text-red-500 dark:text-red-400" />
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-red-600 dark:text-red-400">
+              This agent did not complete
+            </p>
+          </div>
+          <p className="mt-1 font-mono text-[11.5px] text-red-800 dark:text-red-300">
+            {String(errorSummary.error_type ?? "error")}: {String(errorSummary.message ?? "")}
+          </p>
+          <p className="mt-1 text-[11px] text-red-700/80 dark:text-red-400/80">
+            Its dimension was not verified on this run — the absence of findings below is an
+            audit gap, not evidence that the system is clean.
+          </p>
+        </div>
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* ── INPUT ── */}
+        <div className="rounded-lg border border-blue-200 dark:border-blue-900 overflow-hidden">
+          <div className="border-b border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/40 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-700 dark:text-blue-400">
+              Input — what this agent was given
+            </p>
+          </div>
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            <Row label="Dimension" value={String(inputs?.dimension ?? "—")} />
+            <Row label="Priority" value={String(inputs?.priority ?? "—")} />
+            <Row label="Probe budget" value={String(inputs?.probe_budget ?? "—")} />
+            <Row
+              label="Audit scope"
+              value={((inputs?.audit_scope_capabilities as string[]) ?? []).join(", ") || "—"}
+            />
+            <AssignedMetricsRow
+              metrics={(inputs?.assigned_metrics as AssignedMetric[] | undefined) ?? null}
+              ids={(inputs?.assigned_metric_ids as string[] | undefined) ?? []}
+            />
+            <Row label="Metric results visible" value={String(inputs?.visible_metric_results ?? "—")} />
+            <Row label="Evidence records visible" value={String(inputs?.visible_evidence_records ?? "—")} />
+            <Row label="Prior findings visible" value={String(inputs?.visible_prior_findings ?? "—")} />
+          </div>
+          {Boolean(inputs?.activation_rationale) && (
+            <p className="border-t border-slate-100 dark:border-slate-800 px-3 py-2 text-[11px] leading-5 text-slate-600 dark:text-slate-400">
+              {String(inputs?.activation_rationale)}
+            </p>
+          )}
+        </div>
+
+        {/* ── OUTPUT ── */}
+        <div className="rounded-lg border border-emerald-200 dark:border-emerald-900 overflow-hidden">
+          <div className="border-b border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-700 dark:text-emerald-400">
+              Output — what it came back with
+            </p>
+          </div>
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            <Row label="Probes planned" value={String(outputs?.probes_planned ?? "—")} />
+            <Row label="Probes sent" value={String(outputs?.probes_sent ?? "—")} />
+            {Number(outputs?.probes_not_sent ?? 0) > 0 && (
+              /* The gap between planned and sent IS the finding when a target
+                 refuses — this used to be invisible because the plan was
+                 reported as the send count. */
+              <div className="flex items-start justify-between gap-3 bg-red-50 dark:bg-red-950/30 px-3 py-1.5">
+                <span className="text-[11px] font-medium text-red-700 dark:text-red-400">
+                  Never sent
+                </span>
+                <span className="text-right font-mono text-[11px] font-semibold text-red-800 dark:text-red-300">
+                  {String(outputs?.probes_not_sent)}
+                </span>
+              </div>
+            )}
+            <Row label="Probes skipped" value={String(outputs?.probes_skipped ?? "—")} />
+            <Row label="Probes failed" value={String(outputs?.probes_failed ?? "—")} />
+            <Row label="Findings" value={String(outputs?.finding_count ?? "—")} />
+            <Row
+              label="By severity"
+              value={
+                Object.keys(bySeverity).length
+                  ? Object.entries(bySeverity).map(([k, v]) => `${v} ${k}`).join(", ")
+                  : "none"
+              }
+            />
+          </div>
+          {titles.length > 0 && (
+            <ul className="border-t border-slate-100 dark:border-slate-800 px-3 py-2 space-y-1">
+              {titles.map((t) => (
+                <li key={t} className="text-[11px] leading-5 text-slate-700 dark:text-slate-300">
+                  · {t}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      {metricStates.length > 0 && (
+        <div>
+          <SectionTitle icon={Gauge} title="The metric state it reasoned over" />
+          <p className="mb-2 text-[11px] text-slate-500 dark:text-slate-400">
+            These statuses are what decide whether the agent probes at all — a passing metric
+            on a non-high-risk system is not re-verified with live evidence.
+          </p>
+          <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-700">
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                  <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Metric</th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-500 dark:text-slate-400">Status</th>
+                  <th className="px-3 py-2 text-right font-semibold text-slate-500 dark:text-slate-400">Score</th>
+                  <th className="px-3 py-2 text-right font-semibold text-slate-500 dark:text-slate-400">Threshold</th>
+                </tr>
+              </thead>
+              <tbody>
+                {metricStates.map((m) => (
+                  <tr key={m.metric_id} className="border-b border-slate-100 dark:border-slate-800">
+                    <td
+                      className="px-3 py-2 cursor-help"
+                      title={metricBlurb(m.metric_id, readableMetric(m.metric_id, m.name))}
+                    >
+                      <span className="font-medium text-slate-800 dark:text-slate-200">
+                        {readableMetric(m.metric_id, m.name)}
+                      </span>
+                      <span className="ml-1.5 font-mono text-[10px] text-slate-400 dark:text-slate-500">
+                        {m.metric_id}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={clsx(
+                        "rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase",
+                        m.status === "passed"
+                          ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400"
+                          : m.status === "failed" || m.status === "error"
+                          ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400"
+                          : "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400",
+                      )}>
+                        {m.status}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono text-slate-600 dark:text-slate-400">
+                      {m.normalized_score == null ? "—" : m.normalized_score.toFixed(3)}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono text-slate-600 dark:text-slate-400">
+                      {m.threshold == null ? "—" : m.threshold.toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type MetricState = {
+  metric_id: string;
+  /** Authoritative name from the run's own metric plan. Absent on runs recorded
+   *  before the backend started carrying it — fall back to the local catalog. */
+  name?: string | null;
+  dimension?: string | null;
+  status: string;
+  normalized_score: number | null;
+  threshold: number | null;
+  passed: boolean | null;
+};
+
+type AssignedMetric = { metric_id: string; name?: string | null; dimension?: string | null };
+
+/** A metric's readable name. Prefers what the backend recorded for THIS run, so
+ *  the label can never drift from the catalog the run actually used; falls back
+ *  to the local lookup for older runs, then to the bare id. */
+function readableMetric(metricId: string, backendName?: string | null): string {
+  if (backendName && backendName !== metricId) return backendName;
+  return metricName(metricId);
+}
+
+/** Assigned metrics as name-led rows — "CM-017" tells a reader nothing. */
+function AssignedMetricsRow({
+  metrics,
+  ids,
+}: {
+  metrics: AssignedMetric[] | null;
+  ids: string[];
+}) {
+  const items: AssignedMetric[] = metrics?.length
+    ? metrics
+    : ids.map((metric_id) => ({ metric_id }));
+
+  if (items.length === 0) {
+    return <Row label="Assigned metrics" value="none" />;
+  }
+
+  return (
+    <div className="px-3 py-1.5">
+      <span className="text-[11px] text-slate-500 dark:text-slate-400">
+        Assigned metrics ({items.length})
+      </span>
+      <ul className="mt-1 space-y-0.5">
+        {items.map((m) => (
+          <li key={m.metric_id} className="flex items-baseline justify-between gap-2">
+            <span
+              className="text-[11px] text-slate-800 dark:text-slate-200"
+              title={metricBlurb(m.metric_id, readableMetric(m.metric_id, m.name))}
+            >
+              {readableMetric(m.metric_id, m.name)}
+            </span>
+            <span className="shrink-0 font-mono text-[10px] text-slate-400 dark:text-slate-500">
+              {m.metric_id}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-start justify-between gap-3 px-3 py-1.5">
+      <span className="text-[11px] text-slate-500 dark:text-slate-400">{label}</span>
+      <span className="text-right font-mono text-[11px] text-slate-800 dark:text-slate-200 break-all">
+        {value}
+      </span>
+    </div>
+  );
+}
+
+// One call row: header + "why this probe" caption, expanding to the full
+// prompt/response transcript, a disparity strip for ranking probes, and the
+// failure reason when the call didn't succeed. Exported because the same row
+// renders every layer's transcript (see CallTranscripts.tsx) — a target probe
+// from an evaluator and a council reasoning call are the same shape.
+export function CallTranscriptRow({
   call,
   number,
   open,
@@ -624,8 +1015,12 @@ function ProbeRow({
   onToggle: () => void;
 }) {
   const meta = probeMetaFor(call.task);
-  const hasText = Boolean(call.prompt_text || call.response_text);
-  const rankingScores = open ? parseRankingScores(call.response_text) : null;
+  const hasText = Boolean(call.prompt_text || call.response_text || call.error_detail);
+  // A governance call went to the judge, not the audited system — labelling its
+  // prompt "probe sent to target" misdescribes who was asked.
+  const isTargetCall = call.call_type === "target";
+  const responseMedia = mediaFromResponseText(call.response_text);
+  const rankingScores = open && !responseMedia ? parseRankingScores(call.response_text) : null;
 
   return (
     <div
@@ -671,7 +1066,22 @@ function ProbeRow({
             )}
             {call.request_chars != null && <span>{call.request_chars} req chars</span>}
             {call.response_chars != null && <span>{call.response_chars} resp chars</span>}
+            {/* Retries are otherwise invisible: a throttled probe can be three
+                real requests into the audited system shown as one row. */}
+            {call.attempts != null && call.attempts > 1 && (
+              <span>{call.attempts} attempts</span>
+            )}
           </div>
+          {/* Why it failed, in the target's own words. Without this the row was
+              a bare red ERROR badge and the reason lived only in a server log —
+              a 502 from the audited app, an expired key and a refused
+              connection all looked identical. */}
+          {call.status !== "success" && (call.error_detail || call.error_type) && (
+            <p className="mt-1 break-words text-[11px] leading-4 text-red-600 dark:text-red-400">
+              {call.error_type && <span className="font-semibold">{call.error_type}: </span>}
+              {call.error_detail}
+            </p>
+          )}
         </div>
         {hasText
           ? open ? <ChevronDown className="mt-0.5 h-4 w-4 text-slate-400 shrink-0" /> : <ChevronRight className="mt-0.5 h-4 w-4 text-slate-400 shrink-0" />
@@ -692,7 +1102,9 @@ function ProbeRow({
             <div className="p-3 space-y-1.5">
               <div className="flex items-center gap-2">
                 <MessageSquare className="h-3.5 w-3.5 text-blue-500 dark:text-blue-400" />
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-600 dark:text-blue-400">Probe sent to target</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-600 dark:text-blue-400">
+                  {isTargetCall ? "Probe sent to target" : "Prompt sent to governance model"}
+                </p>
               </div>
               <pre className="rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 text-[11px] leading-5 text-slate-800 dark:text-slate-200 whitespace-pre-wrap font-mono overflow-x-auto max-h-48 overflow-y-auto">
                 {call.prompt_text}
@@ -703,17 +1115,39 @@ function ProbeRow({
             <div className="p-3 space-y-1.5">
               <div className="flex items-center gap-2">
                 <MessageSquare className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" />
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-600 dark:text-emerald-400">Response from target</p>
-                <span className="ml-auto text-[10px] text-amber-600 dark:text-amber-400 font-medium">⚠ sanitized · fenced before governance use</span>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-600 dark:text-emerald-400">
+                  {isTargetCall ? "Response from target" : "Governance model response"}
+                </p>
+                {/* Only the AUDITED system's output is untrusted and fenced.
+                    Stamping this on a judge response would misdescribe it. */}
+                {isTargetCall && (
+                  <span className="ml-auto text-[10px] text-amber-600 dark:text-amber-400 font-medium">⚠ sanitized · fenced before governance use</span>
+                )}
               </div>
-              <pre className="rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 text-[11px] leading-5 text-slate-800 dark:text-slate-200 whitespace-pre-wrap font-mono overflow-x-auto max-h-48 overflow-y-auto">
-                {call.response_text}
-              </pre>
+              {responseMedia ? (
+                <div className="flex items-center justify-center rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3">
+                  {responseMedia.kind === "video" ? (
+                    <video src={responseMedia.url} controls className="max-h-64 max-w-full rounded" />
+                  ) : responseMedia.kind === "audio" ? (
+                    <audio src={responseMedia.url} controls className="w-full" />
+                  ) : (
+                    <img src={responseMedia.url} alt="Generated media response" className="max-h-64 max-w-full rounded" />
+                  )}
+                </div>
+              ) : (
+                <pre className="rounded bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 text-[11px] leading-5 text-slate-800 dark:text-slate-200 whitespace-pre-wrap font-mono overflow-x-auto max-h-48 overflow-y-auto">
+                  {call.response_text}
+                </pre>
+              )}
             </div>
           )}
-          {!call.prompt_text && !call.response_text && (
+          {/* No failure block here on purpose: the collapsed header above
+              already renders "error_type: error_detail" in full and unclamped,
+              so repeating it inside the expanded body showed a reviewer the same
+              sentence twice. */}
+          {!call.prompt_text && !call.response_text && !call.error_detail && (
             <div className="px-3 py-2 text-[11px] text-slate-500 dark:text-slate-400">
-              Probe text not captured for this run (available from next run onwards).
+              Call text not captured for this run (available from next run onwards).
             </div>
           )}
           {call.trace_id && (
@@ -765,6 +1199,7 @@ function ScoreSpread({ scores }: { scores: CandidateScore[] }) {
 function RuntimeTab({ agent, runId }: { agent: IntelligenceAgent; runId: string | null }) {
   const [calls, setCalls] = useState<LlmCall[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [openCallId, setOpenCallId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!runId) return;
@@ -858,6 +1293,25 @@ function RuntimeTab({ agent, runId }: { agent: IntelligenceAgent; runId: string 
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* The table above summarises; this is the substance. The Probes tab only
+          ever shows call_type "target", so an agent whose work is governance
+          reasoning (drift analysis, transparency mapping) had its actual input
+          and output stored, fetched here, and then thrown away at render. */}
+      <div>
+        <SectionTitle icon={Terminal} title="Prompts & Responses" />
+        <div className="space-y-2">
+          {agentCalls.map((call, idx) => (
+            <CallTranscriptRow
+              key={call.id}
+              call={call}
+              number={idx + 1}
+              open={openCallId === call.id}
+              onToggle={() => setOpenCallId(openCallId === call.id ? null : call.id)}
+            />
+          ))}
         </div>
       </div>
     </div>

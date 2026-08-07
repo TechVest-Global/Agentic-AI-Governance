@@ -1,4 +1,5 @@
 import { useAuthStore } from "@/store/useAuthStore";
+import { isTerminalRunStatus } from "@/lib/runStatus";
 
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "http://127.0.0.1:8000/api/v1";
@@ -6,6 +7,35 @@ export const API_BASE_URL =
 function authHeaders(): Record<string, string> {
   const token = useAuthStore.getState().token;
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/** Thrown instead of a generic Error when the backend rejects our token.
+ *  Distinct so a caller can tell "your session ended" from "this request was
+ *  bad", and so an error boundary can stay quiet about the former — the user is
+ *  already being shown the sign-in screen by the time it surfaces. */
+export class SessionExpiredError extends Error {
+  constructor() {
+    super("Your session has expired. Please sign in again.");
+    this.name = "SessionExpiredError";
+  }
+}
+
+/** End the local session when the backend says the token is no longer good.
+ *
+ * Tokens expire after 8 hours (backend core/security.py TOKEN_TTL_SECONDS).
+ * Nothing used to act on the resulting 401: the expired token stayed in the
+ * store, isAuthenticated stayed true, and so the app kept rendering a
+ * signed-in UI in which every write silently failed — a run could be started
+ * from a dead session and simply never appear.
+ *
+ * signOut() flips isAuthenticated, and App.tsx renders SignIn on that alone.
+ * So recovery does not depend on the calling component handling the error,
+ * which matters because most call sites are effects that discard it.
+ */
+function endExpiredSession(): void {
+  const { isAuthenticated, signOut } = useAuthStore.getState();
+  // Concurrent requests all 401 at once; only the first needs to act.
+  if (isAuthenticated) signOut();
 }
 
 
@@ -363,6 +393,11 @@ export type VerdictObjection = {
   argument: string;
   suggested_fix: string;
   remediation_hint?: string | null;
+  /** What the objection is aimed at. Absent on runs recorded before the v6
+   *  objection template — see ObjectionAttacks. */
+  attacks?: ObjectionAttacks | null;
+  target_claim_id?: string | null;
+  target_finding_ids?: string[] | null;
 };
 
 export type VerdictRequiredAction = {
@@ -396,6 +431,7 @@ export type GovernanceReport = {
   metric_results: MetricResult[];
   findings: BackendFinding[];
   verdict?: Verdict | null;
+  endpoint_coverage?: EndpointCoverageSummary | null;
   counts: Record<string, number>;
   state_chain: {
     valid: boolean;
@@ -517,6 +553,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      endExpiredSession();
+      throw new SessionExpiredError();
+    }
     const body = await response.text();
     throw new Error(body || `Request failed with ${response.status}`);
   }
@@ -586,8 +626,8 @@ export async function orchestrateRun(runId: string): Promise<{ run_id: string; s
     // adaptive orchestrator get real per-system evidence instead of an empty result.
     // (A user-uploaded log sample would be passed here to override the synthesizer.)
     // evaluator_name: "auto" routes each metric to the real tool its own config names
-    // (garak/presidio/ragas/deepeval), falling back to deterministic threshold scoring
-    // for metrics whose tool has no real integration yet (langfuse/evidently/promptfoo).
+    // (garak/presidio/ragas/deepeval/drift), skipping with an explicit reason for
+    // metrics whose tool has no real integration yet (langfuse/promptfoo).
     //
     // No force_metric_status: each metric now reports its REAL status (passed/failed
     // from score-vs-threshold) instead of every result being forced to "failed".
@@ -1064,6 +1104,122 @@ export async function listGovernanceState(runId: string, limit = 200): Promise<G
   return request<GovernanceStateEntry[]>(`/evaluation-runs/${runId}/state?limit=${limit}`);
 }
 
+/* ─────────────────────────────────── Council provenance (state-sourced) ── */
+
+/** How a claim uses a finding. Mirrors _ALLOWED_ROLES in synthesis_agent.py. */
+export type CitationRole = "primary_evidence" | "corroboration" | "compounding_factor";
+
+export type Citation = { finding_id: string; role: CitationRole };
+
+/** One assertion the synthesis made, with the findings behind it. */
+export type SynthesisClaim = {
+  claim_id: string;
+  statement: string;
+  citations: Citation[];
+};
+
+export type UnusedFinding = { finding_id: string; reason: string };
+
+/** How much of the run's evidence the synthesis accounted for.
+ *  Rendered even when incomplete — see ProvenanceCoverage in synthesis_agent.py. */
+export type ProvenanceCoverage = {
+  total_findings: number;
+  cited: number;
+  declared_unused: number;
+  unaccounted: string[];
+  invalid_citations: string[];
+  is_complete: boolean;
+};
+
+/** What an objection is aimed at.
+ *  "evidence"  — disputes the findings themselves (measurement, sample, severity).
+ *  "inference" — accepts the findings, disputes what the synthesis concluded from them.
+ *  Mirrors _ALLOWED_ATTACKS in devils_advocate_agent.py. */
+export type ObjectionAttacks = "evidence" | "inference";
+
+/** The same objection record, whether read from the verdicts row or replayed
+ *  from the state log. Aliased rather than redeclared so the two readers cannot
+ *  drift apart as the objection contract grows. */
+export type CouncilObjection = VerdictObjection;
+
+/** Who produced the raw confidence number before code adjusted it.
+ *  "governance_model" is a real assessment; the other two are the deterministic
+ *  fallback used when no judge was reachable. Mirrors ConfidenceDerivation. */
+export type ConfidenceSource = "governance_model" | "risk_contract" | "severity_penalty";
+
+export type DerivationStep = {
+  step: string;
+  detail: string;
+  score_before?: number | null;
+  score_after?: number | null;
+};
+
+export type ConfidenceDerivation = {
+  source: ConfidenceSource;
+  raw_score: number;
+  final_score: number;
+  threshold: number;
+  policy_floor_applied: boolean;
+  sufficiency_reason: string;
+  steps: DerivationStep[];
+};
+
+export type CouncilVerdictState = {
+  confidence_score: number;
+  sufficient: boolean;
+  label: string;
+  action_tier: string;
+  reasoning: string;
+  /** Absent on runs recorded before derivation was captured. */
+  derivation?: ConfidenceDerivation | null;
+};
+
+export type CouncilIteration = {
+  iteration: number;
+  sequence_number: number;
+  created_at: string;
+  narrative: string;
+  risk_summary: string;
+  claims: SynthesisClaim[];
+  unused_findings: UnusedFinding[];
+  coverage: ProvenanceCoverage | null;
+  objections: CouncilObjection[];
+  verdict: CouncilVerdictState | null;
+};
+
+/** Replay the council's iterations out of the append-only state log.
+ *
+ * The Council pane historically rendered from the `verdicts` row, which holds
+ * the conclusion but not the reasoning that produced it. The state log is the
+ * only place carrying the provenance edges, so the provenance view reads from
+ * there — one source, hash-chained, and ordered by sequence rather than by
+ * whatever the last write happened to leave behind.
+ *
+ * Tolerant of older runs: entries written before the v5 synthesis template have
+ * no `claims` key and simply replay with empty edges.
+ */
+export function councilIterationsFromState(entries: GovernanceStateEntry[]): CouncilIteration[] {
+  return entries
+    .filter((e) => e.entry_type === "council_iteration")
+    .map((e) => {
+      const payload = (e.payload ?? {}) as Record<string, unknown>;
+      const synthesis = (payload.synthesis ?? {}) as Record<string, unknown>;
+      return {
+        iteration: Number(payload.iteration ?? 0),
+        sequence_number: e.sequence_number,
+        created_at: e.created_at,
+        narrative: String(synthesis.narrative ?? ""),
+        risk_summary: String(synthesis.risk_summary ?? ""),
+        claims: (synthesis.claims as SynthesisClaim[] | undefined) ?? [],
+        unused_findings: (synthesis.unused_findings as UnusedFinding[] | undefined) ?? [],
+        coverage: (synthesis.coverage as ProvenanceCoverage | null | undefined) ?? null,
+        objections: (payload.objections as CouncilObjection[] | undefined) ?? [],
+        verdict: (payload.verdict as CouncilVerdictState | undefined) ?? null,
+      };
+    })
+    .sort((a, b) => a.sequence_number - b.sequence_number);
+}
+
 export async function verifyGovernanceState(runId: string): Promise<ChainVerification> {
   return request<ChainVerification>(`/evaluation-runs/${runId}/state/verify`);
 }
@@ -1126,6 +1282,10 @@ export type LlmCall = {
   id: string;
   run_id: string;
   agent_name?: string | null;
+  /** Pipeline layer that made the call — adaptive_orchestrator, metric_execution,
+   *  specialist_agents, deliberation_council. Null on runs recorded before the
+   *  gateway started stamping it. */
+  phase?: string | null;
   task: string;
   call_type: string;
   model?: string | null;
@@ -1144,6 +1304,14 @@ export type LlmCall = {
   created_at: string;
   prompt_text?: string | null;
   response_text?: string | null;
+  /** Which audited endpoint this call hit (target calls only). */
+  endpoint_ref?: string | null;
+  /** Why it failed, in the target's own words where it sent one. */
+  error_type?: string | null;
+  error_detail?: string | null;
+  /** Physical HTTP requests this one logical call cost (retries included). */
+  attempts?: number | null;
+  /** Why a non-success call failed (status code / exception). */
 };
 
 export type LlmCallLog = {
@@ -1161,6 +1329,69 @@ export type LlmCallLog = {
 
 export async function getLlmCalls(runId: string): Promise<LlmCallLog> {
   return request<LlmCallLog>(`/evaluation-runs/${runId}/llm-calls`);
+}
+
+/**
+ * Probes broken down by the audited endpoint they were sent to.
+ *
+ * `probes_sent` counts logical probes; `requests_made` counts HTTP round trips,
+ * which is higher wherever the gateway retried. They are deliberately separate —
+ * conflating them either understates load on the audited system or inflates the
+ * probe count.
+ */
+export type EndpointCoverage = {
+  endpoint_ref?: string | null;
+  capability_name?: string | null;
+  modality?: string | null;
+  /** False when probes hit an endpoint that is not a registered capability. */
+  registered: boolean;
+  probes_sent: number;
+  probes_failed: number;
+  /** Never sent — incompatible with the capability. Not the same as failed. */
+  probes_skipped: number;
+  requests_made: number;
+  agents: string[];
+  error_types: Record<string, number>;
+  sample_error?: string | null;
+};
+
+export type EndpointCoverageSummary = {
+  run_id: string;
+  endpoints: EndpointCoverage[];
+  registered_endpoint_count: number;
+  unprobed_endpoint_count: number;
+};
+
+export async function getEndpointCoverage(runId: string): Promise<EndpointCoverageSummary> {
+  return request<EndpointCoverageSummary>(`/evaluation-runs/${runId}/endpoint-coverage`);
+}
+
+/* ──────────────────────────────────────── Execution artifacts ── */
+
+export type ExecutionArtifact = {
+  id: string;
+  run_id: string;
+  agent_name: string;
+  dimension?: string | null;
+  capability_name?: string | null;
+  endpoint_ref: string;
+  prompt_text: string;
+  response_text: string;
+  media_kind: string; // "image" | "audio" | "video"
+  mime_type: string;
+  has_media: boolean;
+  source_url?: string | null;
+  created_at: string;
+};
+
+export async function getExecutionArtifacts(runId: string): Promise<ExecutionArtifact[]> {
+  return request<ExecutionArtifact[]>(`/evaluation-runs/${runId}/execution-artifacts`);
+}
+
+/** Direct <img>/<video>/<audio> src for one artifact's media bytes — a GET,
+ * so it never needs the bearer token these tags can't attach anyway. */
+export function executionArtifactMediaUrl(runId: string, artifactId: string): string {
+  return `${API_BASE_URL}/evaluation-runs/${runId}/execution-artifacts/${artifactId}/media`;
 }
 
 /* ───────────────────────────────────────────── Run lifecycle ── */
@@ -1302,12 +1533,14 @@ export async function uploadContextDocument(
     { method: "POST", body: form, headers: authHeaders() },
   );
   if (!response.ok) {
+    if (response.status === 401) {
+      endExpiredSession();
+      throw new SessionExpiredError();
+    }
     throw new Error(await response.text());
   }
   return response.json();
 }
-
-const TERMINAL_STATUSES = new Set(["completed", "report_ready", "degraded", "failed", "cancelled", "canceled"]);
 
 export async function waitForRunCompletion(
   runId: string,
@@ -1321,7 +1554,7 @@ export async function waitForRunCompletion(
     // Stop polling when the run finishes OR pauses for plan approval — a gated
     // run parks at 'planned' and would otherwise poll forever. Callers inspect
     // isAwaitingApproval() on the returned run to route the user to approval.
-    if (TERMINAL_STATUSES.has(run.status) || isAwaitingApproval(run)) return run;
+    if (isTerminalRunStatus(run.status) || isAwaitingApproval(run)) return run;
     await new Promise((res) => setTimeout(res, 3000));
   }
 }

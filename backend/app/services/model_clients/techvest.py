@@ -23,6 +23,7 @@ import urllib.request
 from uuid import uuid4
 
 from app.services.model_clients.base import TargetModelRequest, TargetModelResponse
+from app.services.model_clients.http_errors import enrich_http_error
 from app.services.model_clients.sanitization import sanitize_target_output
 
 logger = logging.getLogger(__name__)
@@ -68,12 +69,18 @@ class TechVestTargetModelClient:
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+            # Honor a per-probe timeout override — see TargetModelRequest.
+            with urllib.request.urlopen(
+                req, timeout=request.timeout_seconds or self._timeout
+            ) as resp:
                 body = json.loads(resp.read().decode())
             raw_output = body.get("response", "")
         except Exception as exc:
-            logger.error("TechVestTargetModelClient: request failed: %s", exc)
-            raise
+            # Carry the target's response body with the error — see
+            # model_clients/http_errors.py.
+            enriched = enrich_http_error(exc)
+            logger.error("TechVestTargetModelClient: request failed: %s", enriched)
+            raise enriched from exc
 
         latency_ms = int((time.monotonic() - start) * 1000)
         sanitized = sanitize_target_output(raw_output)

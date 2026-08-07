@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
+from uuid import UUID
 
 from sqlmodel import Session
 
@@ -7,6 +8,7 @@ from app.models.ai_system import AISystem, AISystemCapability, ApplicationContex
 from app.models.evidence import EvidenceRecord, MetricResult
 from app.models.finding import Finding
 from app.schemas.governance import FindingCreate, MetricPlanItem
+from app.services.evaluators.base import resolve_evaluator_endpoint
 
 if TYPE_CHECKING:
     from app.services.model_clients.base import TargetModelClient
@@ -20,6 +22,10 @@ class AgentContext:
     evidence: list[EvidenceRecord]
     metric_results: list[MetricResult]
     existing_findings: list[Finding]
+    # The run this context belongs to — lets a probe that receives generated
+    # media (image/audio/video) persist it as an ExecutionArtifact. None for
+    # any caller that builds a context outside a real run (e.g. some tests).
+    run_id: UUID | None = None
     # metric_id -> normalized_score from the most recent prior completed run
     prior_metric_scores: dict[str, float | None] = None  # type: ignore[assignment]
     # agent_name -> probes allocated by the Layer 2 evaluation plan (adaptive_orchestrator).
@@ -35,9 +41,48 @@ class AgentContext:
     # agents record their probe count here so the SSE progress endpoint can report
     # a real "Probes Sent" figure instead of a hardcoded 0.
     probe_counts: dict[str, int] = None  # type: ignore[assignment]
+    # agent_name -> probes the agent PLANNED to send. Kept apart from
+    # probe_counts because probe planning happens before probing: when the probe
+    # run then raised (an unreachable or out-of-quota target), the planned figure
+    # was left sitting in probe_counts and reported as if it had been sent. A
+    # live run claimed 79 probes across five agents when 3 reached the target.
+    probe_plan_counts: dict[str, int] = None  # type: ignore[assignment]
+    # agent_name -> probes it declined to send this run (capability modality
+    # didn't match), each a dict with endpoint_ref/probe_name/dimension/reason.
+    # An honest record of coverage gaps, never a fabricated result — see
+    # ModelBackedAgent._execute_probe_plan's fail-closed modality gate.
+    probe_skips: dict[str, list[dict]] = None  # type: ignore[assignment]
+    # agent_name -> probes that WERE sent but errored (timeout, connection reset,
+    # HTTP error), each a dict with endpoint_ref/probe_name/dimension/error_type/
+    # message. Deliberately separate from probe_skips: a skip means the probe was
+    # never sent, a failure means the target was asked and gave nothing back.
+    # Collapsing them would let an unreachable target read as a modality gap.
+    probe_failures: dict[str, list[dict]] = None  # type: ignore[assignment]
+    # agent_name -> probes sent to the target by EVIDENCE TOOLS (garak, deepeval,
+    # presidio, ragas) rather than by the agent's own probe plan. Counted
+    # separately because probe_counts is assigned, not accumulated: _run_probes
+    # deliberately overwrites _select_probes' planned count with the actually-sent
+    # count, so folding tool probes into the same key would be silently erased by
+    # whichever ran last. The two are summed when the execution row is written.
+    tool_probe_counts: dict[str, int] = None  # type: ignore[assignment]
+    # agent_name -> governance-model answers that could not be read, each a dict
+    # with task/problems/trace_id. Kept alongside probe_failures because it is
+    # the same class of loss one layer up: the model DID reason over the
+    # evidence, and the report carries none of it. Without this the agent
+    # silently fell back to deterministic metric checks and the run looked
+    # identical to one where the model had found nothing.
+    governance_parse_failures: dict[str, list[dict]] = None  # type: ignore[assignment]
     # Audit scope: capability endpoint_refs to probe (e.g. ["parse-resume"]).
     # Empty = whole application (probe the system's base endpoint).
     selected_capabilities: list[str] = None  # type: ignore[assignment]
+    # "agent|endpoint_ref|dimension" -> probes the governance model designed for
+    # THIS system, memoized for the life of the run. Two jobs: it stops an agent
+    # paying for the same design twice when a dimension is planned more than
+    # once, and it makes the designed set inspectable rather than a side effect
+    # buried in an LLM call. Designed probes that are actually sent are already
+    # recorded with their full prompt text by the probe records, so this is the
+    # planning-time view, not the evidence trail.
+    designed_probes: dict[str, list[tuple[str, object]]] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         # default to empty dict so agents can always do .get() safely
@@ -49,16 +94,39 @@ class AgentContext:
             object.__setattr__(self, "metric_plan_items", [])
         if self.probe_counts is None:
             object.__setattr__(self, "probe_counts", {})
+        if self.probe_plan_counts is None:
+            object.__setattr__(self, "probe_plan_counts", {})
+        if self.probe_skips is None:
+            object.__setattr__(self, "probe_skips", {})
+        if self.probe_failures is None:
+            object.__setattr__(self, "probe_failures", {})
+        if self.tool_probe_counts is None:
+            object.__setattr__(self, "tool_probe_counts", {})
+        if self.governance_parse_failures is None:
+            object.__setattr__(self, "governance_parse_failures", {})
         if self.selected_capabilities is None:
             object.__setattr__(self, "selected_capabilities", [])
+        if self.designed_probes is None:
+            object.__setattr__(self, "designed_probes", {})
 
     def probe_endpoints(self) -> list[str]:
         """Endpoint refs a model-backed agent should probe.
 
         When the run scoped the audit to specific capabilities, return those
         endpoint_refs (resolving each selected capability to its real
-        endpoint_ref). Otherwise return the single base endpoint — the
-        whole-application default, unchanged from prior behavior.
+        endpoint_ref). Otherwise probe EVERY registered capability — unlike
+        evaluator tool calls (garak/presidio/ragas/deepeval), which only ever
+        send free text and so are correctly restricted to a single
+        text-modality endpoint (see resolve_evaluator_endpoint), a
+        specialist agent can design a real structured probe for a non-text
+        capability too (see ModelBackedAgent._design_probes_dynamically +
+        the fail-closed modality gate in _execute_probe_plan). Collapsing to
+        one endpoint here meant image/video capabilities were never even
+        attempted during a whole-application audit — not skipped-with-a-
+        reason, simply never in the list of endpoints considered.
+
+        A system with no registered capabilities at all still falls back to
+        the single best default (its own base URL, or "default").
         """
         base = (
             getattr(self.ai_system, "target_endpoint_ref", None)
@@ -66,7 +134,13 @@ class AgentContext:
             or "default"
         )
         if not self.selected_capabilities:
-            return [base]
+            if self.capabilities:
+                resolved: list[str] = []
+                for capability in self.capabilities:
+                    if capability.endpoint_ref not in resolved:
+                        resolved.append(capability.endpoint_ref)
+                return resolved
+            return [resolve_evaluator_endpoint(self.ai_system, self.capabilities)]
 
         # Map selected values (endpoint_ref or capability name) to endpoint_refs.
         by_ref = {c.endpoint_ref: c.endpoint_ref for c in self.capabilities}
@@ -82,6 +156,17 @@ class AgentContext:
 class GovernanceAgent(Protocol):
     name: str
     execution_mode: str  # "deterministic" or "model_backed"
+    # True only for an agent whose own findings are computed FROM its peers'
+    # findings — currently just RiskScorer, which per risk_contract.py reads
+    # "all findings accumulated so far in the run". Such an agent cannot join
+    # the parallel fan-out; agent_execution.py runs it after the barrier, once
+    # every peer has produced its findings.
+    #
+    # Every other agent reads only genuinely upstream state (metric_results,
+    # evidence, prior-run scores) and never a peer's output, which is what
+    # SPEC.md FR-024 requires ("agents shall not directly message each other")
+    # and what makes concurrent execution of Layer 3 sound.
+    aggregates_peer_findings: bool
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
         """Return findings that should be persisted for this run."""

@@ -36,6 +36,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.services.model_clients.base import TargetModelRequest, TargetModelResponse
+from app.services.model_clients.http_errors import enrich_http_error
 from app.services.model_clients.sanitization import sanitize_target_output
 
 logger = logging.getLogger(__name__)
@@ -212,7 +213,10 @@ class HRGatewayTargetModelClient:
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+            # Honor a per-probe timeout override — see TargetModelRequest.
+            with urllib.request.urlopen(
+                req, timeout=request.timeout_seconds or self._timeout
+            ) as resp:
                 envelope = json.loads(resp.read().decode())
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode(errors="replace")[:500]
@@ -222,8 +226,13 @@ class HRGatewayTargetModelClient:
             )
             raise
         except Exception as exc:
-            logger.error("HRGatewayTargetModelClient: request to /%s failed: %s", path, exc)
-            raise
+            # Carry the target's response body with the error — see
+            # model_clients/http_errors.py.
+            enriched = enrich_http_error(exc)
+            logger.error(
+                "HRGatewayTargetModelClient: request to /%s failed: %s", path, enriched
+            )
+            raise enriched from exc
 
         output = envelope.get("output")
         raw_output = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False)

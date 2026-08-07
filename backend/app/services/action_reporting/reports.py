@@ -8,7 +8,10 @@ from app.models.ai_system import AISystem, AISystemCapability, ApplicationContex
 from app.models.evidence import EvidenceRecord, MetricResult
 from app.models.finding import Finding
 from app.models.verdict import Verdict
-from app.schemas.governance import GovernanceReportRead
+from app.schemas.governance import AuditLedgerChainVerification, GovernanceReportRead
+from app.services.action_reporting.endpoint_coverage import build_endpoint_coverage
+from app.services.audit_ledger import verify_ledger_chain
+from app.services.content_integrity import verify_content_integrity
 from app.services.governance_state import verify_state_chain
 from app.services.run_validation import get_run_or_raise
 from app.services.specialist_agents.metric_plans import build_metric_plan
@@ -66,7 +69,16 @@ def build_governance_report(
     )
     verdict = session.exec(select(Verdict).where(Verdict.run_id == run_id)).first()
     state_chain = verify_state_chain(session, run_id=run_id)
+    ledger_chain_result = verify_ledger_chain(session, run_id=run_id)
+    content_result = verify_content_integrity(session, run_id=run_id)
+    ledger_chain = AuditLedgerChainVerification(
+        **ledger_chain_result,
+        content_valid=content_result["valid"],
+        content_checks=content_result["checks"],
+    )
     metric_plan = build_metric_plan(session, run_id=run_id)
+
+    endpoint_coverage = build_endpoint_coverage(session, run_id=run_id)
 
     return GovernanceReportRead(
         run=run,
@@ -80,6 +92,12 @@ def build_governance_report(
         findings=findings,
         verdict=verdict,
         state_chain=state_chain,
+        ledger_chain=ledger_chain,
+        # Which audited surface received what. A multi-endpoint system's
+        # headline probe count says nothing about whether every surface was
+        # actually exercised, so the report has to be able to state its own
+        # per-endpoint coverage limits rather than implying uniform coverage.
+        endpoint_coverage=endpoint_coverage,
         counts={
             "capabilities": len(capabilities),
             "planned_metrics": metric_plan.metric_count,
@@ -89,5 +107,7 @@ def build_governance_report(
             "agent_executions": len(agent_executions),
             "findings": len(findings),
             "state_entries": int(state_chain["entry_count"]),
+            "endpoints_registered": endpoint_coverage.registered_endpoint_count,
+            "endpoints_unprobed": endpoint_coverage.unprobed_endpoint_count,
         },
     )

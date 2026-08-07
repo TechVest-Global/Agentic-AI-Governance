@@ -15,6 +15,19 @@ for _credential_var in (
     "LITELLM_MASTER_KEY",
     "TARGET_ENDPOINT",
     "TARGET_API_KEY",
+    # The PER-KIND target credentials, which clearing TARGET_* does not cover:
+    # get_target_model_client_for_system() infers the adapter kind from the
+    # audited system's registration (a system named "Techvest RAG Chatbot"
+    # resolves the techvest branch) and then reads TECHVEST_*/HR_GATEWAY_* for
+    # the endpoint and key. With a developer .env present that produced a LIVE
+    # client, so the suite sent every specialist agent's probes to the real
+    # deployed chatbot: non-deterministic, slow, and dependent on that service's
+    # rate limit — it returned HTTP 429 once agents began running concurrently,
+    # surfacing as agents failing with zero findings.
+    "TECHVEST_ENDPOINT",
+    "TECHVEST_API_KEY",
+    "HR_GATEWAY_ENDPOINT",
+    "HR_GATEWAY_API_KEY",
 ):
     os.environ[_credential_var] = ""
 
@@ -66,3 +79,30 @@ def client() -> Generator[TestClient, None, None]:
     app.dependency_overrides.clear()
     db_session.engine = original_engine
     SQLModel.metadata.drop_all(engine)
+
+
+def advance_run_to_council(run_id: str) -> None:
+    """Move a run to the deliberation-council phase.
+
+    POST /evaluation-runs/{id}/verdict now refuses to record a verdict for a run
+    that has not reached the council, because a verdict written earlier gets
+    adopted by the pipeline as the council's own outcome (see
+    app/services/verdicts.py). Tests that only need a verdict to exist use this
+    to reach an eligible phase without driving the whole pipeline.
+
+    Writes through db_session.engine, which the `client` fixture has already
+    pointed at the in-memory test database.
+    """
+    from uuid import UUID
+
+    import app.db.session as db_session
+    from app.models.enums import RunPhase, RunStatus
+    from app.models.evaluation import EvaluationRun
+
+    with Session(db_session.engine) as session:
+        run = session.get(EvaluationRun, UUID(run_id))
+        assert run is not None, f"run {run_id} does not exist"
+        run.status = RunStatus.council_running
+        run.current_phase = RunPhase.deliberation_council
+        session.add(run)
+        session.commit()

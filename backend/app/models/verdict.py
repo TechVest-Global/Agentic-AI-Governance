@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -25,3 +26,13 @@ class Verdict(TimestampMixin, UUIDPrimaryKey, table=True):
         default_factory=list,
         sa_column=Column(JSON, nullable=False),
     )
+    # Override capture (calibration plumbing): records that a human disagreed
+    # with this verdict, WITHOUT mutating the original verdict fields above —
+    # a future calibration pass can compare confidence_score/label against
+    # these, and the original verdict a report already showed stays
+    # immutable. Nullable/additive, no enum changes, same low-risk migration
+    # style as plan_approved_at/plan_approved_by on EvaluationRun.
+    human_override_label: str | None = Field(default=None, max_length=100)
+    human_override_reason: str | None = None
+    overridden_by: str | None = Field(default=None, max_length=200)
+    overridden_at: datetime | None = None

@@ -135,6 +135,37 @@ def _endpoint_ref_for(base: str, entry: dict) -> str:
     return str(entry.get("function") or "endpoint")
 
 
+def _capability_fields_from_entry(entry: dict, *, base_origin: str) -> dict:
+    """Map one catalog entry to AISystemCapability constructor kwargs.
+
+    Pulled out of the import loop so the mapping (including capturing the
+    catalog's ``requestBody`` as ``input_schema``) is unit-testable without a
+    DB session. ``input_schema`` is what lets probe selection later synthesize
+    a structured request body for this endpoint instead of only ever sending
+    plain text — see ``app.services.agents.probe_library``.
+    """
+    name = str(entry.get("function") or entry.get("name") or "").strip()
+    endpoint_ref = _endpoint_ref_for(base_origin, entry)
+    feature = str(entry.get("feature") or "").lower()
+    request_body = entry.get("requestBody")
+    return {
+        "name": name[:200],
+        "endpoint_ref": endpoint_ref[:500],
+        "description": (str(entry.get("description") or "")[:2000] or None),
+        "capability_type": _FEATURE_TO_TYPE.get(feature, "other"),
+        "http_method": str(entry.get("method") or "POST").upper(),
+        "input_schema": request_body if isinstance(request_body, dict) else {},
+        "enabled": True,
+        "metadata_json": {
+            "feature": feature or None,
+            "full_path": entry.get("path"),
+            "full_url": f"{base_origin}{entry.get('path')}" if entry.get("path") else None,
+            "deployment": entry.get("deployment"),
+            "imported_from_catalog": True,
+        },
+    }
+
+
 def import_capabilities_from_catalog(
     session: Session,
     system_id: UUID,
@@ -180,30 +211,21 @@ def import_capabilities_from_catalog(
     for entry in endpoints:
         if not isinstance(entry, dict):
             continue
-        name = str(entry.get("function") or entry.get("name") or "").strip()
-        endpoint_ref = _endpoint_ref_for(system.target_endpoint_ref, entry)
+        fields = _capability_fields_from_entry(entry, base_origin=base_origin)
+        # The catalog contract carries no modality/content-type signal (confirmed
+        # against the HR gateway, the only reference implementation — it's 100%
+        # text/JSON). Inherit the parent system's modality as the sane default;
+        # a genuinely mixed-modality target still needs a one-off correction via
+        # the capability PATCH route after import.
+        fields.setdefault("modality", system.modality)
+        name = fields["name"]
+        endpoint_ref = fields["endpoint_ref"]
         if not name or not endpoint_ref:
             continue
         if endpoint_ref in existing_refs or name in existing_names:
             skipped += 1
             continue
-        feature = str(entry.get("feature") or "").lower()
-        cap = AISystemCapability(
-            ai_system_id=system_id,
-            name=name[:200],
-            description=(str(entry.get("description") or "")[:2000] or None),
-            capability_type=_FEATURE_TO_TYPE.get(feature, "other"),
-            endpoint_ref=endpoint_ref[:500],
-            http_method=str(entry.get("method") or "POST").upper(),
-            enabled=True,
-            metadata_json={
-                "feature": feature or None,
-                "full_path": entry.get("path"),
-                "full_url": f"{base_origin}{entry.get('path')}" if entry.get("path") else None,
-                "deployment": entry.get("deployment"),
-                "imported_from_catalog": True,
-            },
-        )
+        cap = AISystemCapability(ai_system_id=system_id, **fields)
         session.add(cap)
         imported.append(cap)
         existing_refs.add(endpoint_ref)

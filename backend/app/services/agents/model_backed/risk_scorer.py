@@ -12,7 +12,12 @@ returns non-JSON.
 from app.models.enums import RiskTier, Severity
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import finding
+from app.services.agents.helpers import (
+    coverage_gap_finding,
+    finding,
+    metric_not_evaluated_finding,
+    split_attention_metrics,
+)
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 from app.services.agents.risk_contract import RiskScoreBundle, compute_risk_bundle
 
@@ -84,6 +89,13 @@ Return ONLY a valid JSON array.
 class RiskScorerAgent(ModelBackedAgent):
     name = "risk_scorer"
     probe_dimension = "risk"
+    # This agent aggregates its peers' findings into a composite risk score, so
+    # it must observe a COMPLETE set of specialist findings. agent_execution.py
+    # therefore excludes it from the parallel fan-out and runs it after the
+    # barrier. Previously it ran mid-loop at registry position 6, which meant
+    # ExplainabilityAgent (position 7) had not run yet and its findings were
+    # never included in the composite score.
+    aggregates_peer_findings = True
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
         findings: list[FindingCreate] = []
@@ -132,15 +144,35 @@ class RiskScorerAgent(ModelBackedAgent):
                     )
                 )
 
+        owned_metrics = self._owned_metrics(
+            context, metric_ids=_OVERSIGHT_METRIC_IDS, keywords=_OVERSIGHT_KEYWORDS
+        )
+        if not owned_metrics:
+            return findings + [
+                coverage_gap_finding(
+                    agent_name=self.name,
+                    dimension=self.probe_dimension or self.name,
+                    reason="no_metrics_planned",
+                )
+            ]
+
         # High-risk verification mode: probe even when all owned metrics passed.
         oversight_metrics, attention_metrics = self._metrics_for_review(
-            context, metric_ids=_OVERSIGHT_METRIC_IDS, keywords=_OVERSIGHT_KEYWORDS
+            context, owned=owned_metrics
         )
 
         if not oversight_metrics:
             return findings
 
         probes: list[TargetProbeResult] = self._run_probes(_PROBE_PROMPTS, context=context)
+        if not probes and context.probe_skips.get(self.name):
+            return findings + [
+                coverage_gap_finding(
+                    agent_name=self.name,
+                    dimension=self.probe_dimension or self.name,
+                    reason=context.probe_skips[self.name][0]["reason"],
+                )
+            ]
 
         metric_summary = "\n".join(
             f"  - {m.metric_id} ({m.dimension}): status={m.status}, "
@@ -180,20 +212,43 @@ class RiskScorerAgent(ModelBackedAgent):
                 "human_review_capability_count": len(human_review_caps),
                 "redaction_warnings": [w for p in probes for w in p.sanitized.warnings],
             },
+            agent_context=context,
         )
         if parsed is not None:
-            return findings + _findings_from_governance(parsed, context)
+            return findings + _findings_from_governance(
+                parsed, context, reviewed_metrics=oversight_metrics
+            )
 
-        # Fallback only on genuinely failed/pending metrics — never on passes.
-        return findings + _deterministic_fallback(attention_metrics, context)
+        # Fallback only on genuinely failed metrics — never on passes, and
+        # never report a skipped/errored/pending metric as if a real oversight
+        # defect had been observed. This is the dimension most exposed to that
+        # mistake: CM-040/041/044 are permanently skipped (tool: langfuse, but
+        # their formulas need a workflow_db integration that does not exist —
+        # see langfuse_evaluator.py), so without this split every fallback on
+        # this dimension would report 3 of its 5 metrics as "requires review"
+        # from zero real evidence, every single time.
+        genuinely_failed, never_evaluated = split_attention_metrics(attention_metrics)
+        return (
+            findings
+            + _deterministic_fallback(genuinely_failed, context)
+            + [
+                metric_not_evaluated_finding(agent_name=self.name, metric=m)
+                for m in never_evaluated
+            ]
+        )
 
 
 def _findings_from_governance(
     raw: list[dict[str, object]],
     context: AgentContext,
+    *,
+    reviewed_metrics: list,
 ) -> list[FindingCreate]:
     results: list[FindingCreate] = []
     metric_map = {m.metric_id: m for m in context.metric_results}
+    reviewed_evidence_ids = sorted(
+        {eid for m in reviewed_metrics for eid in (m.evidence_ids or [])}
+    )
     for item in raw:
         try:
             severity = Severity(str(item.get("severity", "high")).lower())
@@ -212,6 +267,8 @@ def _findings_from_governance(
                 agent_name="risk_scorer",
                 recommended_action=str(item.get("recommended_action", "")),
                 metric=metric,
+                evidence_ids=metric.evidence_ids if metric else reviewed_evidence_ids,
+                generated_by="governance_model",
             )
         )
     return results

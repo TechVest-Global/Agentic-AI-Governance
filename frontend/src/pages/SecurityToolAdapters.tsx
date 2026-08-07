@@ -9,7 +9,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   XCircle,
-  Package,
   Boxes,
   Activity,
   Ban,
@@ -63,23 +62,6 @@ function kindTone(kind: SecurityAdapterStatus["kind"]): "green" | "violet" | "sl
 // deterministic, and not-wired adapters are not runnable from this page.
 function isRunnable(adapter: SecurityAdapterStatus): boolean {
   return adapter.kind === "real";
-}
-
-/* ──────────────────────────────────────────────── chips ── */
-
-function Chip({ children, tone = "slate" }: { children: React.ReactNode; tone?: "slate" | "violet" }) {
-  return (
-    <span
-      className={clsx(
-        "inline-flex items-center rounded px-1.5 py-0.5 font-mono text-[10.5px]",
-        tone === "violet"
-          ? "bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
-          : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
-      )}
-    >
-      {children}
-    </span>
-  );
 }
 
 /* ──────────────────────────────────────────────── adapter card ── */

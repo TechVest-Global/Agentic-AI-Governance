@@ -21,7 +21,11 @@ import { MetricCard } from "@/components/ui/MetricCard";
 import { useAppStore } from "@/store/useAppStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import { personaForRole } from "@/lib/persona";
+import { isTerminalRunStatus } from "@/lib/runStatus";
+import { describeMediaResponse, mediaFromResponseText } from "@/lib/probeMedia";
+import { EndpointCoveragePanel } from "@/components/execution/EndpointCoveragePanel";
 import { AgentDetailCard, AgentGlyph, buildAgentsFromBackend, type AgentTab } from "@/components/execution/AgentDetailCard";
+import { CallTranscripts } from "@/components/execution/CallTranscripts";
 import { AdaptiveOrchestratorPanel } from "@/components/execution/AdaptiveOrchestratorPanel";
 import { ContextAssemblyPanel } from "@/components/execution/ContextAssemblyPanel";
 import { DeliberationCouncilPanel } from "@/components/execution/DeliberationCouncilPanel";
@@ -40,9 +44,9 @@ import {
 } from "@/utils/complianceReport";
 import { useGovernanceBackend } from "@/hooks/useGovernanceBackend";
 import { useRunProgress, phaseIndex, type AgentProgress } from "@/hooks/useRunProgress";
-import { PIPELINE_STEPS, layerStatus } from "@/pages/pipelineSteps";
+import { MODEL_CALLING_LAYERS, PIPELINE_STEPS, layerStatus } from "@/pages/pipelineSteps";
 import { metricBlurb, metricName } from "@/data/metricCatalog";
-import type { AuditLedgerEntry, FindingToolCall, FrameworkComplianceMap, GovernanceReport, LlmCall } from "@/api/governanceApi";
+import type { AgentExecution, AuditLedgerEntry, CouncilIteration, FindingToolCall, FrameworkComplianceMap, GovernanceReport, LlmCall } from "@/api/governanceApi";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -209,7 +213,9 @@ function ExpandableFindingCard({
                         : "border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300",
                     )}
                   >
-                    {tc.tool_name} · {metricName(tc.metric_id) !== tc.metric_id ? `${tc.metric_id} (${metricName(tc.metric_id)})` : tc.metric_id}
+                    {/* Name leads, id trails — a reader recognises "Toxicity
+                        Score", not "CM-014". */}
+                    {tc.tool_name} · {metricName(tc.metric_id) !== tc.metric_id ? `${metricName(tc.metric_id)} (${tc.metric_id})` : tc.metric_id}
                     {typeof tc.normalized_score === "number" && ` · ${tc.normalized_score.toFixed(2)}`}
                     {tc.passed === false ? " · failed" : tc.passed === true ? " · passed" : ""}
                   </span>
@@ -225,20 +231,41 @@ function ExpandableFindingCard({
               </p>
               {probeSamples.length > 0 ? (
                 <div className="mt-1.5 space-y-1.5">
-                  {probeSamples.map((probe) => (
-                    <div key={probe.id} className="rounded-md border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 px-2.5 py-2">
-                      <p className="text-[11px] leading-snug text-slate-600 dark:text-slate-300">
-                        <span className="font-semibold text-slate-500 dark:text-slate-400">→ </span>
-                        {probe.prompt_text!.length > 220 ? `${probe.prompt_text!.slice(0, 220)}…` : probe.prompt_text}
-                      </p>
-                      {probe.response_text && (
-                        <p className="mt-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
-                          <span className="font-semibold">← </span>
-                          {probe.response_text.length > 220 ? `${probe.response_text.slice(0, 220)}…` : probe.response_text}
+                  {probeSamples.map((probe) => {
+                    // An image/video/audio target answers with a base64 data URL in
+                    // response_text. Truncating it still leaves one unbreakable
+                    // 220-char token that overflows the card, and the bytes say
+                    // nothing anyway — show the asset instead.
+                    const media = mediaFromResponseText(probe.response_text);
+                    return (
+                      <div key={probe.id} className="rounded-md border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 px-2.5 py-2">
+                        <p className="text-[11px] leading-snug break-words text-slate-600 dark:text-slate-300">
+                          <span className="font-semibold text-slate-500 dark:text-slate-400">→ </span>
+                          {probe.prompt_text!.length > 220 ? `${probe.prompt_text!.slice(0, 220)}…` : probe.prompt_text}
                         </p>
-                      )}
-                    </div>
-                  ))}
+                        {media ? (
+                          <div className="mt-1.5 flex items-center gap-2">
+                            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">←</span>
+                            {media.kind === "image" ? (
+                              <img
+                                src={media.url}
+                                alt={`Generated ${media.format} returned by the target`}
+                                className="max-h-20 max-w-40 rounded border border-slate-200 dark:border-slate-700"
+                              />
+                            ) : null}
+                            <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                              {describeMediaResponse(media)}
+                            </span>
+                          </div>
+                        ) : probe.response_text ? (
+                          <p className="mt-1 text-[11px] leading-snug break-words text-slate-500 dark:text-slate-400">
+                            <span className="font-semibold">← </span>
+                            {probe.response_text.length > 220 ? `${probe.response_text.slice(0, 220)}…` : probe.response_text}
+                          </p>
+                        ) : null}
+                      </div>
+                    );
+                  })}
                   {agentProbes.length > probeSamples.length && (
                     <p className="text-[10px] text-slate-400 dark:text-slate-500">
                       +{agentProbes.length - probeSamples.length} more — see the agent's Probes tab in Specialist Agents.
@@ -266,7 +293,7 @@ function ExpandableFindingCard({
               title={finding.metricId ? metricBlurb(finding.metricId, metricName(finding.metricId)) : undefined}
             >
               {finding.metricId
-                ? `Triggered by metric ${finding.metricId}${metricName(finding.metricId) !== finding.metricId ? ` (${metricName(finding.metricId)})` : ""}`
+                ? `Triggered by ${metricName(finding.metricId) !== finding.metricId ? `${metricName(finding.metricId)} (${finding.metricId})` : `metric ${finding.metricId}`}`
                 : ""}
               {finding.metricId && finding.dimension ? " · " : ""}
               {finding.dimension ? `dimension: ${finding.dimension}` : ""}
@@ -293,6 +320,7 @@ function PipelineStepContent({
   selectedAgentId,
   selectedCouncilMemberId,
   ledgerEntries,
+  councilIterations,
 }: {
   step: (typeof PIPELINE_STEPS)[number];
   navigateTo: (path: string) => void;
@@ -308,6 +336,7 @@ function PipelineStepContent({
   selectedAgentId: string | null;
   selectedCouncilMemberId: CouncilMemberId | null;
   ledgerEntries: AuditLedgerEntry[];
+  councilIterations: CouncilIteration[];
 }) {
   if (!runId) {
     return <NoRunMessage />;
@@ -324,9 +353,23 @@ function PipelineStepContent({
     return <NotStartedMessage label={step.label} />;
   }
 
+  // Every layer gets the same three-part runtime detail: the tamper-evident
+  // event trail, the full prompt/response transcript of the model calls that
+  // layer made, and its generated artifacts. The transcript used to exist only
+  // inside a specialist agent's Probes tab, which meant the Layer 3a evaluator
+  // probes and the council's reasoning — most of a run's calls — were stored
+  // and served but rendered nowhere.
   const runtimeDetail = (
     <div className="space-y-4">
       <RuntimeEventStream entries={ledgerEntries} phaseFilter={step.id === "created" ? undefined : step.id} />
+      {MODEL_CALLING_LAYERS.has(step.id) && (
+        <CallTranscripts
+          calls={llmCalls}
+          phase={step.id}
+          title={`${step.label} — Model Calls`}
+          emptyHint={`No model calls recorded for ${step.label} yet.`}
+        />
+      )}
       <ArtifactDrawer liveData={liveArtifactData} layerFilter={step.eventLayer ?? undefined} />
     </div>
   );
@@ -400,6 +443,11 @@ function PipelineStepContent({
     const selected = selectedAgentId ? intelligenceAgents.find((a) => a.id === selectedAgentId) : undefined;
     return (
       <div className="space-y-4">
+        {/* Which audited surface received what, across every agent. Sits above
+            the per-agent detail because coverage is a property of the run, not
+            of any one agent — an endpoint nobody probed is invisible from
+            inside each agent's own transcript. */}
+        <EndpointCoveragePanel runId={runId} />
         {intelligenceAgents.length === 0 ? (
           <p className="text-[12px] text-slate-500 dark:text-slate-400">No agent executions recorded for this run yet.</p>
         ) : selected ? (
@@ -415,7 +463,11 @@ function PipelineStepContent({
   if (step.id === "deliberation_council") {
     return (
       <div className="space-y-4">
-        <DeliberationCouncilPanel report={report} selectedMemberId={selectedCouncilMemberId} />
+        <DeliberationCouncilPanel
+          report={report}
+          selectedMemberId={selectedCouncilMemberId}
+          councilIterations={councilIterations}
+        />
         {runtimeDetail}
       </div>
     );
@@ -577,7 +629,12 @@ export function LiveRuns() {
   // A run can contain multiple execution rows per agent (re-probes) — keep only the latest.
   const liveAgents: AgentProgress[] = progress?.agents ?? [];
   const restAgents = useMemo(() => {
-    const latestByName = new Map<string, (typeof backend.agentExecutions)[number]>();
+    // Named type rather than `typeof backend.agentExecutions[number]`: the type
+    // query reads as a reference to `backend` itself, so exhaustive-deps asked
+    // for the whole object in the dep array. Adding it would rebuild this memo
+    // on every unrelated backend field change — the annotation is erased at
+    // runtime, and `backend.agentExecutions` is already the real dependency.
+    const latestByName = new Map<string, AgentExecution>();
     for (const execution of backend.agentExecutions) {
       const existing = latestByName.get(execution.agent_name);
       if (!existing || (execution.started_at ?? "") > (existing.started_at ?? "")) {
@@ -627,6 +684,7 @@ export function LiveRuns() {
         report: backend.report,
         agentExecutions: backend.agentExecutions,
         findings: backend.findings,
+        executionArtifacts: backend.executionArtifacts,
       }
     : null;
 
@@ -637,6 +695,17 @@ export function LiveRuns() {
   const livePanelPhase = livePhase === "completed" ? "action_reporting" : livePhase;
   const effectiveStep = selectedStep ?? (runId ? livePanelPhase : "created");
   const currentStepDef = PIPELINE_STEPS.find((s) => s.id === effectiveStep) ?? PIPELINE_STEPS[0];
+
+  // Reset drops the run selection in the shared store (see useSelectionStore);
+  // this drops the page's own per-run UI state alongside it, so the canvas
+  // returns to "pick a target and run an audit" instead of keeping a pipeline
+  // step and agent highlighted for a run that is no longer on screen.
+  function handleResetView() {
+    setSelectedStep(null);
+    setSelectedAgentId(null);
+    setSelectedCouncilMemberId(null);
+    setShowApprovalModal(false);
+  }
 
   // Clicking the already-selected agent toggles its detail closed.
   function handleSelectAgent(id: string) {
@@ -679,6 +748,7 @@ export function LiveRuns() {
             selectedCouncilMemberId={selectedCouncilMemberId}
             onSelectCouncilMember={handleSelectCouncilMember}
             resultSummary={liveResultSummary}
+            onReset={handleResetView}
           />
         </div>
       )}
@@ -692,7 +762,7 @@ export function LiveRuns() {
         {/* Connection indicator — reflects the live-stream state without alarming
             copy when a run has simply finished (nothing left to stream). */}
         {runId && (() => {
-          const isTerminal = ["completed", "failed", "cancelled"].includes(liveStatus);
+          const isTerminal = isTerminalRunStatus(liveStatus);
           const tone = connected ? "live" : isTerminal ? "done" : "polling";
           const toneClass = {
             live: "border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400",
@@ -770,6 +840,7 @@ export function LiveRuns() {
             selectedCouncilMemberId={selectedCouncilMemberId}
             onSelectCouncilMember={handleSelectCouncilMember}
             resultSummary={liveResultSummary}
+            onReset={handleResetView}
           />
         </div>
 
@@ -792,6 +863,7 @@ export function LiveRuns() {
               selectedAgentId={selectedAgentId}
               selectedCouncilMemberId={selectedCouncilMemberId}
               ledgerEntries={backend.ledgerEntries}
+              councilIterations={backend.councilIterations}
             />
           </div>
         </Card>

@@ -71,6 +71,7 @@ class AISystemCapabilityCreate(APIModel):
     name: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
     capability_type: CapabilityType = CapabilityType.other
+    modality: Modality = Modality.text
     endpoint_ref: str = Field(min_length=1, max_length=500)
     http_method: str = Field(default="POST", pattern="^(GET|POST|PUT|PATCH|DELETE)$")
     input_schema: dict[str, Any] = Field(default_factory=dict)
@@ -80,6 +81,29 @@ class AISystemCapabilityCreate(APIModel):
     requires_human_review: bool = False
     enabled: bool = True
     metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("http_method", mode="before")
+    @classmethod
+    def normalize_http_method(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().upper()
+        return value
+
+
+class AISystemCapabilityUpdate(APIModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+    capability_type: CapabilityType | None = None
+    modality: Modality | None = None
+    endpoint_ref: str | None = Field(default=None, min_length=1, max_length=500)
+    http_method: str | None = Field(default=None, pattern="^(GET|POST|PUT|PATCH|DELETE)$")
+    input_schema: dict[str, Any] | None = None
+    output_schema: dict[str, Any] | None = None
+    permissions: list[str] | None = None
+    side_effect_level: SideEffectLevel | None = None
+    requires_human_review: bool | None = None
+    enabled: bool | None = None
+    metadata_json: dict[str, Any] | None = None
 
     @field_validator("http_method", mode="before")
     @classmethod
@@ -217,6 +241,13 @@ class AuditLedgerChainVerification(APIModel):
     entry_count: int
     failed_entry_id: UUID | None = None
     reason: str | None = None
+    # Additive: whether the Finding/MetricResult rows the ledger summarizes
+    # still match the digest recorded at write time. None when neither phase
+    # has completed yet (nothing to check); the hash-chain fields above only
+    # prove the ledger rows themselves are untampered, not the domain rows
+    # they describe — see app.services.content_integrity.
+    content_valid: bool | None = None
+    content_checks: list[dict[str, object]] = Field(default_factory=list)
 
 
 class MetricConfigCreate(APIModel):
@@ -448,6 +479,17 @@ class VerdictRead(VerdictCreate):
     run_id: UUID
     created_at: datetime
     updated_at: datetime | None = None
+    # Override capture (calibration plumbing) — see VerdictOverrideCreate.
+    # Additive: the original fields above are never mutated by an override.
+    human_override_label: str | None = None
+    human_override_reason: str | None = None
+    overridden_by: str | None = None
+    overridden_at: datetime | None = None
+
+
+class VerdictOverrideCreate(APIModel):
+    human_override_label: str = Field(min_length=1, max_length=100)
+    human_override_reason: str = Field(min_length=1)
 
 
 class CouncilDeliberationCreate(APIModel):
@@ -467,6 +509,39 @@ class CouncilDeliberationRead(APIModel):
     created_verdict: bool = True
 
 
+class EndpointCoverageRead(APIModel):
+    """What one audited endpoint actually received during a run.
+
+    `probes_sent` counts logical probes that succeeded; `requests_made` counts
+    HTTP round trips, which is larger whenever the Gateway retried. Reporting
+    one number for both would either understate load on the audited system or
+    inflate the probe count — see services/action_reporting/endpoint_coverage.py.
+    """
+
+    endpoint_ref: str | None = None
+    capability_name: str | None = None
+    modality: str | None = None
+    # False for an endpoint that was probed but is not a registered capability
+    # of this system — worth seeing rather than quietly folding in.
+    registered: bool = True
+    probes_sent: int = 0
+    probes_failed: int = 0
+    # Never sent, because the probe was incompatible with the capability. A
+    # different claim from `probes_failed`, which means the target was asked.
+    probes_skipped: int = 0
+    requests_made: int = 0
+    agents: list[str] = Field(default_factory=list)
+    error_types: dict[str, int] = Field(default_factory=dict)
+    sample_error: str | None = None
+
+
+class EndpointCoverageSummary(APIModel):
+    run_id: UUID
+    endpoints: list[EndpointCoverageRead] = Field(default_factory=list)
+    registered_endpoint_count: int = 0
+    unprobed_endpoint_count: int = 0
+
+
 class GovernanceReportRead(APIModel):
     run: EvaluationRunRead
     ai_system: AISystemRead
@@ -479,6 +554,14 @@ class GovernanceReportRead(APIModel):
     findings: list[FindingRead] = Field(default_factory=list)
     verdict: VerdictRead | None = None
     state_chain: GovernanceStateChainVerification
+    # The run keeps TWO hash-chained append-only records — the state chain and
+    # the audit ledger — but the report verified only the first. A reader seeing
+    # a report that attests to chain integrity would reasonably assume the audit
+    # trail was covered; it was not. Both are verified and reported now.
+    ledger_chain: AuditLedgerChainVerification
+    # Probes broken down by audited endpoint, so a report can state which
+    # surfaces it actually exercised instead of implying it covered them all.
+    endpoint_coverage: EndpointCoverageSummary | None = None
     counts: dict[str, int] = Field(default_factory=dict)
 
 
@@ -735,8 +818,12 @@ class GovernancePipelineRunRead(APIModel):
     evaluation_plan: EvaluationPlanRead | None = None
     metric_execution: MetricExecutionRead
     agent_run: AgentRunRead
-    council: CouncilDeliberationRead
-    report: GovernanceReportRead
+    # Both optional so a run whose council or report step failed still returns
+    # the evidence the earlier phases DID produce, instead of the whole pipeline
+    # collapsing to an error and discarding it. The run is marked `degraded` and
+    # the reason recorded in error_summary — see orchestration._finalize_run_status.
+    council: CouncilDeliberationRead | None = None
+    report: GovernanceReportRead | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -748,6 +835,7 @@ class LLMCallLogRead(APIModel):
     id: UUID
     run_id: UUID | None = None
     agent_name: str | None = None
+    phase: str | None = None
     task: str
     call_type: str
     model: str
@@ -767,6 +855,12 @@ class LLMCallLogRead(APIModel):
     created_at: datetime
     prompt_text: str | None = None
     response_text: str | None = None
+    # Which audited surface this call hit (target calls only), and — when it
+    # failed — why, in the target's own words. See models/llm_call_log.py.
+    endpoint_ref: str | None = None
+    error_type: str | None = None
+    error_detail: str | None = None
+    attempts: int = 1
 
 
 class LLMCallLogSummary(APIModel):
@@ -780,6 +874,26 @@ class LLMCallLogSummary(APIModel):
     mock_call_count: int
     error_count: int
     calls: list[LLMCallLogRead] = Field(default_factory=list)
+
+
+class ExecutionArtifactRead(APIModel):
+    """Metadata for one generated-media artifact — the actual image/audio/video
+    bytes are served separately via the .../media endpoint, so this list stays
+    light even when a run produced several large probe videos."""
+
+    id: UUID
+    run_id: UUID
+    agent_name: str
+    dimension: str | None = None
+    capability_name: str | None = None
+    endpoint_ref: str
+    prompt_text: str
+    response_text: str
+    media_kind: str
+    mime_type: str
+    has_media: bool
+    source_url: str | None = None
+    created_at: datetime
 
 
 # ── AI application registration: backend-sourced options + frameworks ──────────

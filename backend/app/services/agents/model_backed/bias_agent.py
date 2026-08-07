@@ -10,7 +10,12 @@ detection when the governance model returns non-JSON (e.g. mock mode).
 from app.models.enums import Severity
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import finding
+from app.services.agents.helpers import (
+    coverage_gap_finding,
+    finding,
+    metric_not_evaluated_finding,
+    split_attention_metrics,
+)
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 
 _BIAS_METRIC_IDS = {"CM-017", "CM-018", "CM-019", "CM-020", "CM-021"}
@@ -75,18 +80,52 @@ class BiasAuditorAgent(ModelBackedAgent):
     probe_dimension = "bias"
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
+        owned_metrics = self._owned_metrics(
+            context, metric_ids=_BIAS_METRIC_IDS, keywords=_BIAS_KEYWORDS
+        )
+        if not owned_metrics:
+            # Nothing was ever planned for this dimension — an honest gap,
+            # not a silent "no findings" that would read identically to a
+            # clean bill of health.
+            return [
+                coverage_gap_finding(
+                    agent_name=self.name,
+                    dimension=self.probe_dimension or self.name,
+                    reason="no_metrics_planned",
+                )
+            ]
+
         # review = metrics to probe/reason over; attention = failed/pending only.
         # In high-risk verification mode, review includes PASSING metrics so the
         # target is still probed and the passes are verified with live evidence.
-        bias_metrics, attention_metrics = self._metrics_for_review(
-            context, metric_ids=_BIAS_METRIC_IDS, keywords=_BIAS_KEYWORDS
-        )
+        bias_metrics, attention_metrics = self._metrics_for_review(context, owned=owned_metrics)
 
         if not bias_metrics:
-            return []
+            return self._unprobed_dimension_findings(
+                context, metric_ids=_BIAS_METRIC_IDS, keywords=_BIAS_KEYWORDS
+            )
 
         probes: list[TargetProbeResult] = self._run_probes(_PROBE_PROMPTS, context=context)
+        # Probes may be gated (e.g. modality mismatch) while the deepeval tool
+        # call below is independent of them — note the gap, don't discard the
+        # tool-based evidence that's still real.
+        coverage_gap = (
+            [
+                coverage_gap_finding(
+                    agent_name=self.name,
+                    dimension=self.probe_dimension or self.name,
+                    reason=context.probe_skips[self.name][0]["reason"],
+                )
+            ]
+            if not probes and context.probe_skips.get(self.name)
+            else []
+        )
 
+        # Sequential, and deliberately so: _call_evidence_tool derives its probe
+        # count from a before/after delta over the shared capture buffer
+        # (_count_target_calls), which assumes this agent has only one thing in
+        # flight. Overlapping it with _run_probes makes that delta absorb the
+        # agent's own probe-plan calls and report them as tool probes.
         tool_calls = self._call_evidence_tool(
             tool_name="deepeval",
             metric_ids={m.metric_id for m in bias_metrics},
@@ -119,6 +158,7 @@ class BiasAuditorAgent(ModelBackedAgent):
                     w for p in probes for w in p.sanitized.warnings
                 ],
             },
+            agent_context=context,
         )
 
         tool_calls_payload = [
@@ -134,11 +174,23 @@ class BiasAuditorAgent(ModelBackedAgent):
         ]
 
         if parsed is not None:
-            return _findings_from_governance(parsed, context, tool_calls_payload)
+            return coverage_gap + _findings_from_governance(
+                parsed, context, tool_calls_payload, reviewed_metrics=bias_metrics
+            )
 
-        # Fallback findings only for genuinely failed/pending metrics — never
-        # fabricate failures out of passing metrics under verification mode.
-        return _deterministic_fallback(attention_metrics, context, tool_calls_payload)
+        # Fallback findings only for genuinely failed metrics — never fabricate
+        # failures out of passing metrics under verification mode, and never
+        # report a skipped/errored/pending metric (no real evidence either way)
+        # with the same "requires review" language as an actual failure.
+        genuinely_failed, never_evaluated = split_attention_metrics(attention_metrics)
+        return (
+            coverage_gap
+            + _deterministic_fallback(genuinely_failed, context, tool_calls_payload)
+            + [
+                metric_not_evaluated_finding(agent_name=self.name, metric=m)
+                for m in never_evaluated
+            ]
+        )
 
 
 def _format_tool_evidence(tool_calls: list) -> str:
@@ -157,9 +209,17 @@ def _findings_from_governance(
     raw: list[dict[str, object]],
     context: AgentContext,
     tool_calls_payload: list[dict],
+    *,
+    reviewed_metrics: list,
 ) -> list[FindingCreate]:
     results: list[FindingCreate] = []
     metric_map = {m.metric_id: m for m in context.metric_results}
+    # When the LLM doesn't cite a metric_id that matches anything, the finding
+    # is still grounded in the metrics/probes this call reviewed — fall back
+    # to their combined evidence rather than leaving evidence_ids empty.
+    reviewed_evidence_ids = sorted(
+        {eid for m in reviewed_metrics for eid in (m.evidence_ids or [])}
+    )
     for item in raw:
         try:
             severity = Severity(str(item.get("severity", "high")).lower())
@@ -179,6 +239,8 @@ def _findings_from_governance(
                 recommended_action=str(item.get("recommended_action", "")),
                 metric=metric,
                 tool_calls=tool_calls_payload,
+                evidence_ids=metric.evidence_ids if metric else reviewed_evidence_ids,
+                generated_by="governance_model",
             )
         )
     return results

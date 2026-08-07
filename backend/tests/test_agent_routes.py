@@ -148,6 +148,40 @@ def test_selected_agents_create_findings_from_metric_results(client: TestClient)
     assert report["agent_executions"][0]["agent_name"] == "bias_agent"
 
 
+def test_agent_emits_coverage_gap_when_no_metrics_planned_for_its_dimension(
+    client: TestClient,
+) -> None:
+    """Fix regression test: an agent whose dimension has no planned metrics at
+    all used to return [] — identical in the stored findings to "probed and
+    clean". It must now emit an explicit coverage_gap finding instead, so a
+    governance gap (nothing evaluated) never reads as a clean bill of health.
+    """
+    system = create_system(client, name="No Bias Metrics System")
+    create_metric(client, "unrelated_metric", "Unrelated Dimension")
+    create_mapping(client, "unrelated_metric", "MAP-UNRELATED")
+    # This run's only metric doesn't match bias_agent's metric IDs or keywords
+    # at all — bias_agent owns nothing to review for this run.
+    run = create_run(client, system["id"], ["unrelated_metric"])
+    execution = client.post(
+        f"/api/v1/evaluation-runs/{run['id']}/metrics/run",
+        json={"mock_score": 0.9},
+    )
+    assert execution.status_code == 201
+
+    response = client.post(
+        f"/api/v1/evaluation-runs/{run['id']}/agents/run",
+        json={"agent_names": ["bias_agent"]},
+    )
+
+    assert response.status_code == 201
+    result = response.json()
+    assert result["findings_created"] == 1
+    assert result["findings"][0]["agent_name"] == "bias_agent"
+    assert result["findings"][0]["finding_type"] == "coverage_gap"
+    assert result["findings"][0]["dimension"] == "bias"
+    assert result["findings"][0]["payload"]["reason"] == "no_metrics_planned"
+
+
 def test_all_agents_can_create_oversight_and_misuse_findings(client: TestClient) -> None:
     system = create_system(client, name="High Risk Agent System", risk_tier="high")
     create_capability(
@@ -195,7 +229,7 @@ def test_agent_failure_is_stored_as_degraded_execution(
     run = create_run(client, system["id"], [])
     monkeypatch.setattr(
         "app.services.specialist_agents.agent_execution.select_agents",
-        lambda agent_names=None: [FailingAgent()],
+        lambda agent_names=None, **_kwargs: [FailingAgent()],
     )
 
     response = client.post(
@@ -205,12 +239,17 @@ def test_agent_failure_is_stored_as_degraded_execution(
 
     assert response.status_code == 201
     result = response.json()
-    assert result["findings_created"] == 0
+    # A failed agent now contributes ONE finding: the record that its dimension
+    # went unverified. It used to contribute none, which made a failure
+    # indistinguishable from a clean result in the evidence package — and the
+    # council counts findings, so silence read as "nothing wrong". See
+    # helpers.agent_failed_finding and test_agent_inputs_and_outputs.py.
+    assert result["findings_created"] == 1
     assert result["agents_run"] == [
         {
             "id": result["executions"][0]["id"],
             "agent_name": "failing_agent",
-            "finding_count": 0,
+            "finding_count": 1,
             "status": "failed",
         }
     ]
@@ -218,6 +257,10 @@ def test_agent_failure_is_stored_as_degraded_execution(
         "error_type": "RuntimeError",
         "message": "agent tool unavailable",
     }
+    # The failure is still recorded AS a failure, not laundered into a normal finding.
+    finding = result["findings"][0]
+    assert finding["payload"]["generated_by"] == "agent_failure"
+    assert finding["severity"] == "high"
 
     run_response = client.get(f"/api/v1/evaluation-runs/{run['id']}")
     assert run_response.status_code == 200
@@ -292,8 +335,8 @@ def test_run_agents_skips_phase_mutation_for_remediation_call(client: TestClient
     from app.db import session as db_session
     from app.models.enums import RunPhase, RunStatus
     from app.schemas.governance import AgentRunCreate
-    from app.services.specialist_agents.agent_execution import run_agents
     from app.services.run_validation import get_run_or_raise
+    from app.services.specialist_agents.agent_execution import run_agents
     from sqlmodel import Session
 
     system = create_system(client, name="ReProbe Phase Guard System")

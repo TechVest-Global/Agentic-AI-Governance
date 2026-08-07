@@ -29,6 +29,12 @@ class TargetModelRequest:
     # Non-text inputs sent to the audited system (empty for text-only probes).
     media: list[MediaAsset] = field(default_factory=list)
     metadata: dict[str, object] = field(default_factory=dict)
+    # Per-probe override of the client's configured HTTP timeout. None keeps the
+    # client default. Needed because one timeout cannot serve every capability: a
+    # text completion answers in seconds, while a video generation (Sora) runs for
+    # minutes, so the shared 60s LLM_CALL_TIMEOUT_SECONDS guaranteed that every
+    # video probe timed out before the target could possibly answer.
+    timeout_seconds: float | None = None
 
 
 @dataclass(frozen=True)
@@ -50,6 +56,16 @@ class GovernanceModelRequest:
     prompt: str
     context: dict[str, object] = field(default_factory=dict)
     metadata: dict[str, object] = field(default_factory=dict)
+    # When set, the caller needs a machine-readable answer and this is the JSON
+    # Schema it must satisfy. Clients whose provider supports a JSON/structured
+    # output mode should switch it on; clients that cannot are free to ignore
+    # this field, because the caller validates the response either way.
+    #
+    # Advisory rather than a hard contract on purpose: making it mandatory would
+    # mean every client (including the mock, which deliberately answers in prose
+    # to represent "no judge configured") had to grow structured-output support
+    # before any of them could benefit.
+    response_schema: dict[str, object] | None = None
 
 
 @dataclass(frozen=True)

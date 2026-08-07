@@ -39,7 +39,11 @@ const FRAMEWORK_DESCRIPTION: Record<FrameworkId, string> = {
   owasp_llm_top_10: "Security risk categories for LLM applications, including prompt injection, leakage, supply-chain, and agent risks.",
 };
 
-const NON_AUTOMATED_TOOLS = new Set(["langfuse", "evidently", "promptfoo"]);
+// "evidently" is deliberately absent: CM-030/031/032 are now scored by a real
+// perturbation experiment against the target, and databases seeded before that
+// change still store the old tool name. Listing it here would file automated
+// results under "manual review".
+const NON_AUTOMATED_TOOLS = new Set(["langfuse", "promptfoo"]);
 const STATUS_SORT: Record<CtrlStatus, number> = { failed: 0, needs_review: 1, manual: 2, passed: 3 };
 const FILTERS: Array<[StatusFilter, string]> = [
   ["all", "All controls"],
@@ -263,67 +267,6 @@ function FrameworkSummaryCard({
         View framework <ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" aria-hidden />
       </span>
     </button>
-  );
-}
-
-function ControlsTable({ rows, onOpen }: { rows: ControlView[]; onOpen: (row: ControlView) => void }) {
-  if (rows.length === 0) {
-    return <Empty>No controls were assessed for this framework in the selected run.</Empty>;
-  }
-  return (
-    <div className="overflow-hidden rounded-xl border border-hairline dark:border-white/10">
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[1080px] border-collapse text-left">
-          <thead>
-            <tr className="border-b border-hairline dark:border-white/10 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400 dark:text-slate-500">
-              <Th className="pl-4">Control / Clause ID</Th>
-              <Th>Control name</Th>
-              <Th>Dimension</Th>
-              <Th className="text-right">Score</Th>
-              <Th className="text-right">Threshold</Th>
-              <Th>Status</Th>
-              <Th className="text-right">Evidence count</Th>
-              <Th className="text-right">Metrics mapped</Th>
-              <Th className="pr-4 text-right">View details</Th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-hairline dark:divide-white/10">
-            {rows.map((row) => (
-              <tr
-                key={`${row.control.framework_id}:${row.control.control_ref}`}
-                onClick={() => onOpen(row)}
-                className="cursor-pointer text-[12.5px] hover:bg-slate-50/70 dark:hover:bg-slate-800/40"
-              >
-                <td className="py-2.5 pl-4 pr-3 font-mono text-[11px] font-semibold text-slate-500 dark:text-slate-400">{row.control.control_ref}</td>
-                <td className="px-3 py-2.5">
-                  <p className="max-w-[280px] truncate font-medium text-ink dark:text-white" title={row.control.control_title ?? row.control.control_ref}>
-                    {row.control.control_title ?? row.control.control_ref}
-                  </p>
-                </td>
-                <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300">{row.dimension}</td>
-                <td className="px-3 py-2.5 text-right font-mono tabular-nums text-slate-700 dark:text-slate-200">{formatScore(row.score)}</td>
-                <td className="px-3 py-2.5 text-right font-mono tabular-nums text-slate-500 dark:text-slate-400">{formatScore(row.threshold)}</td>
-                <td className="px-3 py-2.5"><StatusChip status={row.status} /></td>
-                <td className="px-3 py-2.5 text-right font-mono tabular-nums text-slate-600 dark:text-slate-300">{row.evidenceCount}</td>
-                <td className="px-3 py-2.5 text-right font-mono tabular-nums text-slate-600 dark:text-slate-300">{row.mappedMetricCount}</td>
-                <td className="py-2.5 pl-3 pr-4 text-right">
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onOpen(row);
-                    }}
-                    className="inline-flex items-center gap-0.5 text-[12px] font-medium text-brand-700 dark:text-brand-400 hover:underline"
-                  >
-                    Details <ChevronRight className="h-3.5 w-3.5" aria-hidden />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
   );
 }
 
@@ -666,10 +609,6 @@ function average(values: number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-function formatScore(value: number | null | undefined): string {
-  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(2) : "n/a";
-}
-
 function displayPercentOrScore(value: number | null | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "n/a";
   if (value >= 0 && value <= 1) return `${(value * 100).toFixed(1)}%`;
@@ -755,10 +694,6 @@ function Kpi({ label, value, tone = "default" }: { label: string; value: number;
   );
 }
 
-function Th({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <th className={clsx("px-3 py-2.5 font-semibold", className)}>{children}</th>;
-}
-
 function DrawerSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="rounded-xl border border-hairline dark:border-white/10 p-4">
@@ -790,10 +725,3 @@ function controlOutcomeExplanation(view: ControlView): string {
   return `${control.pending_metric_count} mapped metric${control.pending_metric_count === 1 ? "" : "s"} returned an inconclusive or review-required result.`;
 }
 
-function scoreExplanation(view: ControlView): string {
-  if (view.score == null || view.threshold == null) {
-    return "The backend did not record both a score and threshold for this control. Review the mapped metrics and evidence summary.";
-  }
-  const relation = view.score >= view.threshold ? "met or exceeded" : "was below";
-  return `The aggregated normalized score was ${formatScore(view.score)} against a threshold of ${formatScore(view.threshold)}. The score ${relation} the threshold.`;
-}

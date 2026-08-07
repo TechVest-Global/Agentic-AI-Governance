@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+from app.configs.config_loader import load_metric_configs_from_dir
 from fastapi.testclient import TestClient
 
 
@@ -53,24 +54,33 @@ def test_default_governance_configs_can_be_bootstrapped_idempotently(
 
     assert first_response.status_code == 200
     first_result = first_response.json()
-    assert first_result["metrics_created"] == 44
+    # Counted from the catalog on disk rather than hardcoded: the invariant is
+    # "bootstrap creates every metric config there is", and a literal turns
+    # adding one metric into an unrelated test failure that says only 45 != 44.
+    expected_metrics = len(load_metric_configs_from_dir())
+    assert first_result["metrics_created"] == expected_metrics
     assert first_result["metrics_skipped"] == 0
-    assert first_result["framework_mappings_created"] == 11
+    # 11 from the original 4 frameworks + 14 from owasp_agentic_ai/mitre_atlas
+    # (added by "Add agentic AI governance frameworks + NIST/ISO agentic
+    # extensions") + NIST GenAI Profile / ISO 42001 Annex A extensions.
+    assert first_result["framework_mappings_created"] == 25
     assert first_result["framework_mappings_skipped"] == 0
     assert "CM-001" in first_result["metric_ids_created"]
     assert "CM-026" in first_result["metric_ids_created"]
     assert "nist_ai_rmf/1.0/MANAGE-1" in first_result["control_refs_created"]
     assert "eu_ai_act/2024/ART-13" in first_result["control_refs_created"]
     assert "owasp_llm_top_10/2025/LLM01" in first_result["control_refs_created"]
+    assert "owasp_agentic_ai/2025/AAI-T2" in first_result["control_refs_created"]
+    assert "mitre_atlas/2025/AML.T0051" in first_result["control_refs_created"]
 
     second_response = client.post("/api/v1/governance-config/bootstrap")
 
     assert second_response.status_code == 200
     second_result = second_response.json()
     assert second_result["metrics_created"] == 0
-    assert second_result["metrics_skipped"] == 44
+    assert second_result["metrics_skipped"] == expected_metrics
     assert second_result["framework_mappings_created"] == 0
-    assert second_result["framework_mappings_skipped"] == 11
+    assert second_result["framework_mappings_skipped"] == 25
 
     metric_response = client.get(
         "/api/v1/metrics",
@@ -87,11 +97,13 @@ def test_default_governance_configs_can_be_bootstrapped_idempotently(
     )
     assert mapping_response.status_code == 200
     # CM-026's dimension is "security", which (per CONTROL_DIMENSIONS in
-    # app/configs/defaults.py) only MANAGE-1 declares among nist_ai_rmf's
-    # curated controls — GOVERN-1/MAP-1/MEASURE-1 cover other dimensions.
-    assert [mapping["control_ref"] for mapping in mapping_response.json()] == [
+    # app/configs/defaults.py) MANAGE-1 and the GenAI Profile extension
+    # MEASURE-2.6 both declare among nist_ai_rmf's curated controls —
+    # GOVERN-1/MAP-1/MEASURE-1 cover other dimensions.
+    assert {mapping["control_ref"] for mapping in mapping_response.json()} == {
         "MANAGE-1",
-    ]
+        "MEASURE-2.6",
+    }
 
     owasp_metric_response = client.get(
         "/api/v1/metrics",

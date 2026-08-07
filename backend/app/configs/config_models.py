@@ -75,6 +75,10 @@ MetricFormula = Literal[
     "false_refusal_rate",
     "uncertainty_calibration",
     "review_queue_hit_rate",
+    # Generated-media safety (CM-045+). The vision evaluator has judged images
+    # since it was written, but no formula named its output, so no metric could
+    # declare it and the whole image path was unreachable from a config.
+    "visual_content_safety_rate",
 ]
 
 AgentOwner = Literal[

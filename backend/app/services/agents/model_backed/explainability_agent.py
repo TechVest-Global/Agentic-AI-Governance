@@ -14,7 +14,12 @@ returns non-JSON.
 from app.models.enums import Severity
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import finding
+from app.services.agents.helpers import (
+    coverage_gap_finding,
+    finding,
+    metric_not_evaluated_finding,
+    split_attention_metrics,
+)
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 
 _EXPLAINABILITY_METRIC_IDS = {
@@ -94,18 +99,51 @@ class ExplainabilityAgent(ModelBackedAgent):
     probe_dimension = "explainability"
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
-        # High-risk verification mode: probe even when all owned metrics passed.
-        explainability_metrics, attention_metrics = self._metrics_for_review(
+        owned_metrics = self._owned_metrics(
             context,
             metric_ids=_EXPLAINABILITY_METRIC_IDS,
             keywords=_EXPLAINABILITY_KEYWORDS,
         )
+        if not owned_metrics:
+            return [
+                coverage_gap_finding(
+                    agent_name=self.name,
+                    dimension=self.probe_dimension or self.name,
+                    reason="no_metrics_planned",
+                )
+            ]
+
+        # High-risk verification mode: probe even when all owned metrics passed.
+        explainability_metrics, attention_metrics = self._metrics_for_review(
+            context, owned=owned_metrics
+        )
 
         if not explainability_metrics:
-            return []
+            return self._unprobed_dimension_findings(
+                context,
+                metric_ids=_EXPLAINABILITY_METRIC_IDS,
+                keywords=_EXPLAINABILITY_KEYWORDS,
+            )
 
         probes: list[TargetProbeResult] = self._run_probes(_PROBE_PROMPTS, context=context)
+        # Probes may be gated (e.g. modality mismatch) while the ragas tool call
+        # below is independent of them — note the gap, don't discard the
+        # tool-based evidence that's still real.
+        coverage_gap = (
+            [
+                coverage_gap_finding(
+                    agent_name=self.name,
+                    dimension=self.probe_dimension or self.name,
+                    reason=context.probe_skips[self.name][0]["reason"],
+                )
+            ]
+            if not probes and context.probe_skips.get(self.name)
+            else []
+        )
 
+        # Sequential — see the note in bias_agent: _call_evidence_tool's probe
+        # count is a before/after delta over the shared capture buffer, so it
+        # must not overlap this agent's own probe run.
         tool_calls = self._call_evidence_tool(
             tool_name="ragas",
             metric_ids={m.metric_id for m in explainability_metrics},
@@ -136,6 +174,7 @@ class ExplainabilityAgent(ModelBackedAgent):
                 "tool_call_count": len(tool_calls),
                 "redaction_warnings": [w for p in probes for w in p.sanitized.warnings],
             },
+            agent_context=context,
         )
 
         tool_calls_payload = [
@@ -151,10 +190,22 @@ class ExplainabilityAgent(ModelBackedAgent):
         ]
 
         if parsed is not None:
-            return _findings_from_governance(parsed, context, tool_calls_payload)
+            return coverage_gap + _findings_from_governance(
+                parsed, context, tool_calls_payload, reviewed_metrics=explainability_metrics
+            )
 
-        # Fallback only on genuinely failed/pending metrics — never on passes.
-        return _deterministic_fallback(attention_metrics, context, tool_calls_payload)
+        # Fallback only on genuinely failed metrics — never on passes, and
+        # never report a skipped/errored/pending metric (e.g. ragas with no
+        # seeded context documents) as if a real defect had been observed.
+        genuinely_failed, never_evaluated = split_attention_metrics(attention_metrics)
+        return (
+            coverage_gap
+            + _deterministic_fallback(genuinely_failed, context, tool_calls_payload)
+            + [
+                metric_not_evaluated_finding(agent_name=self.name, metric=m)
+                for m in never_evaluated
+            ]
+        )
 
 
 def _format_tool_evidence(tool_calls: list) -> str:
@@ -176,9 +227,14 @@ def _findings_from_governance(
     raw: list[dict[str, object]],
     context: AgentContext,
     tool_calls_payload: list[dict],
+    *,
+    reviewed_metrics: list,
 ) -> list[FindingCreate]:
     results: list[FindingCreate] = []
     metric_map = {m.metric_id: m for m in context.metric_results}
+    reviewed_evidence_ids = sorted(
+        {eid for m in reviewed_metrics for eid in (m.evidence_ids or [])}
+    )
     for item in raw:
         try:
             severity = Severity(str(item.get("severity", "high")).lower())
@@ -198,6 +254,8 @@ def _findings_from_governance(
                 recommended_action=str(item.get("recommended_action", "")),
                 metric=metric,
                 tool_calls=tool_calls_payload,
+                evidence_ids=metric.evidence_ids if metric else reviewed_evidence_ids,
+                generated_by="governance_model",
             )
         )
     return results

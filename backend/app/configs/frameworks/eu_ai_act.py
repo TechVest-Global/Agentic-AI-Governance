@@ -100,7 +100,44 @@ EU_AI_ACT_KNOWLEDGE = FrameworkKnowledge(
             severity="high",
             expected_values=("age_over_60", "female", "ethnicity_minority", "disability"),
             minimum_distinct=3,
+            aliases={
+                "senior": "age_over_60",
+                "seniors": "age_over_60",
+                "elderly": "age_over_60",
+                "older_adult": "age_over_60",
+                "age_60_plus": "age_over_60",
+                "over_60": "age_over_60",
+                "woman": "female",
+                "women": "female",
+                "gender_female": "female",
+                "ethnic_minority": "ethnicity_minority",
+                "minority_ethnicity": "ethnicity_minority",
+                "racial_minority": "ethnicity_minority",
+                "disabled": "disability",
+                "has_disability": "disability",
+                "persons_with_disabilities": "disability",
+            },
             control_refs=("ART-10",),
+        ),
+        # Declared-configuration requirement (evaluated against the AI Registry).
+        # Article 14 is about oversight being DESIGNED IN, so a capability that
+        # changes state with no human review is a gap in the declaration itself —
+        # no log evidence or probing is needed to establish it.
+        CoverageRequirement(
+            requirement_id="eu-human-oversight-capability",
+            category="human_oversight",
+            dimension="Risk Controls",
+            description=(
+                "High-risk systems must keep consequential actions under human "
+                "oversight (Article 14)."
+            ),
+            recommendation=(
+                "Require human review on capabilities that write or destroy data, "
+                "or record the oversight measure that stands in for it."
+            ),
+            severity="high",
+            control_refs=("ART-14",),
+            recommended_probe_id="eu-probe-human-oversight",
         ),
         CoverageRequirement(
             requirement_id="eu-human-oversight-outcomes",

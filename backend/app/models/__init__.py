@@ -1,7 +1,6 @@
 """SQLModel entities for the governance backend."""
 
 from app.models.agent import AgentExecution
-from app.models.assessment_request import AssessmentRequest
 from app.models.ai_system import (
     AISystem,
     AISystemAgentConfig,
@@ -20,9 +19,11 @@ from app.models.ai_system import (
     ApplicationContextProfile,
     RetrievalContextDocument,
 )
+from app.models.assessment_request import AssessmentRequest
 from app.models.config import FrameworkMapping, MetricConfig
 from app.models.evaluation import EvaluationRun
 from app.models.evidence import EvidenceRecord, MetricResult
+from app.models.execution_artifact import ExecutionArtifact
 from app.models.finding import Finding
 from app.models.ledger import AuditLedgerEntry
 from app.models.llm_call_log import LLMCallLog
@@ -54,6 +55,7 @@ __all__ = [
     "GovernanceStateEntry",
     "EvidenceRecord",
     "MetricResult",
+    "ExecutionArtifact",
     "Finding",
     "Verdict",
     "AuditLedgerEntry",

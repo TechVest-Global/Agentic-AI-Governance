@@ -87,6 +87,87 @@ class Settings(BaseSettings):
     # override via env for any shared deployment.
     secret_key: str = "dev-insecure-secret-change-me"
 
+    # --- Pipeline concurrency ------------------------------------------------
+    # These live here, rather than as module-level os.getenv() reads in the
+    # services that use them, for two reasons. pydantic-settings loads the
+    # project .env into *this* object without ever touching os.environ, so an
+    # os.getenv() read silently ignored every one of these knobs when set in
+    # .env — despite the surrounding comments documenting them as overridable.
+    # And a module-level read binds the value at import time, so no test could
+    # vary it. Read them via app.services.concurrency_settings, which resolves
+    # get_settings() per call.
+    #
+    # Specialist agents (Layer 3) run concurrently; bounded low because the
+    # per-agent probe pools multiply with this number. See agent_execution.py.
+    agent_execution_max_workers: int = Field(default=3, ge=1)
+    # Wall-clock ceiling on the whole specialist-agent phase, so one hung agent
+    # cannot park a run in `agents_running`.
+    agent_execution_budget_seconds: float = Field(default=900.0, gt=0)
+    # Per-agent probe fan-out width.
+    agent_probe_max_workers: int = Field(default=6, ge=1)
+    # Process-wide ceiling on concurrent requests into an audited target system,
+    # enforced in the gateway so it covers every caller (specialist-agent probes
+    # AND metric-execution evaluators). 0 means "same as agent_probe_max_workers",
+    # which keeps peak load on the target at its pre-parallelism level.
+    agent_target_max_inflight: int = Field(default=0, ge=0)
+    # Separate, much tighter ceiling for VIDEO generation requests, which the
+    # general cap above cannot express: it counts requests, and a video request
+    # is not comparable to a text one. A Sora-class job runs for minutes and the
+    # provider limits how many may run AT ONCE (not per minute), answering
+    # further creates with "Too many running tasks". With one shared cap of 6,
+    # several 10-minute renders overlapped and every video probe in a live
+    # Marketing Campaign Generator run failed that way. 1 serialises them, which
+    # is what the provider's own limit effectively demands.
+    agent_target_max_inflight_video: int = Field(default=1, ge=1)
+    # A target asking us to wait longer than this is not throttling a burst, it
+    # is out of quota: no backoff inside one audit can outlast the window, so
+    # the run stops probing it instead of spending the rest of the allowance on
+    # requests that are certain to be refused. Observed on a target answering
+    # 429 with retry_after=62625s (a daily quota, resetting at midnight UTC).
+    target_quota_exhausted_seconds: float = Field(default=300.0, gt=0)
+    # How many image probes the vision evaluator sends per image-safety metric.
+    # Each one is a real generation request against the audited system, so this
+    # is the dial for trading sample size against the target's cost and rate
+    # limit. Capped by the number of distinct prompts available.
+    vision_image_probe_count: int = Field(default=4, ge=1)
+    # Comparison probes sent alongside the baseline by the drift evaluator
+    # (CM-030/031/032). Two is the floor for a rate to mean anything.
+    drift_probe_count: int = Field(default=4, ge=2)
+    # Garak probes carry their full attack corpus (e.g. HijackHateHumans ships
+    # 256 prompts) and each one is a live call to the audited target, so these
+    # bound it to a representative sample — see garak_evaluator.py. Previously
+    # module-level `os.getenv(...)` reads, exactly the anti-pattern documented
+    # at the top of this file: pydantic-settings loads .env without touching
+    # os.environ, so setting either in .env silently did nothing.
+    garak_max_probe_prompts: int = Field(default=10, ge=1)
+    garak_generations: int = Field(default=1, ge=1)
+    # Video generation is not an LLM call and cannot share LLM_CALL_TIMEOUT_SECONDS.
+    # A Sora-class generation runs for minutes, so the 60s default guaranteed that
+    # every video probe raised "target did not return a video: timed out" before
+    # the target could answer — CM-033 Temporal Consistency was skipped on every
+    # run it was ever planned for, without ever reaching the target. Covers both
+    # the generation request and the download of the resulting asset.
+    video_generation_timeout_seconds: float = Field(default=600.0, gt=0)
+    # Metric evaluation fan-out width and phase budget. See metric_execution.py.
+    metric_execution_max_workers: int = Field(default=3, ge=1)
+    # FLOOR on the phase budget, not the whole story — the effective budget also
+    # scales with how many metrics were planned (below). A flat 600s cannot serve
+    # both a 7-metric smoke run and a full 42-metric catalog audit: measured at
+    # ~6s per model call and ~3.5 calls per metric, 42 metrics need ~880s, so the
+    # tail was recorded as "evaluation exceeded the metric-execution time budget"
+    # — a clock expiring, presented as if the tools had failed.
+    metric_execution_budget_seconds: float = Field(default=600.0, gt=0)
+    # Per-metric allowance, applied as `max(floor, per_metric * metric_count)` —
+    # so it only raises the budget above the floor once a run plans more than
+    # (floor / this) metrics. The measured baseline is ~6s per model call and
+    # 2-4 calls per metric against a live target with AGENT_TARGET_MAX_INFLIGHT=1
+    # (the setting that keeps a rate-limited target from refusing everything),
+    # i.e. ~25s for a typical metric. 120s leaves headroom for metrics that make
+    # more calls than that, or targets slower than the measured one, at the cost
+    # of a much longer worst-case phase: a 42-metric catalog audit now allows
+    # 5040s (~84 min) rather than 1050s. Set to 0 to restore a purely flat budget.
+    metric_execution_seconds_per_metric: float = Field(default=120.0, ge=0)
+
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore"
     )

@@ -11,7 +11,12 @@ returns non-JSON.
 from app.models.enums import Severity
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import finding
+from app.services.agents.helpers import (
+    coverage_gap_finding,
+    finding,
+    metric_not_evaluated_finding,
+    split_attention_metrics,
+)
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 
 _TRANSPARENCY_METRIC_IDS = {"CM-035", "CM-036", "CM-037", "CM-038", "CM-039"}
@@ -101,15 +106,44 @@ class ComplianceMapperAgent(ModelBackedAgent):
                 )
             )
 
+        owned_metrics = self._owned_metrics(
+            context, metric_ids=_TRANSPARENCY_METRIC_IDS, keywords=_TRANSPARENCY_KEYWORDS
+        )
+        if not owned_metrics:
+            return findings + [
+                coverage_gap_finding(
+                    agent_name=self.name,
+                    dimension=self.probe_dimension or self.name,
+                    reason="no_metrics_planned",
+                )
+            ]
+
         # High-risk verification mode: probe even when all owned metrics passed.
         transparency_metrics, attention_metrics = self._metrics_for_review(
-            context, metric_ids=_TRANSPARENCY_METRIC_IDS, keywords=_TRANSPARENCY_KEYWORDS
+            context, owned=owned_metrics
         )
 
         if not transparency_metrics:
-            return findings
+            # Owned metrics exist and all passed. A bare `return findings` here
+            # left NO record that the compliance dimension went unprobed, so
+            # "never verified" and "verified and clean" were indistinguishable
+            # in the stored findings — the ambiguity _unprobed_dimension_findings
+            # exists to prevent, and which every other dimension agent already
+            # avoids. Added to `findings` rather than replacing it: an earlier
+            # no-framework finding on this run must not be dropped.
+            return findings + self._unprobed_dimension_findings(
+                context, metric_ids=_TRANSPARENCY_METRIC_IDS, keywords=_TRANSPARENCY_KEYWORDS
+            )
 
         probes: list[TargetProbeResult] = self._run_probes(_PROBE_PROMPTS, context=context)
+        if not probes and context.probe_skips.get(self.name):
+            return findings + [
+                coverage_gap_finding(
+                    agent_name=self.name,
+                    dimension=self.probe_dimension or self.name,
+                    reason=context.probe_skips[self.name][0]["reason"],
+                )
+            ]
 
         metric_summary = "\n".join(
             f"  - {m.metric_id} ({m.dimension}): status={m.status}, "
@@ -132,21 +166,40 @@ class ComplianceMapperAgent(ModelBackedAgent):
                 "probe_count": len(probes),
                 "redaction_warnings": [w for p in probes for w in p.sanitized.warnings],
             },
+            agent_context=context,
         )
 
         if parsed is not None:
-            return findings + _findings_from_governance(parsed, context)
+            return findings + _findings_from_governance(
+                parsed, context, reviewed_metrics=transparency_metrics
+            )
 
-        # Fallback only on genuinely failed/pending metrics — never on passes.
-        return findings + _deterministic_fallback(attention_metrics, context)
+        # Fallback only on genuinely failed metrics — never on passes, and
+        # never report a skipped/errored/pending metric (e.g. CM-039 when
+        # Langfuse isn't configured for this deployment) as if a real
+        # transparency defect had been observed.
+        genuinely_failed, never_evaluated = split_attention_metrics(attention_metrics)
+        return (
+            findings
+            + _deterministic_fallback(genuinely_failed, context)
+            + [
+                metric_not_evaluated_finding(agent_name=self.name, metric=m)
+                for m in never_evaluated
+            ]
+        )
 
 
 def _findings_from_governance(
     raw: list[dict[str, object]],
     context: AgentContext,
+    *,
+    reviewed_metrics: list,
 ) -> list[FindingCreate]:
     results: list[FindingCreate] = []
     metric_map = {m.metric_id: m for m in context.metric_results}
+    reviewed_evidence_ids = sorted(
+        {eid for m in reviewed_metrics for eid in (m.evidence_ids or [])}
+    )
     for item in raw:
         try:
             severity = Severity(str(item.get("severity", "medium")).lower())
@@ -165,6 +218,8 @@ def _findings_from_governance(
                 agent_name="compliance_mapper",
                 recommended_action=str(item.get("recommended_action", "")),
                 metric=metric,
+                evidence_ids=metric.evidence_ids if metric else reviewed_evidence_ids,
+                generated_by="governance_model",
             )
         )
     return results

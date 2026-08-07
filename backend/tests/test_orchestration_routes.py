@@ -98,6 +98,10 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
         "context_assembly.completed",
         "evaluation_plan.prepared",
         "metric_execution.completed",
+        # Each specialist agent appends its own event as it is finalized (this
+        # run activates only risk_scorer), before the orchestrator's
+        # layer-level summary — see test_per_agent_ledger_events.py.
+        "agent.completed",
         "agent_execution.completed",
         "council_deliberation.completed",
         "governance_report.generated",
@@ -109,12 +113,21 @@ def test_governance_pipeline_orchestrates_metrics_agents_council_and_report(
         "failed_sequence": None,
         "reason": None,
     }
-    assert client.get(f"/api/v1/evaluation-runs/{run['id']}/ledger/verify").json() == {
-        "valid": True,
-        "entry_count": 6,
-        "failed_entry_id": None,
-        "reason": None,
+    ledger_verification = client.get(f"/api/v1/evaluation-runs/{run['id']}/ledger/verify").json()
+    assert ledger_verification["valid"] is True
+    # Six layer-level events plus one per-agent event for the single activated agent.
+    assert ledger_verification["entry_count"] == 7
+    assert ledger_verification["failed_entry_id"] is None
+    assert ledger_verification["reason"] is None
+    # Content-integrity checkpoint: the Finding/MetricResult rows the
+    # metric_execution.completed and agent_execution.completed ledger entries
+    # summarize still match the digest recorded at write time.
+    assert ledger_verification["content_valid"] is True
+    assert {c["event_type"] for c in ledger_verification["content_checks"]} == {
+        "metric_execution.completed",
+        "agent_execution.completed",
     }
+    assert all(c["valid"] for c in ledger_verification["content_checks"])
 
     run_response = client.get(f"/api/v1/evaluation-runs/{run['id']}")
     assert run_response.status_code == 200
@@ -137,7 +150,7 @@ def test_full_pipeline_stays_degraded_when_an_agent_fails(
     the standalone /agents/run endpoint already does (see
     test_agent_routes.py::test_agent_failure_is_stored_as_degraded_execution).
 
-    Previously, _execute_and_report's final step unconditionally overwrote
+    Previously, the pipeline's final step unconditionally overwrote
     run.status to 'completed' after the council/report steps ran, silently
     discarding the degraded signal that agent_execution.run_agents() had set.
     """
@@ -153,7 +166,7 @@ def test_full_pipeline_stays_degraded_when_an_agent_fails(
 
     monkeypatch.setattr(
         "app.services.specialist_agents.agent_execution.select_agents",
-        lambda agent_names=None: [FailingAgent()],
+        lambda agent_names=None, **_kwargs: [FailingAgent()],
     )
 
     response = client.post(
@@ -166,7 +179,10 @@ def test_full_pipeline_stays_degraded_when_an_agent_fails(
     assert run_after["status"] == "degraded"
     assert run_after["current_phase"] == "completed"
     assert run_after["error_summary"]["degraded_reason"] == "specialist_agent_failure"
-    assert run_after["error_summary"]["failed_agents"] == [
+    # Detail is nested per failure reason, because a run can lose an agent AND the
+    # verdict AND the report in one pass and must report all of them — see
+    # test_pipeline_partial_failure.py.
+    assert run_after["error_summary"]["specialist_agent_failure"]["failed_agents"] == [
         {
             "agent_name": "failing_agent",
             "error": {

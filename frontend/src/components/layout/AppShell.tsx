@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  ChevronDown, Cpu, LogOut, Moon, PanelLeft, PanelLeftClose,
+  ChevronDown, LogOut, Moon, PanelLeft, PanelLeftClose,
   Pause, Play, Search, Shield, Sun, X,
 } from "lucide-react";
 import clsx from "clsx";
@@ -38,7 +38,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const persona    = personaForRole(user?.role);
   const navItems   = navigation.filter((item) => item.personas.includes(persona) && !item.hidden);
   const current    = navItems.find((item) => item.id === activePage);
-  const isEngine = activePage === "engine";
   const { active: isRunning, activeRunId } = useIsRunActive();
   const setGlobalRunnerStatus = useAppStore((s) => s.setGlobalRunnerStatus);
 
@@ -205,7 +204,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="ml-4 flex items-center gap-2">
-            {/* global run switcher — connects every run-scoped tab */}
+            {/* App-wide run switcher — connects every run-scoped tab.
+                (Do not start this comment with the word "global": ESLint reads
+                a leading `/* global ...` as a global-declaration directive and
+                treats each following word as an undeclared variable.) */}
             {/* Live Runs shows its own switcher inline at the top of the page instead */}
             {RUN_SCOPED.has(activePage) && activePage !== "runs" && <RunSwitcher />}
 
@@ -227,7 +229,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <NotificationsMenu />
 
             {/* start / pause run button — auditors don't execute runs */}
-            {!isEngine && persona !== "auditor" && (
+            {persona !== "auditor" && (
               isRunning ? (
                 <button
                   onClick={async () => {
@@ -293,8 +295,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* ── Page content ─────────────────────────────────────── */}
-        <main className={clsx("flex-1", isEngine ? "" : "p-6")}>
-          {!isEngine && !headerHidden && (
+        <main className="flex-1 p-6">
+          {!headerHidden && (
             <div className="mb-6 border-b border-[#e7e9f0] dark:border-white/10 pb-5">
               <div className="flex items-center gap-1.5 text-[11px] text-ink-4 dark:text-slate-500">
                 <span>GovernAI</span>
@@ -315,36 +317,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
           )}
-          <div key={activePage} className={isEngine ? "" : "animate-rise"}>
+          <div key={activePage} className="animate-rise">
             {children}
           </div>
         </main>
 
-        {!isEngine && (
-          <footer className="border-t border-hairline dark:border-white/10 px-6 py-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-[11px] text-ink-4 dark:text-slate-500">
-                <div className="flex h-5 w-5 items-center justify-center rounded-md bg-brand-600 text-white">
-                  <Shield className="h-3 w-3" />
-                </div>
-                <span>© {new Date().getFullYear()} GovernAI</span>
-                <span className="opacity-50">·</span>
-                <span>Output-only AI Governance Engine</span>
+        <footer className="border-t border-hairline dark:border-white/10 px-6 py-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-[11px] text-ink-4 dark:text-slate-500">
+              <div className="flex h-5 w-5 items-center justify-center rounded-md bg-brand-600 text-white">
+                <Shield className="h-3 w-3" />
               </div>
-              {/* Engine explainer is developer-only; only surface the link to
-                  developers so it never dead-redirects an auditor. */}
-              {persona === "developer" && (
-                <button
-                  onClick={() => navigateTo("/engine")}
-                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-ink-3 dark:text-slate-400 transition-colors hover:bg-slate-100 dark:hover:bg-white/10 hover:text-ink dark:hover:text-white"
-                >
-                  <Cpu className="h-3.5 w-3.5" />
-                  How the engine works
-                </button>
-              )}
+              <span>© {new Date().getFullYear()} GovernAI</span>
+              <span className="opacity-50">·</span>
+              <span>Output-only AI Governance Engine</span>
             </div>
-          </footer>
-        )}
+          </div>
+        </footer>
 
       </div>
     </div>
@@ -354,7 +343,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 const pageDescriptions: Record<PageId, string> = {
   dashboard:      "Real-time governance overview — KPIs, risk trends, compliance posture, and agent performance at a glance.",
   systems:        "All registered AI systems bound to owners, risk tiers, and frameworks. Click any row to inspect the current governance posture.",
-  engine:         "End-to-end walkthrough of the governance engine — five layers from context assembly through specialist findings, council deliberation, confidence-bounded action, and sealed ledger evidence.",
   runs:           "Live pipeline execution for active governance runs. Expand each specialist agent to see checks, methods, probes, findings, and remediation.",
   "metric-plan":  "Orchestrator-selected metric plan for the current run — tools, owner agents, framework clauses, probe budgets, and thresholds.",
   council:        "Multi-step deliberation that synthesises agent findings into a verdict. Each step is expandable with full reasoning and confidence impacts.",

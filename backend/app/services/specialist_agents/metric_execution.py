@@ -1,18 +1,32 @@
+import functools
 import logging
-import os
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeout
 from uuid import UUID
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.db import session as db_session
-from app.models.ai_system import AISystem
+from app.models.ai_system import AISystem, AISystemCapability
 from app.models.base import utc_now
-from app.models.enums import MetricResultStatus, RunPhase, RunStatus
+from app.models.enums import LedgerActorType, MetricResultStatus, RunPhase, RunStatus
 from app.models.evidence import EvidenceRecord, MetricResult
-from app.schemas.governance import MetricExecutionCreate, MetricExecutionRead
 from app.models.llm_call_log import LLMCallLog
-from app.services.evaluators.base import MetricEvaluationInput, MetricEvaluationResult
+from app.schemas.governance import (
+    AuditLedgerEntryCreate,
+    MetricExecutionCreate,
+    MetricExecutionRead,
+)
+from app.services import audit_ledger
+from app.services.concurrency_settings import (
+    metric_execution_budget_for,
+    metric_execution_max_workers,
+)
+from app.services.evaluators.base import (
+    MetricEvaluationInput,
+    MetricEvaluationResult,
+    resolve_evaluator_endpoint,
+)
 from app.services.evaluators.registry import get_evaluator
 from app.services.model_clients.gateway import (
     bind_log_capture,
@@ -21,6 +35,7 @@ from app.services.model_clients.gateway import (
     start_log_capture,
 )
 from app.services.model_clients.registry import get_target_model_client_for_system
+from app.services.model_clients.target_modality import register_capability_modalities
 from app.services.run_validation import get_run_or_raise
 from app.services.specialist_agents.metric_plans import build_metric_plan
 
@@ -34,8 +49,12 @@ logger = logging.getLogger(__name__)
 # so the retry/backoff inflated a run past 10 minutes. 3 keeps enough
 # parallelism to overlap the slow target probes without tripping the judge's
 # rate limit. Override with METRIC_EXECUTION_MAX_WORKERS.
-_MAX_METRIC_WORKERS = int(os.getenv("METRIC_EXECUTION_MAX_WORKERS", "3"))
-
+#
+# Both knobs resolve through concurrency_settings at call time rather than being
+# read from os.getenv at import: the app's config is pydantic-settings reading
+# <repo>/.env, which never populates os.environ, so the documented .env override
+# silently did nothing. See app/services/concurrency_settings.py.
+#
 # Hard wall-clock budget for the whole metric-execution phase. A single evaluator
 # that blocks on an unbounded network call (e.g. ragas' langchain judge, which
 # doesn't go through the gateway's per-call timeout, or a garak detector loading
@@ -44,7 +63,41 @@ _MAX_METRIC_WORKERS = int(os.getenv("METRIC_EXECUTION_MAX_WORKERS", "3"))
 # When the budget is hit, any metric still in flight is recorded as SKIPPED so
 # the run always advances to a terminal state. Override with
 # METRIC_EXECUTION_BUDGET_SECONDS.
-_METRIC_PHASE_BUDGET_SECONDS = float(os.getenv("METRIC_EXECUTION_BUDGET_SECONDS", "600"))
+
+
+def _record_orphaned_completion(run_id: UUID, metric_id: str, future: Future) -> None:
+    """Ledger-record a straggler metric that finished after its phase timed out.
+
+    ``pool.shutdown(wait=False)`` deliberately does not block on stragglers so
+    a single hung evaluator can never park the run — but the thread keeps
+    running in the background (possibly still calling the target system)
+    with nothing recorded once its result is discarded. This callback runs
+    whenever that thread eventually finishes, on its own session since the
+    main request/job session may already be closed by then.
+    """
+    try:
+        outcome = "completed"
+        detail: str | None = None
+        try:
+            future.result()
+        except Exception as exc:  # noqa: BLE001
+            outcome = "error"
+            detail = str(exc)
+        with Session(db_session.engine) as session:
+            audit_ledger.append_ledger_entry(
+                session,
+                run_id=run_id,
+                payload=AuditLedgerEntryCreate(
+                    event_type="metric.orphaned_after_timeout",
+                    actor_type=LedgerActorType.system,
+                    actor_id="metric_execution",
+                    payload={"metric_id": metric_id, "outcome": outcome, "detail": detail},
+                ),
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "Could not record orphaned-metric completion for %s (run %s)", metric_id, run_id
+        )
 
 
 def _timed_out_result(metric, *, reason: str) -> MetricEvaluationResult:
@@ -90,9 +143,29 @@ def run_metrics(
     # closing it detaches the instance with all column attributes materialized,
     # so worker reads are plain attribute access with no session involved.
     worker_ai_system = None
+    resolved_endpoint_ref = ""
+    resolved_capabilities: list[AISystemCapability] = []
     if ai_system is not None:
         with Session(db_session.engine) as snapshot_session:
             worker_ai_system = snapshot_session.get(AISystem, ai_system.id)
+            resolved_capabilities = list(
+                snapshot_session.exec(
+                    select(AISystemCapability).where(
+                        AISystemCapability.ai_system_id == ai_system.id
+                    )
+                ).all()
+            )
+            resolved_endpoint_ref = resolve_evaluator_endpoint(
+                worker_ai_system,
+                resolved_capabilities,
+                run.selected_capabilities or (),
+            )
+            # Teach the gateway which endpoints are video, so its concurrency cap
+            # can serialise renders. Registered here because this is where the
+            # capabilities are loaded; the evaluators that probe a video endpoint
+            # (deepeval posts free text to whatever ref it is handed) have no idea
+            # they are doing it. See model_clients/target_modality.py.
+            register_capability_modalities(resolved_capabilities)
 
     evidence_records: list[EvidenceRecord] = []
     metric_results: list[MetricResult] = []
@@ -100,7 +173,7 @@ def run_metrics(
     # Capture every LLM call the evaluators make (target probes + judge calls)
     # so the metric-execution phase is audited in llm_call_logs like the agent
     # and council phases already are.
-    start_log_capture()
+    start_log_capture(run_id, RunPhase.metric_execution.value)
     capture_buffer = get_log_buffer()
 
     # Evaluate all metrics concurrently. Each worker uses its own short-lived DB
@@ -108,10 +181,14 @@ def run_metrics(
     # does; all writes below happen back on the main session, in plan order, so
     # persistence stays single-threaded and deterministic.
     def _evaluate(metric) -> MetricEvaluationResult:
-        # contextvars don't cross thread boundaries — rebind the parent's audit
-        # buffer so this worker's LLM calls are captured too.
-        bind_log_capture(capture_buffer)
         with Session(db_session.engine) as worker_session:
+            # contextvars don't cross thread boundaries — rebind the parent's
+            # audit buffer so this worker's LLM calls are captured too. The
+            # pool is reused across metrics on the same threads, so agent_name
+            # is rebound fresh on every call (attributing the call to this
+            # metric's own tool) rather than relying on whatever a previous
+            # metric on this thread left behind.
+            bind_log_capture(capture_buffer, agent_name=metric.tool_name or "unknown")
             try:
                 return evaluator.evaluate(
                     MetricEvaluationInput(
@@ -122,6 +199,9 @@ def run_metrics(
                         session=worker_session,
                         ai_system=worker_ai_system,
                         target_client=target_client,
+                        target_endpoint_ref=resolved_endpoint_ref,
+                        capabilities=resolved_capabilities,
+                        run_id=run_id,
                     )
                 )
             except Exception as exc:
@@ -151,9 +231,57 @@ def run_metrics(
                     },
                 )
 
-    metrics = list(plan.metrics)
+    # Resuming a run that was interrupted mid-phase (see
+    # orchestration.reconcile_interrupted_runs) must not re-evaluate metrics
+    # that already completed — each evaluator call is a real probe against
+    # the target system, and per-item commits (above) mean a prior partial
+    # attempt's successes are already durable. A metric left `error`/
+    # `skipped`/`pending` was never properly evaluated and IS retried.
+    already_done_results = [
+        result
+        for result in session.exec(
+            select(MetricResult).where(MetricResult.run_id == run_id)
+        ).all()
+        if result.status in (MetricResultStatus.passed, MetricResultStatus.failed)
+    ]
+    already_done_ids = {result.metric_id for result in already_done_results}
+    metrics = [m for m in plan.metrics if m.metric_id not in already_done_ids]
+    if already_done_ids:
+        logger.info(
+            "Run %s: skipping %d already-evaluated metric(s) on resume",
+            run_id, len(already_done_ids),
+        )
+    # A metric about to be retried may already have a stale error/skipped/
+    # pending MetricResult (and its EvidenceRecord) from the interrupted
+    # attempt — remove it so the retry cleanly replaces it instead of leaving
+    # a duplicate row alongside the fresh result.
+    retry_ids = {m.metric_id for m in metrics}
+    if retry_ids:
+        stale_results = list(
+            session.exec(
+                select(MetricResult)
+                .where(MetricResult.run_id == run_id)
+                .where(MetricResult.metric_id.in_(retry_ids))
+            ).all()
+        )
+        stale_evidence_ids = {eid for r in stale_results for eid in (r.evidence_ids or [])}
+        for stale_result in stale_results:
+            session.delete(stale_result)
+        if stale_evidence_ids:
+            for stale_evidence in session.exec(
+                select(EvidenceRecord).where(
+                    EvidenceRecord.id.in_([UUID(eid) for eid in stale_evidence_ids])
+                )
+            ).all():
+                session.delete(stale_evidence)
+        if stale_results:
+            session.commit()
+
     if metrics:
-        worker_count = max(1, min(_MAX_METRIC_WORKERS, len(metrics)))
+        # Scaled by how many metrics are actually planned — a flat budget starved
+        # full-catalog runs (see metric_execution_budget_for).
+        phase_budget_seconds = metric_execution_budget_for(len(metrics))
+        worker_count = max(1, min(metric_execution_max_workers(), len(metrics)))
         # Bound the whole phase: collect results as they complete, up to a hard
         # budget. Any metric still running when the budget expires is recorded as
         # skipped so a single hung evaluator can never park the run forever.
@@ -162,7 +290,7 @@ def run_metrics(
         future_to_metric = {pool.submit(_evaluate, m): m for m in metrics}
         results_by_id: dict[str, MetricEvaluationResult] = {}
         try:
-            for future in as_completed(future_to_metric, timeout=_METRIC_PHASE_BUDGET_SECONDS):
+            for future in as_completed(future_to_metric, timeout=phase_budget_seconds):
                 metric = future_to_metric[future]
                 try:
                     results_by_id[metric.metric_id] = future.result()
@@ -172,11 +300,15 @@ def run_metrics(
                         metric, reason="evaluator raised an error"
                     )
         except FuturesTimeout:
-            pending = [m.metric_id for f, m in future_to_metric.items() if not f.done()]
+            pending = {f: m for f, m in future_to_metric.items() if not f.done()}
             logger.warning(
                 "Metric execution hit the %.0fs budget; skipping %d unfinished metric(s): %s",
-                _METRIC_PHASE_BUDGET_SECONDS, len(pending), pending,
+                phase_budget_seconds, len(pending), [m.metric_id for m in pending.values()],
             )
+            for pending_future, pending_metric in pending.items():
+                pending_future.add_done_callback(
+                    functools.partial(_record_orphaned_completion, run_id, pending_metric.metric_id)
+                )
         pool.shutdown(wait=False)
         evaluations = [
             results_by_id.get(m.metric_id)
@@ -186,6 +318,12 @@ def run_metrics(
     else:
         evaluations = []
 
+    # Each metric's evidence/result is committed as soon as it's built, rather
+    # than batched into one commit after the whole loop. The evaluators above
+    # already made real calls against the target system by this point — a
+    # crash between two metrics must not discard the durable record of the
+    # ones that DID finish, since that work (and its side effects) already
+    # happened whether or not the process survives to persist it.
     for metric, evaluation in zip(metrics, evaluations, strict=True):
         evidence = EvidenceRecord(
             run_id=run_id,
@@ -217,12 +355,17 @@ def run_metrics(
             evidence_ids=[str(evidence.id)],
         )
         session.add(metric_result)
+        session.commit()
+        session.refresh(evidence)
+        session.refresh(metric_result)
         evidence_records.append(evidence)
         metric_results.append(metric_result)
 
     failed_metric_count = sum(
         1 for evaluation in evaluations if evaluation.status == MetricResultStatus.error
     )
+    newly_created_evidence_count = len(evidence_records)
+    newly_created_result_count = len(metric_results)
 
     # Consistent with run_agents' RunStatus.degraded convention (see
     # agent_execution.py): some metrics erroring means the run's evidence is
@@ -233,9 +376,10 @@ def run_metrics(
     run.started_at = run.started_at or utc_now()
     run.result_summary = {
         "metric_plan_count": plan.metric_count,
-        "evidence_created": len(evidence_records),
-        "metric_results_created": len(metric_results),
+        "evidence_created": newly_created_evidence_count,
+        "metric_results_created": newly_created_result_count,
         "metrics_failed": failed_metric_count,
+        "metrics_reused_from_prior_attempt": len(already_done_results),
         "evaluator_name": evaluator.name,
         "mock_execution": evaluator.name == "mock",
     }
@@ -245,15 +389,30 @@ def run_metrics(
     for entry in drain_log_capture():
         session.add(LLMCallLog(run_id=run_id, **entry))
     session.commit()
-    for evidence in evidence_records:
-        session.refresh(evidence)
-    for metric_result in metric_results:
-        session.refresh(metric_result)
+
+    # The returned/ledgered totals reflect the run's FULL current state
+    # (previously-completed metrics reused on resume + whatever ran just now),
+    # not only what happened in this specific call — a resumed run's report
+    # and content-integrity digest must cover every metric result that exists,
+    # not just the delta.
+    all_metric_results = already_done_results + metric_results
+    reused_evidence_ids = {
+        eid for result in already_done_results for eid in (result.evidence_ids or [])
+    }
+    all_evidence_records = evidence_records
+    if reused_evidence_ids:
+        all_evidence_records = evidence_records + list(
+            session.exec(
+                select(EvidenceRecord).where(
+                    EvidenceRecord.id.in_([UUID(eid) for eid in reused_evidence_ids])
+                )
+            ).all()
+        )
 
     return MetricExecutionRead(
         run_id=run_id,
-        evidence_created=len(evidence_records),
-        metric_results_created=len(metric_results),
-        evidence=evidence_records,
-        metric_results=metric_results,
+        evidence_created=newly_created_evidence_count,
+        metric_results_created=newly_created_result_count,
+        evidence=all_evidence_records,
+        metric_results=all_metric_results,
     )

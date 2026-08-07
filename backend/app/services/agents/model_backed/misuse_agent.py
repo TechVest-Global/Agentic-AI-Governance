@@ -11,7 +11,12 @@ to capability-level rule checks when the governance model returns non-JSON
 from app.models.enums import Severity, SideEffectLevel
 from app.schemas.governance import FindingCreate
 from app.services.agents.base import AgentContext
-from app.services.agents.helpers import finding, metric_failed
+from app.services.agents.helpers import (
+    coverage_gap_finding,
+    finding,
+    metric_not_evaluated_finding,
+    split_attention_metrics,
+)
 from app.services.agents.model_backed.base import ModelBackedAgent, TargetProbeResult
 
 _SECURITY_METRIC_IDS = {"CM-026", "CM-027", "CM-028", "CM-029"}
@@ -91,8 +96,7 @@ class MisuseDetectorAgent(ModelBackedAgent):
     probe_dimension = "misuse"
 
     def evaluate(self, context: AgentContext) -> list[FindingCreate]:
-        # High-risk verification mode: probe even when all owned metrics passed.
-        review_metrics, attention_metrics = self._metrics_for_review(
+        owned_metrics = self._owned_metrics(
             context, metric_ids=_MISUSE_METRIC_IDS, keywords=_MISUSE_KEYWORDS
         )
         destructive_unreviewed = [
@@ -101,11 +105,45 @@ class MisuseDetectorAgent(ModelBackedAgent):
             and not cap.requires_human_review
         ]
 
+        if not owned_metrics and not destructive_unreviewed:
+            # Nothing was ever planned for this dimension and there's no
+            # unreviewed destructive capability to check either — an honest
+            # gap, not a silent "no findings".
+            return [
+                coverage_gap_finding(
+                    agent_name=self.name,
+                    dimension=self.probe_dimension or self.name,
+                    reason="no_metrics_planned",
+                )
+            ]
+
+        # High-risk verification mode: probe even when all owned metrics passed.
+        review_metrics, attention_metrics = self._metrics_for_review(context, owned=owned_metrics)
+
         if not review_metrics and not destructive_unreviewed:
-            return []
+            return self._unprobed_dimension_findings(
+                context, metric_ids=_MISUSE_METRIC_IDS, keywords=_MISUSE_KEYWORDS
+            )
 
         probes: list[TargetProbeResult] = self._run_probes(_PROBE_PROMPTS, context=context)
+        # Probes may be gated (e.g. modality mismatch) while the garak/presidio
+        # tool calls below are independent of them — note the gap, don't
+        # discard the tool-based evidence that's still real.
+        coverage_gap = (
+            [
+                coverage_gap_finding(
+                    agent_name=self.name,
+                    dimension=self.probe_dimension or self.name,
+                    reason=context.probe_skips[self.name][0]["reason"],
+                )
+            ]
+            if not probes and context.probe_skips.get(self.name)
+            else []
+        )
 
+        # Sequential — see the note in bias_agent: _call_evidence_tool's probe
+        # count is a before/after delta over the shared capture buffer, so two
+        # tool calls and a probe run must not overlap within one agent.
         review_metric_ids = {m.metric_id for m in review_metrics}
         garak_calls = self._call_evidence_tool(
             tool_name="garak",
@@ -151,6 +189,7 @@ class MisuseDetectorAgent(ModelBackedAgent):
                     w for p in probes for w in p.sanitized.warnings
                 ],
             },
+            agent_context=context,
         )
         tool_calls_payload = [
             {
@@ -165,13 +204,22 @@ class MisuseDetectorAgent(ModelBackedAgent):
         ]
 
         if parsed is not None:
-            return _findings_from_governance(parsed, context, tool_calls_payload)
+            return coverage_gap + _findings_from_governance(
+                parsed, context, tool_calls_payload, reviewed_metrics=review_metrics
+            )
 
-        # Fallback only on genuinely FAILED metrics — never on passes/pending.
-        return _deterministic_fallback(
-            [m for m in attention_metrics if metric_failed(m)],
-            destructive_unreviewed,
-            tool_calls_payload,
+        # Fallback only on genuinely failed metrics — never on passes, and
+        # never report a skipped/errored/pending metric (e.g. presidio when
+        # the target is unreachable, or CM-029 before it could produce a real
+        # score) as if a real security/privacy defect had been observed.
+        genuinely_failed, never_evaluated = split_attention_metrics(attention_metrics)
+        return (
+            coverage_gap
+            + _deterministic_fallback(genuinely_failed, destructive_unreviewed, tool_calls_payload)
+            + [
+                metric_not_evaluated_finding(agent_name=self.name, metric=m)
+                for m in never_evaluated
+            ]
         )
 
 
@@ -191,9 +239,14 @@ def _findings_from_governance(
     raw: list[dict[str, object]],
     context: AgentContext,
     tool_calls_payload: list[dict],
+    *,
+    reviewed_metrics: list,
 ) -> list[FindingCreate]:
     results: list[FindingCreate] = []
     metric_map = {m.metric_id: m for m in context.metric_results}
+    reviewed_evidence_ids = sorted(
+        {eid for m in reviewed_metrics for eid in (m.evidence_ids or [])}
+    )
     for item in raw:
         try:
             severity = Severity(str(item.get("severity", "critical")).lower())
@@ -213,6 +266,8 @@ def _findings_from_governance(
                 recommended_action=str(item.get("recommended_action", "")),
                 metric=metric,
                 tool_calls=tool_calls_payload,
+                evidence_ids=metric.evidence_ids if metric else reviewed_evidence_ids,
+                generated_by="governance_model",
             )
         )
     return results

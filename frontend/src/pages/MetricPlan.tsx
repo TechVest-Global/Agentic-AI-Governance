@@ -187,7 +187,7 @@ export function MetricPlan() {
                   <Badge tone={dimensionTone[dim]}>{dim}</Badge>
                 </div>
                 <ProgressBar value={pct} tone={dimensionTone[dim] === "violet" ? "slate" : dimensionTone[dim]} className="flex-1" />
-                <span className="w-24 text-right text-[11px] tabular-nums text-slate-600">{dimProbes} probes ({pct}%)</span>
+                <span className="w-24 text-right text-[11px] tabular-nums text-slate-600 dark:text-slate-400">{dimProbes} probes ({pct}%)</span>
               </div>
             );
           })}
@@ -238,7 +238,7 @@ export function MetricPlan() {
       <div className="flex flex-wrap gap-2">
         <button
           onClick={() => navigateTo("/runs")}
-          className="inline-flex items-center gap-2 rounded border border-slate-300 bg-white px-3 py-2 text-[12px] font-medium text-slate-900 hover:bg-slate-50"
+          className="inline-flex items-center gap-2 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-[12px] font-medium text-slate-900 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700"
         >
           View specialist agents
         </button>
@@ -270,9 +270,9 @@ function MetricRow({ metric }: { metric: PlannedMetric }) {
           <span className="font-mono text-[11px] text-slate-800 dark:text-slate-200">{metric.tool}</span>
           <span className="ml-1.5 rounded bg-slate-100 dark:bg-slate-700 px-1 py-0.5 text-[9px] font-medium uppercase text-slate-500 dark:text-slate-400">{metric.toolMode}</span>
         </td>
-        <td className="px-4 py-3 text-[11px] text-slate-700">{metric.ownerAgent}</td>
-        <td className="px-4 py-3 font-medium tabular-nums text-slate-900">{metric.probeBudget}</td>
-        <td className="px-4 py-3 font-mono text-[11px] text-slate-600">{metric.threshold}</td>
+        <td className="px-4 py-3 text-[11px] text-slate-700 dark:text-slate-300">{metric.ownerAgent}</td>
+        <td className="px-4 py-3 font-medium tabular-nums text-slate-900 dark:text-white">{metric.probeBudget}</td>
+        <td className="px-4 py-3 font-mono text-[11px] text-slate-600 dark:text-slate-400">{metric.threshold}</td>
         <td className="px-4 py-3"><Badge tone={statusTone[metric.status]}>{metric.status}</Badge></td>
       </tr>
       {expanded && (

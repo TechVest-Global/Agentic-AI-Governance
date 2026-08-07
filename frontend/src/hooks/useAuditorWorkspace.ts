@@ -29,8 +29,6 @@ import { metricOutcome } from "@/pages/auditor/clientComponents";
 // stays responsive; raise once pagination/summary endpoints exist.
 const RUN_SAMPLE_SIZE = 20;
 
-const COMPLETED_STATUSES = new Set(["completed", "report_ready", "degraded"]);
-const TERMINAL_STATUSES = new Set(["completed", "report_ready", "degraded", "failed", "cancelled", "canceled"]);
 
 export type ReviewItem = {
   run: EvaluationRun;
@@ -185,9 +183,13 @@ export function useAuditorWorkspace(): AuditorWorkspace {
           const criticalHigh = findings.filter(
             (f) => f.severity === "critical" || f.severity === "high",
           );
-          const hasReport = COMPLETED_STATUSES.has(run.status);
-
+          // A run "has a report" the moment it carries a verdict + metric results,
+          // regardless of its status label. Gating on status alone (e.g. requiring
+          // "completed"/"degraded") hides runs that were cancelled AFTER producing
+          // a full assessment — the report is real, only the run's lifecycle ended
+          // early (see useAuditorApplication's assessedRun resolution, same rule).
           const metricResults = report?.metric_results ?? [];
+          const hasReport = Boolean(report?.verdict) && metricResults.length > 0;
           const metrics = metricResults.length
             ? {
                 passed: metricResults.filter((m) => metricOutcome(m) === "passed").length,
@@ -308,4 +310,3 @@ export function useAuditorWorkspace(): AuditorWorkspace {
   return { ...data, refresh };
 }
 
-export { TERMINAL_STATUSES as AUDITOR_TERMINAL_STATUSES };

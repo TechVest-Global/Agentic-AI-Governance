@@ -3,7 +3,6 @@ import { FlaskConical, Info, RefreshCw, ServerCrash, X } from "lucide-react";
 import clsx from "clsx";
 import { useEffect } from "react";
 import type { ReactNode } from "react";
-import { Card } from "@/components/ui/Card";
 import { useAppStore } from "@/store/useAppStore";
 
 /**

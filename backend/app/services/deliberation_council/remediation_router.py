@@ -11,7 +11,8 @@ Exit priority order (must be checked in this order):
 The router also classifies the re-entry point from the VerdictOutput:
   re_deliberate → re-enter at SynthesisAgent (same findings, new narrative)
   re_probe      → re-enter at the named specialist agent (more samples needed)
-  re_plan       → re-enter at Orchestrator (inert for MVP, registered as a branch)
+  re_plan       → activate a dormant specialist for a dimension named by an
+                  upheld objection but not yet covered this run
 
 Loop control rules (from spec Section 5):
   - Maximum three loop-backs of ANY type, total (one counter governs all).
@@ -77,6 +78,35 @@ def route(
             reason=(
                 f"Evidence sufficient (confidence={verdict.confidence_score:.3f} "
                 f">= threshold) after {iteration} iteration(s)."
+            ),
+        )
+
+    # Exit 1b: insufficient, but CONCLUSIVELY so — decide now rather than loop.
+    #
+    # Sufficiency is gated on there being no failed metric, and no remediation
+    # path re-runs metric execution, so once a metric has failed the gate can
+    # never be satisfied (see _remediation_can_change_outcome). Iterating to the
+    # cap then exited via `exhausted`, which attaches an uncertainty memo saying
+    # the Council "lacked enough evidence to decide" — the opposite of the truth:
+    # the evidence was conclusive and the verdict was already `blocked`.
+    #
+    # This exit routes to the action tier the verdict itself carries. That is not
+    # a weakening: action_tier is always derived from the label via
+    # _safe_action_tier, and `blocked` maps to human_review — the same tier the
+    # exhaustion path forced, reached in one iteration instead of three.
+    if not verdict.remediable:
+        return RouterDecision(
+            exit=RouterExit.action,
+            remediation_type=None,
+            target_agent=None,
+            iteration=iteration,
+            reason=(
+                f"Evidence insufficient by threshold (confidence="
+                f"{verdict.confidence_score:.3f}) but CONCLUSIVE: a failed metric "
+                "cannot be cleared by any remediation path, so no further "
+                f"iteration can change this verdict. Deciding at iteration "
+                f"{iteration} as '{verdict.label}' instead of looping to the cap "
+                "and reporting settled evidence as unresolved uncertainty."
             ),
         )
 
@@ -159,9 +189,11 @@ def _remediation_reason(
             f"Iteration {iteration}: specific finding is under-sampled. "
             f"Re-entering at specialist agent '{agent}' for additional probes."
         )
-    # re_plan (inert for MVP)
+    # re_plan: activates a dormant specialist for a dimension named by an
+    # upheld objection, if one both matches a real dimension and hasn't
+    # already run this iteration — see deliberation._resolve_re_plan_target.
     return (
-        f"Iteration {iteration}: a risk dimension was never probed. "
-        "Re-entering at Orchestrator for budget re-allocation. "
-        "(Note: re_plan is inert in the current MVP — treating as re_deliberate.)"
+        f"Iteration {iteration}: an upheld objection suggests a risk dimension "
+        "was never probed. Re-entering to activate a dormant specialist for "
+        "that dimension, if one can be resolved from the objection text."
     )

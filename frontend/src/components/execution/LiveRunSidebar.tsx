@@ -39,6 +39,7 @@ export function LiveRunSidebar({
   selectedCouncilMemberId,
   onSelectCouncilMember,
   resultSummary,
+  onReset,
 }: {
   currentPhase: string;
   runStatus: string;
@@ -50,8 +51,10 @@ export function LiveRunSidebar({
   selectedCouncilMemberId: CouncilMemberId | null;
   onSelectCouncilMember: (id: CouncilMemberId) => void;
   resultSummary?: Record<string, unknown>;
+  /** Lets the host page drop its own per-run selection state on Reset. */
+  onReset?: () => void;
 }) {
-  const { systems, runId, run, setRunId, refresh } = useActiveRun();
+  const { systems, runId, run, setRunId, clearRun, refresh } = useActiveRun();
   const runner = useEvaluationRunner();
   const { active: isRunning } = useIsRunActive();
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -109,7 +112,14 @@ export function LiveRunSidebar({
       await cancelRun(runId).catch(() => {});
     }
     runner.reset();
-    setRunId(null);
+    // clearRun(), not setRunId(null): the latter means "follow the latest run",
+    // and the run being reset IS the latest run, so it was immediately
+    // re-selected and the button appeared to do nothing.
+    clearRun();
+    // Drop any panel/agent selection too, so the canvas returns to the
+    // pick-a-target state rather than keeping a step highlighted for a run
+    // that is no longer displayed.
+    onReset?.();
     refresh();
   }
 

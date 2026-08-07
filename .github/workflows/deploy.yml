@@ -1,0 +1,270 @@
+name: Deploy
+
+# push to main -> test -> build & push -> migrate -> deploy backend
+#             -> deploy frontend -> smoke test -> (pass: done | fail: traffic
+#             never moves off the previous revision, see deploy-backend/
+#             smoke-test below).
+#
+# PRs only run the `test` job (no deploy) so this repo's CI can gate merges
+# before any GitHub Actions -> Azure trust exists.
+#
+# Required one-time setup (infra + OIDC + repo vars/secrets) is NOT done by
+# this workflow — see infra/README.md. This file assumes all of that already
+# exists.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+permissions:
+  id-token: write # required for azure/login's OIDC federated credential
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.14"
+  NODE_VERSION: "20"
+
+jobs:
+  test:
+    name: Test (pytest + ruff + tsc)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install backend dependencies (uv — pip's resolver can't solve this graph, see pyproject.toml)
+        run: |
+          pip install --no-cache-dir uv
+          uv pip install --system --no-cache ".[dev]"
+
+      - name: ruff
+        run: ruff check backend
+
+      - name: pytest
+        run: pytest backend/tests -q
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Frontend install
+        working-directory: frontend
+        run: npm ci
+
+      # Mirrors `ruff` on the backend side. The script existed and passed
+      # locally for months but was never wired in here, so lint regressions
+      # reached the default branch unnoticed — including a JSX comment ESLint
+      # parsed as a `/* global */` directive, and four react-hooks rule
+      # suppressions for a plugin that had never been installed.
+      # exhaustive-deps is a warning, so this gates on errors only — see
+      # frontend/eslint.config.mjs.
+      - name: Frontend lint
+        working-directory: frontend
+        run: npm run lint
+
+      # Placeholder API URL — this build is only a correctness gate, not what
+      # gets deployed. deploy-frontend rebuilds with the real backend URL.
+      - name: Frontend typecheck + build
+        working-directory: frontend
+        env:
+          VITE_API_BASE_URL: https://placeholder.invalid/api/v1
+        run: npm run build
+
+  build-and-push:
+    name: Build & push backend image
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    outputs:
+      image_tag: ${{ steps.tag.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: tag
+        run: echo "image_tag=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: az acr login
+        run: az acr login --name ${{ vars.ACR_NAME }}
+
+      # Multi-stage build assembling all 3 Python venvs (main/pyrit/ragas)
+      # into one runtime image — see backend/Dockerfile's own comments.
+      - name: Build backend image
+        run: |
+          docker build \
+            -f backend/Dockerfile \
+            -t ${{ vars.ACR_LOGIN_SERVER }}/governance-backend:${{ steps.tag.outputs.image_tag }} \
+            -t ${{ vars.ACR_LOGIN_SERVER }}/governance-backend:latest \
+            .
+
+      - name: Push backend image
+        run: |
+          docker push ${{ vars.ACR_LOGIN_SERVER }}/governance-backend:${{ steps.tag.outputs.image_tag }}
+          docker push ${{ vars.ACR_LOGIN_SERVER }}/governance-backend:latest
+
+  migrate:
+    name: Run Alembic migration job
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Point migration job at the new image
+        run: |
+          az containerapp job update \
+            --name ${{ vars.MIGRATION_JOB_NAME }} \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --image ${{ vars.ACR_LOGIN_SERVER }}/governance-backend:${{ needs.build-and-push.outputs.image_tag }}
+
+      - name: Run alembic upgrade head and wait for completion
+        run: |
+          set -euo pipefail
+          EXECUTION_NAME=$(az containerapp job start \
+            --name ${{ vars.MIGRATION_JOB_NAME }} \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --query "name" -o tsv)
+          echo "Migration execution: $EXECUTION_NAME"
+          for _ in $(seq 1 30); do
+            STATUS=$(az containerapp job execution show \
+              --name ${{ vars.MIGRATION_JOB_NAME }} \
+              --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+              --job-execution-name "$EXECUTION_NAME" \
+              --query "properties.status" -o tsv)
+            echo "status: $STATUS"
+            if [ "$STATUS" = "Succeeded" ]; then exit 0; fi
+            if [ "$STATUS" = "Failed" ]; then
+              echo "::error::Migration job failed — see Container Apps job logs"
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "::error::Migration job timed out waiting for completion"
+          exit 1
+
+  deploy-backend:
+    name: Deploy backend (new revision, 0% traffic)
+    needs: [build-and-push, migrate]
+    runs-on: ubuntu-latest
+    environment: production
+    outputs:
+      new_revision: ${{ steps.deploy.outputs.new_revision }}
+      new_revision_fqdn: ${{ steps.deploy.outputs.new_revision_fqdn }}
+      previous_revision: ${{ steps.deploy.outputs.previous_revision }}
+    steps:
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - id: deploy
+        name: Roll out new revision at 0% traffic (blue/green, see infra/main.bicep's activeRevisionsMode)
+        run: |
+          set -euo pipefail
+          PREVIOUS_REVISION=$(az containerapp revision list \
+            --name ${{ vars.BACKEND_APP_NAME }} \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --query "[?properties.trafficWeight==\`100\`].name | [0]" -o tsv)
+          echo "previous_revision=$PREVIOUS_REVISION" >> "$GITHUB_OUTPUT"
+
+          SUFFIX=$(echo "${{ needs.build-and-push.outputs.image_tag }}" | cut -c1-12)
+          az containerapp update \
+            --name ${{ vars.BACKEND_APP_NAME }} \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --image ${{ vars.ACR_LOGIN_SERVER }}/governance-backend:${{ needs.build-and-push.outputs.image_tag }} \
+            --revision-suffix "$SUFFIX"
+
+          NEW_REVISION="${{ vars.BACKEND_APP_NAME }}--$SUFFIX"
+          echo "new_revision=$NEW_REVISION" >> "$GITHUB_OUTPUT"
+
+          # Pin traffic back to the previous revision immediately — the new
+          # one must pass the smoke test before it receives any real traffic.
+          az containerapp ingress traffic set \
+            --name ${{ vars.BACKEND_APP_NAME }} \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --revision-weight "$PREVIOUS_REVISION=100" "$NEW_REVISION=0"
+
+          NEW_FQDN=$(az containerapp revision show \
+            --name ${{ vars.BACKEND_APP_NAME }} \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --revision "$NEW_REVISION" \
+            --query "properties.fqdn" -o tsv)
+          echo "new_revision_fqdn=$NEW_FQDN" >> "$GITHUB_OUTPUT"
+
+  deploy-frontend:
+    name: Deploy frontend (Static Web App)
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: upload
+          app_location: "frontend"
+          output_location: "dist"
+        env:
+          # Points at the STABLE backend FQDN, which always serves the
+          # currently-validated revision (100% traffic) — not the new
+          # revision under test in deploy-backend.
+          VITE_API_BASE_URL: https://${{ vars.BACKEND_STABLE_FQDN }}/api/v1
+
+  smoke-test:
+    name: Smoke test new revision, then cut over
+    needs: deploy-backend
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Health check against the new revision directly
+        run: |
+          curl -sf --retry 6 --retry-delay 5 --retry-connrefused \
+            "https://${{ needs.deploy-backend.outputs.new_revision_fqdn }}/api/v1/health"
+
+      - name: Shift traffic to the new revision
+        run: |
+          az containerapp ingress traffic set \
+            --name ${{ vars.BACKEND_APP_NAME }} \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --revision-weight "${{ needs.deploy-backend.outputs.new_revision }}=100"
+
+      - name: If we got here, deactivate the old revision
+        run: |
+          az containerapp revision deactivate \
+            --name ${{ vars.BACKEND_APP_NAME }} \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --revision "${{ needs.deploy-backend.outputs.previous_revision }}" || true
+
+      # If the health check step above fails, this job stops here — traffic
+      # was never shifted off the previous revision (still at 100%), and the
+      # new revision stays reachable only at its own direct FQDN for
+      # debugging. That is the "auto-revert" in the deployment plan: there is
+      # nothing to revert because nothing was cut over.

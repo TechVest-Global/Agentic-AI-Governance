@@ -14,12 +14,24 @@ the same defensive pattern the garak/pyrit evaluators use.
 import logging
 
 from app.models.enums import MetricResultStatus
-from app.services.evaluators.base import MetricEvaluationInput, MetricEvaluationResult
+from app.services.evaluators.base import (
+    MetricEvaluationInput,
+    MetricEvaluationResult,
+    probe_endpoint,
+)
+from app.services.evaluators.probe_log import build_probe_log_entry
+from app.services.execution_artifacts import record_execution_artifacts
 from app.services.model_clients.base import MediaAsset, TargetModelRequest
 
 logger = logging.getLogger(__name__)
 
 _SUPPORTED_FORMULAS = {"asr_robustness", "word_error_rate", "transcription_accuracy"}
+
+_METHOD_BLURB = (
+    "The system is asked to transcribe a spoken audio clip with a known, correct wording. "
+    "An automated speech-accuracy scorer compares its transcription word-for-word against "
+    "that correct reference text."
+)
 
 
 def _normalize(text: str) -> str:
@@ -99,13 +111,10 @@ class AudioEvaluator:
                 ),
             )
 
-        endpoint_ref = (
-            evaluation_input.ai_system.target_endpoint_ref
-            or evaluation_input.ai_system.name
-            or "default"
-        )
+        endpoint_ref = probe_endpoint(evaluation_input)
 
         scored = []
+        probe_log = []
         total = 0.0
         for index, probe in enumerate(probes):
             try:
@@ -117,6 +126,21 @@ class AudioEvaluator:
                         media=[probe],
                     )
                 )
+                if response.media and evaluation_input.run_id is not None:
+                    try:
+                        record_execution_artifacts(
+                            evaluation_input.session,
+                            run_id=evaluation_input.run_id,
+                            agent_name="asr",
+                            dimension=evaluation_input.metric.dimension,
+                            capability_name=f"asr_{formula}",
+                            endpoint_ref=endpoint_ref,
+                            prompt_text="Transcribe the attached audio verbatim.",
+                            response_text=response.raw_output,
+                            media=response.media,
+                        )
+                    except Exception:  # noqa: BLE001 - evidence capture must never fail scoring
+                        logger.warning("AudioEvaluator: failed to persist execution artifact", exc_info=True)
                 hypothesis = response.raw_output or ""
             except Exception as exc:  # noqa: BLE001
                 logger.warning("AudioEvaluator: transcription probe %d failed: %s", index, exc)
@@ -129,6 +153,16 @@ class AudioEvaluator:
                     "reference_excerpt": (probe.reference_text or "")[:80],
                     "robustness": round(robustness, 4),
                 }
+            )
+            probe_log.append(
+                build_probe_log_entry(
+                    name=f"{formula}_{index + 1}",
+                    what_we_asked=f"Transcribe an audio clip that correctly says: \"{probe.reference_text}\"",
+                    what_happened=f"The system transcribed it as: \"{hypothesis}\"",
+                    method=_METHOD_BLURB,
+                    outcome="pass" if robustness >= 0.9 else "fail",
+                    why=f"The transcription matched about {round(robustness * 100)}% of the correct wording.",
+                )
             )
 
         if not scored:
@@ -158,6 +192,7 @@ class AudioEvaluator:
                 "mean_robustness": round(normalized_score, 4),
                 "scorer": "jiwer_wer",
                 "probes": scored,
+                "probe_log": probe_log,
             },
         )
 

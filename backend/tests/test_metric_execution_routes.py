@@ -1,10 +1,9 @@
 from uuid import uuid4
 
-import pytest
-from fastapi.testclient import TestClient
-
 import app.services.specialist_agents.metric_execution as metric_execution_module
+import pytest
 from app.services.evaluators.mock import MockMetricEvaluator
+from fastapi.testclient import TestClient
 
 
 def create_system(client: TestClient) -> dict[str, object]:
@@ -252,5 +251,13 @@ def test_metric_execution_rejects_unknown_evaluator(client: TestClient) -> None:
         "inspect_ai",
         "vision",
         "asr",
+        "drift",
+        # Alias of "drift", kept selectable because databases seeded before
+        # CM-030/031/032 gained a real evaluator still store tool_name
+        # "evidently" — see evaluators/registry.py.
+        "evidently",
+        # Scores CM-039 (trace_completeness) for real; CM-040/041/044 skip with
+        # a specific reason — see evaluators/langfuse_evaluator.py.
+        "langfuse",
         "auto",
     }

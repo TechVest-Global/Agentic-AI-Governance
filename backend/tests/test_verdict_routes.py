@@ -2,6 +2,8 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from tests.conftest import advance_run_to_council
+
 
 def create_system(client: TestClient, name: str) -> dict[str, object]:
     response = client.post(
@@ -23,7 +25,11 @@ def create_run(client: TestClient, system_id: str) -> dict[str, object]:
         json={"ai_system_id": system_id, "selected_metrics": ["M01"]},
     )
     assert response.status_code == 201
-    return response.json()
+    run = response.json()
+    # A verdict may only be recorded once the run has reached the council; these
+    # tests exercise the verdict routes themselves, not that gate.
+    advance_run_to_council(run["id"])
+    return run
 
 
 def test_verdict_can_be_created_and_retrieved(client: TestClient) -> None:
@@ -109,3 +115,59 @@ def test_verdict_rejects_invalid_confidence_score(client: TestClient) -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_verdict_override_captures_disagreement_without_mutating_the_original(
+    client: TestClient,
+) -> None:
+    system = create_system(client, "Override System")
+    run = create_run(client, system["id"])
+    verdict_url = f"/api/v1/evaluation-runs/{run['id']}/verdict"
+
+    original = client.post(
+        verdict_url,
+        json={"label": "approved", "confidence_score": 0.9},
+    ).json()
+
+    override_response = client.post(
+        f"{verdict_url}/override",
+        json={
+            "human_override_label": "blocked",
+            "human_override_reason": "Reviewer found an undisclosed data-sharing clause.",
+        },
+    )
+
+    assert override_response.status_code == 200
+    overridden = override_response.json()
+    # The original verdict fields are untouched — override is additive data,
+    # not a replacement, so a report that already showed this verdict stays
+    # accurate to what the council actually decided.
+    assert overridden["label"] == "approved"
+    assert overridden["confidence_score"] == 0.9
+    assert overridden["human_override_label"] == "blocked"
+    assert overridden["human_override_reason"] == (
+        "Reviewer found an undisclosed data-sharing clause."
+    )
+    assert overridden["overridden_by"] is not None
+    assert overridden["overridden_at"] is not None
+    assert overridden["id"] == original["id"]
+
+    # The override is captured in the tamper-evident ledger too.
+    ledger_events = [
+        e for e in client.get(f"/api/v1/evaluation-runs/{run['id']}/ledger").json()
+        if e["event_type"] == "verdict.overridden"
+    ]
+    assert len(ledger_events) == 1
+    assert ledger_events[0]["payload"]["human_override_label"] == "blocked"
+
+
+def test_verdict_override_requires_existing_verdict(client: TestClient) -> None:
+    system = create_system(client, "No Verdict Yet System")
+    run = create_run(client, system["id"])
+
+    response = client.post(
+        f"/api/v1/evaluation-runs/{run['id']}/verdict/override",
+        json={"human_override_label": "blocked", "human_override_reason": "test"},
+    )
+
+    assert response.status_code == 404

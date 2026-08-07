@@ -56,10 +56,6 @@ export const navigation: NavigationItem[] = [
   { id: "systems", label: "AI Systems", section: "Govern", path: "/systems", icon: ShieldCheck, personas: ["developer"] },
   { id: "runs", label: "Live Run", section: "Govern", path: "/runs", icon: Activity, personas: ["developer"] },
   { id: "eval-runs", label: "Run History", section: "Govern", path: "/eval-runs", icon: ListChecks, personas: ["developer"] },
-  // Developer-only engine explainer. Not in the main sidebar (hidden); the only
-  // entry point is the "How the engine works" footer button, which is likewise
-  // shown only to developers so it never dead-redirects an auditor.
-  { id: "engine", label: "How It Works", section: "Govern", path: "/engine", icon: Layers, personas: ["developer"], hidden: true },
   { id: "metric-plan", label: "Metric Plan", section: "Govern", path: "/metric-plan", icon: ClipboardList, personas: ["developer"] },
   { id: "council", label: "Council Deliberation", section: "Govern", path: "/council", icon: Scale, personas: ["developer"], hidden: true },
   // ── Assurance ─────────────────────────────────────────────────────────

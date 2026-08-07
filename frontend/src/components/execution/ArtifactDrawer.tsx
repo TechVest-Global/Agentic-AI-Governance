@@ -6,17 +6,24 @@ import {
   FileCode,
   FileJson,
   FileText,
+  Folder,
+  ImageIcon,
+  Music,
   Package,
+  Video,
   X,
 } from "lucide-react";
 import clsx from "clsx";
 import type { ExecutionArtifact } from "@/data/executionLayerData";
+import { describeMediaResponse, mediaFromResponseText } from "@/lib/probeMedia";
 import { Card, CardHeader } from "@/components/ui/Card";
-import type {
-  AgentExecution,
-  BackendFinding,
-  EvaluationRun,
-  GovernanceReport,
+import {
+  executionArtifactMediaUrl,
+  type AgentExecution,
+  type BackendFinding,
+  type EvaluationRun,
+  type ExecutionArtifact as PersistedExecutionArtifact,
+  type GovernanceReport,
 } from "@/api/governanceApi";
 
 // ── Live artifact generators ────────────────────────────────────────────────
@@ -26,7 +33,86 @@ type LiveData = {
   report: GovernanceReport | null;
   agentExecutions: AgentExecution[];
   findings: BackendFinding[];
+  executionArtifacts: PersistedExecutionArtifact[];
 };
+
+// Specialist agents' probes surface on the "Specialist Agents" step; the
+// vision/audio evaluators run during metric execution, so their generated
+// media surfaces on the "Metric Execution" step instead — both steps map to
+// a real eventLayer already used elsewhere in this pipeline view.
+const MEDIA_EVALUATOR_NAMES = new Set(["vision", "asr"]);
+
+function layerForMediaArtifact(agentName: string): string {
+  return MEDIA_EVALUATOR_NAMES.has(agentName) ? "Orchestrator Planning" : "Agent Execution";
+}
+
+function extensionForMime(mime: string): string {
+  const subtype = mime.split("/")[1] ?? "bin";
+  return subtype.split("+")[0] || "bin";
+}
+
+function buildMediaArtifacts(d: LiveData): ExecutionArtifact[] {
+  return d.executionArtifacts
+    .filter((a) => a.has_media)
+    .map((a, index) => ({
+      id: `media-${a.id}`,
+      name: `${a.capability_name ?? a.media_kind}-${index + 1}.${extensionForMime(a.mime_type)}`,
+      type: "media",
+      layer: layerForMediaArtifact(a.agent_name),
+      content: a.response_text,
+      media: {
+        kind: a.media_kind,
+        url: executionArtifactMediaUrl(d.run.id, a.id),
+        promptText: a.prompt_text,
+        responseText: a.response_text,
+      },
+    }));
+}
+
+// Folder label + display order for grouping generated media by kind — only
+// kinds actually produced on this run/layer ever appear (see
+// groupMediaIntoFolders), so an audit that only generated images never shows
+// empty Audio/Video folders.
+const MEDIA_FOLDER_ORDER = ["image", "video", "audio"] as const;
+const MEDIA_FOLDER_LABELS: Record<string, string> = {
+  image: "Images",
+  video: "Video",
+  audio: "Audio",
+};
+
+function groupMediaIntoFolders(artifacts: ExecutionArtifact[]): ExecutionArtifact[] {
+  const nonMedia = artifacts.filter((a) => a.type !== "media");
+  const media = artifacts.filter(
+    (a): a is ExecutionArtifact & { media: NonNullable<ExecutionArtifact["media"]> } =>
+      a.type === "media" && Boolean(a.media),
+  );
+
+  const byKind = new Map<string, typeof media>();
+  for (const artifact of media) {
+    const bucket = byKind.get(artifact.media.kind) ?? [];
+    bucket.push(artifact);
+    byKind.set(artifact.media.kind, bucket);
+  }
+
+  const folders: ExecutionArtifact[] = MEDIA_FOLDER_ORDER.filter((kind) => byKind.has(kind)).map(
+    (kind) => {
+      const items = byKind.get(kind)!;
+      return {
+        id: `folder-${kind}`,
+        name: `${MEDIA_FOLDER_LABELS[kind] ?? kind} (${items.length})`,
+        type: "media_folder",
+        layer: items[0].layer,
+        content: "",
+        mediaFolder: {
+          kind,
+          items: items.map((a) => ({ id: a.id, name: a.name, media: a.media })),
+        },
+      };
+    },
+  );
+
+  return [...nonMedia, ...folders];
+}
 
 function buildContextPackage(d: LiveData): string {
   const sys = d.report?.ai_system;
@@ -285,24 +371,86 @@ function buildLiveArtifacts(d: LiveData): ExecutionArtifact[] {
     { id: "art-5", name: "council-memo.md", type: "markdown", layer: "Council Deliberation", content: buildCouncilMemo(d) },
     { id: "art-6", name: `verdict-${d.report?.verdict?.id ?? "PENDING"}.json`, type: "json", layer: "Council Deliberation", content: buildVerdict(d) },
     { id: "art-7", name: "ledger-entry.json", type: "json", layer: "Audit Ledger", content: buildLedgerEntry(d) },
+    ...buildMediaArtifacts(d),
   ];
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
+
+const mediaKindIcons: Record<string, typeof ImageIcon> = {
+  image: ImageIcon,
+  video: Video,
+  audio: Music,
+};
+
+function iconFor(artifact: ExecutionArtifact): typeof FileJson {
+  if (artifact.type === "media") {
+    return mediaKindIcons[artifact.media?.kind ?? "image"] ?? ImageIcon;
+  }
+  if (artifact.type === "media_folder") {
+    return mediaKindIcons[artifact.mediaFolder?.kind ?? "image"] ?? Folder;
+  }
+  return typeIcons[artifact.type];
+}
 
 const typeIcons: Record<ExecutionArtifact["type"], typeof FileJson> = {
   json: FileJson,
   yaml: FileCode,
   markdown: FileText,
   bundle: Package,
+  media: ImageIcon,
+  media_folder: Folder,
 };
 
 const typeColors: Record<ExecutionArtifact["type"], string> = {
-  json: "text-blue-600 bg-blue-50 border-blue-200",
-  yaml: "text-purple-600 bg-purple-50 border-purple-200",
-  markdown: "text-emerald-600 bg-emerald-50 border-emerald-200",
-  bundle: "text-amber-600 bg-amber-50 border-amber-200",
+  json: "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800",
+  yaml: "text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/40 border-purple-200 dark:border-purple-800",
+  markdown: "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800",
+  bundle: "text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800",
+  media: "text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800",
+  media_folder: "text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800",
 };
+
+function MediaArtifactBody({ media }: { media: NonNullable<ExecutionArtifact["media"]> }) {
+  const responseTextMedia = mediaFromResponseText(media.responseText);
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/40 p-3">
+        {media.kind === "video" ? (
+          <video src={media.url} controls className="max-h-[45vh] max-w-full rounded" />
+        ) : media.kind === "audio" ? (
+          <audio src={media.url} controls className="w-full" />
+        ) : (
+          <img src={media.url} alt="Generated artifact" className="max-h-[45vh] max-w-full rounded" />
+        )}
+      </div>
+      <div>
+        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          What was asked
+        </p>
+        <p className="break-words text-[12px] leading-5 text-slate-700 dark:text-slate-300">{media.promptText}</p>
+      </div>
+      <div>
+        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          Response from target
+        </p>
+        {/* The asset itself is already rendered above. When response_text is just
+            the base64 data URL for that same asset, repeating it here is an
+            unreadable, unwrappable wall of bytes — describe it instead. Genuine
+            text responses (captions, refusals) still print in full. */}
+        {responseTextMedia ? (
+          <p className="text-[12px] leading-5 text-slate-500 dark:text-slate-400">
+            {describeMediaResponse(responseTextMedia)} — shown above.
+          </p>
+        ) : (
+          <p className="whitespace-pre-wrap break-words text-[12px] leading-5 text-slate-800 dark:text-slate-200">
+            {media.responseText}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
 
 type Props = {
   liveData?: LiveData | null;
@@ -315,9 +463,21 @@ export function ArtifactDrawer({ liveData, layerFilter }: Props) {
   // Live artifacts only — without run data the drawer shows its empty state
   // instead of prototype artifacts.
   const allArtifacts = liveData ? buildLiveArtifacts(liveData) : [];
-  const artifacts = layerFilter ? allArtifacts.filter((a) => a.layer === layerFilter) : allArtifacts;
+  const layerScoped = layerFilter ? allArtifacts.filter((a) => a.layer === layerFilter) : allArtifacts;
+  // Grouped after the layer filter so each pipeline step's panel only ever
+  // shows folders for the media kinds it actually produced (e.g. the
+  // Orchestrator Planning panel's vision/asr media never bleeds an "Images"
+  // folder into the Agent Execution panel's own probe-generated images).
+  const artifacts = groupMediaIntoFolders(layerScoped);
 
   function handleDownload(artifact: ExecutionArtifact) {
+    if (artifact.type === "media" && artifact.media) {
+      const a = document.createElement("a");
+      a.href = artifact.media.url;
+      a.download = artifact.name;
+      a.click();
+      return;
+    }
     const blob = new Blob([artifact.content], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -334,28 +494,28 @@ export function ArtifactDrawer({ liveData, layerFilter }: Props) {
           title="Execution Artifacts"
           eyebrow={layerFilter ? `${layerFilter} artifacts` : liveData ? `Run ${liveData.run.id.slice(0, 8)} — click to inspect · download available` : "Click to inspect — download available"}
         />
-        <div className="divide-y divide-slate-50">
+        <div className="divide-y divide-slate-50 dark:divide-slate-800">
           {artifacts.length === 0 && (
             <p className="px-4 py-6 text-center text-[12px] text-slate-400 dark:text-slate-500">
               No artifacts emitted for this layer yet.
             </p>
           )}
           {artifacts.map((artifact) => {
-            const Icon = typeIcons[artifact.type];
+            const Icon = iconFor(artifact);
             return (
               <button
                 key={artifact.id}
                 onClick={() => setOpenArtifact(artifact)}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50 transition-colors"
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
               >
                 <div className={clsx("flex h-7 w-7 items-center justify-center rounded border", typeColors[artifact.type])}>
                   <Icon className="h-3.5 w-3.5" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[12px] font-mono font-medium text-slate-900 truncate">{artifact.name}</p>
-                  <p className="text-[10px] text-slate-500">{artifact.layer}</p>
+                  <p className="text-[12px] font-mono font-medium text-slate-900 dark:text-white truncate">{artifact.name}</p>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400">{artifact.layer}</p>
                 </div>
-                <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+                <ChevronRight className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />
               </button>
             );
           })}
@@ -377,7 +537,7 @@ export function ArtifactDrawer({ liveData, layerFilter }: Props) {
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 px-5 py-3">
               <div className="flex items-center gap-3">
                 <div className={clsx("flex h-8 w-8 items-center justify-center rounded border", typeColors[openArtifact.type])}>
-                  {(() => { const Icon = typeIcons[openArtifact.type]; return <Icon className="h-4 w-4" />; })()}
+                  {(() => { const Icon = iconFor(openArtifact); return <Icon className="h-4 w-4" />; })()}
                 </div>
                 <div>
                   <p className="text-[14px] font-semibold text-slate-950 dark:text-white font-mono">{openArtifact.name}</p>
@@ -385,12 +545,14 @@ export function ArtifactDrawer({ liveData, layerFilter }: Props) {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleDownload(openArtifact)}
-                  className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
-                >
-                  <Download className="h-3 w-3" /> Download
-                </button>
+                {openArtifact.type !== "media_folder" && (
+                  <button
+                    onClick={() => handleDownload(openArtifact)}
+                    className="flex items-center gap-1.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+                  >
+                    <Download className="h-3 w-3" /> Download
+                  </button>
+                )}
                 <button
                   onClick={() => setOpenArtifact(null)}
                   className="flex h-7 w-7 items-center justify-center rounded hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -400,9 +562,22 @@ export function ArtifactDrawer({ liveData, layerFilter }: Props) {
               </div>
             </div>
             <div className="flex-1 overflow-auto p-5">
-              <pre className="whitespace-pre-wrap font-mono text-[12px] leading-5 text-slate-800 dark:text-slate-200">
-                {openArtifact.content}
-              </pre>
+              {openArtifact.type === "media" && openArtifact.media ? (
+                <MediaArtifactBody media={openArtifact.media} />
+              ) : openArtifact.type === "media_folder" && openArtifact.mediaFolder ? (
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {openArtifact.mediaFolder.items.map((item, index) => (
+                    <div key={item.id} className={clsx(index > 0 && "pt-5", index < openArtifact.mediaFolder!.items.length - 1 && "pb-5")}>
+                      <p className="mb-2 text-[11px] font-mono font-medium text-slate-500 dark:text-slate-400">{item.name}</p>
+                      <MediaArtifactBody media={item.media} />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <pre className="whitespace-pre-wrap font-mono text-[12px] leading-5 text-slate-800 dark:text-slate-200">
+                  {openArtifact.content}
+                </pre>
+              )}
             </div>
           </div>
         </div>,

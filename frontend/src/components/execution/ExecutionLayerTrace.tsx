@@ -38,12 +38,12 @@ function liveLayerStatus(index: number, currentPhase: string | undefined, runSta
 }
 
 const statusConfig: Record<LayerStatus, { icon: typeof CheckCircle2; color: string; bg: string; badgeTone: "green" | "amber" | "violet" | "blue" | "red" }> = {
-  Complete: { icon: CheckCircle2, color: "text-emerald-600", bg: "bg-emerald-50 border-emerald-200", badgeTone: "green" },
-  Running: { icon: Loader2, color: "text-blue-600", bg: "bg-blue-50 border-blue-300", badgeTone: "amber" },
-  Waiting: { icon: Clock, color: "text-slate-400", bg: "bg-slate-50 border-slate-200", badgeTone: "violet" },
-  Pending: { icon: Circle, color: "text-amber-500", bg: "bg-amber-50 border-amber-200", badgeTone: "blue" },
-  Blocked: { icon: Lock, color: "text-red-500", bg: "bg-red-50 border-red-200", badgeTone: "red" },
-  Failed: { icon: XCircle, color: "text-red-600", bg: "bg-red-50 border-red-300", badgeTone: "red" },
+  Complete: { icon: CheckCircle2, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800", badgeTone: "green" },
+  Running: { icon: Loader2, color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-50 dark:bg-blue-950/40 border-blue-300 dark:border-blue-700", badgeTone: "amber" },
+  Waiting: { icon: Clock, color: "text-slate-400 dark:text-slate-500", bg: "bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700", badgeTone: "violet" },
+  Pending: { icon: Circle, color: "text-amber-500 dark:text-amber-400", bg: "bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800", badgeTone: "blue" },
+  Blocked: { icon: Lock, color: "text-red-500 dark:text-red-400", bg: "bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800", badgeTone: "red" },
+  Failed: { icon: XCircle, color: "text-red-600 dark:text-red-400", bg: "bg-red-50 dark:bg-red-950/40 border-red-300 dark:border-red-700", badgeTone: "red" },
 };
 
 export function ExecutionLayerTrace({ currentPhase, runStatus }: { currentPhase?: string; runStatus?: string }) {
@@ -57,16 +57,16 @@ export function ExecutionLayerTrace({ currentPhase, runStatus }: { currentPhase?
         eyebrow="Governance Runtime — 7 Layers"
         action={
           <div className="flex items-center gap-2">
-            <span className="flex items-center gap-1.5 text-[11px] text-slate-500">
+            <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
               <span className="h-2 w-2 rounded-full bg-emerald-500" /> Complete
             </span>
-            <span className="flex items-center gap-1.5 text-[11px] text-slate-500">
+            <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
               <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" /> Running
             </span>
-            <span className="flex items-center gap-1.5 text-[11px] text-slate-500">
-              <span className="h-2 w-2 rounded-full bg-slate-300" /> Waiting
+            <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+              <span className="h-2 w-2 rounded-full bg-slate-300 dark:bg-slate-600" /> Waiting
             </span>
-            <span className="flex items-center gap-1.5 text-[11px] text-slate-500">
+            <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
               <span className="h-2 w-2 rounded-full bg-amber-400" /> Pending
             </span>
           </div>
@@ -74,7 +74,7 @@ export function ExecutionLayerTrace({ currentPhase, runStatus }: { currentPhase?
       />
 
       {/* Progress bar */}
-      <div className="px-4 py-3 border-b border-slate-100">
+      <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
         <div className="flex gap-1">
           {executionLayers.map((layer, index) => {
             const status = liveLayerStatus(index, currentPhase, runStatus);
@@ -85,7 +85,7 @@ export function ExecutionLayerTrace({ currentPhase, runStatus }: { currentPhase?
                   "flex-1 h-2 rounded-full transition-all",
                   status === "Complete" && "bg-emerald-500",
                   status === "Running" && "bg-blue-500 animate-pulse",
-                  status === "Waiting" && "bg-slate-200",
+                  status === "Waiting" && "bg-slate-200 dark:bg-slate-700",
                   status === "Pending" && "bg-amber-300",
                   status === "Blocked" && "bg-red-400",
                   status === "Failed" && "bg-red-600",
@@ -96,19 +96,19 @@ export function ExecutionLayerTrace({ currentPhase, runStatus }: { currentPhase?
           })}
         </div>
         <div className="flex justify-between mt-1.5">
-          <span className="text-[10px] text-slate-400">Layer 1</span>
-          <span className="text-[10px] text-slate-400">Layer 7</span>
+          <span className="text-[10px] text-slate-400 dark:text-slate-500">Layer 1</span>
+          <span className="text-[10px] text-slate-400 dark:text-slate-500">Layer 7</span>
         </div>
       </div>
 
       {!hasActiveRun && (
-        <p className="px-4 py-2.5 text-[11.5px] text-slate-400 border-b border-slate-100 bg-slate-50/60">
+        <p className="px-4 py-2.5 text-[11.5px] text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/40">
           No governance run in progress — layers will populate once a run starts.
         </p>
       )}
 
       {/* Layer list */}
-      <div className="divide-y divide-slate-100">
+      <div className="divide-y divide-slate-100 dark:divide-slate-700">
         {executionLayers.map((layer, index) => (
           <LayerRow
             key={layer.id}
@@ -132,8 +132,8 @@ function LayerRow({ layer, status, expanded, onToggle }: { layer: ExecutionLayer
       <button
         onClick={onToggle}
         className={clsx(
-          "flex w-full items-center gap-3 px-4 py-3 text-left transition-all hover:bg-slate-50",
-          status === "Running" && "bg-blue-50/30",
+          "flex w-full items-center gap-3 px-4 py-3 text-left transition-all hover:bg-slate-50 dark:hover:bg-slate-800/60",
+          status === "Running" && "bg-blue-50/30 dark:bg-blue-950/20",
         )}
       >
         <div className={clsx("flex h-8 w-8 items-center justify-center rounded-full border", config.bg)}>
@@ -142,32 +142,32 @@ function LayerRow({ layer, status, expanded, onToggle }: { layer: ExecutionLayer
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-[11px] font-mono text-slate-400">{layer.number}.</span>
-            <p className="text-[13px] font-semibold text-slate-950 truncate">{layer.name}</p>
+            <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500">{layer.number}.</span>
+            <p className="text-[13px] font-semibold text-slate-950 dark:text-white truncate">{layer.name}</p>
           </div>
-          <p className="text-[11px] text-slate-500 mt-0.5 truncate">{layer.description}</p>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">{layer.description}</p>
         </div>
 
         <div className="flex items-center gap-3">
           {status !== "Waiting" && layer.startTime && (
-            <span className="text-[11px] font-mono text-slate-400">{layer.startTime}</span>
+            <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500">{layer.startTime}</span>
           )}
           <Badge tone={config.badgeTone}>{status}</Badge>
-          {expanded ? <ChevronDown className="h-3.5 w-3.5 text-slate-400" /> : <ChevronRight className="h-3.5 w-3.5 text-slate-400" />}
+          {expanded ? <ChevronDown className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" /> : <ChevronRight className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />}
         </div>
       </button>
 
       {expanded && (
-        <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-4">
+        <div className="border-t border-slate-100 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/40 px-4 py-4">
           <div className="grid gap-4 md:grid-cols-2">
             {/* Inputs */}
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 mb-2">Inputs</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400 mb-2">Inputs</p>
               <div className="space-y-1.5">
                 {layer.inputs.map((input) => (
                   <div key={input} className="flex items-start gap-2">
-                    <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-slate-400 shrink-0" />
-                    <span className="text-[12px] text-slate-700">{input}</span>
+                    <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-slate-400 dark:bg-slate-500 shrink-0" />
+                    <span className="text-[12px] text-slate-700 dark:text-slate-300">{input}</span>
                   </div>
                 ))}
               </div>
@@ -175,12 +175,12 @@ function LayerRow({ layer, status, expanded, onToggle }: { layer: ExecutionLayer
 
             {/* Outputs */}
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 mb-2">Outputs</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400 mb-2">Outputs</p>
               <div className="space-y-1.5">
                 {layer.outputs.map((output) => (
                   <div key={output} className="flex items-start gap-2">
                     <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
-                    <span className="text-[12px] font-mono text-slate-800">{output}</span>
+                    <span className="text-[12px] font-mono text-slate-800 dark:text-slate-200">{output}</span>
                   </div>
                 ))}
               </div>
@@ -189,11 +189,11 @@ function LayerRow({ layer, status, expanded, onToggle }: { layer: ExecutionLayer
 
           {/* Agents (if applicable) */}
           {layer.agents && (
-            <div className="mt-4 pt-3 border-t border-slate-200">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 mb-2">Active Agents</p>
+            <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-700">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400 mb-2">Active Agents</p>
               <div className="flex flex-wrap gap-2">
                 {layer.agents.map((agent) => (
-                  <span key={agent} className="rounded border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-800">
+                  <span key={agent} className="rounded border border-blue-200 dark:border-blue-700 bg-blue-50 dark:bg-blue-950/40 px-2.5 py-1 text-[11px] font-medium text-blue-800 dark:text-blue-300">
                     {agent}
                   </span>
                 ))}
@@ -203,10 +203,10 @@ function LayerRow({ layer, status, expanded, onToggle }: { layer: ExecutionLayer
 
           {/* Timing */}
           {status !== "Waiting" && layer.startTime && (
-            <div className="mt-3 pt-3 border-t border-slate-200 flex gap-4">
-              <span className="text-[11px] text-slate-500">Started: <span className="font-mono text-slate-700">{layer.startTime}</span></span>
+            <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700 flex gap-4">
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">Started: <span className="font-mono text-slate-700 dark:text-slate-300">{layer.startTime}</span></span>
               {layer.endTime && (
-                <span className="text-[11px] text-slate-500">Completed: <span className="font-mono text-slate-700">{layer.endTime}</span></span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">Completed: <span className="font-mono text-slate-700 dark:text-slate-300">{layer.endTime}</span></span>
               )}
             </div>
           )}

@@ -15,7 +15,7 @@ from __future__ import annotations
 import importlib.util
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.core.config import get_settings
 
@@ -132,6 +132,7 @@ def list_adapter_status(target: dict[str, str | bool] | None = None) -> list[Ada
     langfuse_installed = _module_installed("langfuse")
     evidently_installed = _module_installed("evidently")
     vision_installed = _module_installed("PIL")  # + the vision-capable judge below
+    video_frames_installed = _module_installed("av")  # frame extraction for temporal_consistency
     jiwer_installed = _module_installed("jiwer")
     pyrit_ready = _pyrit_isolated_ready()
 
@@ -267,23 +268,33 @@ def list_adapter_status(target: dict[str, str | bool] | None = None) -> list[Ada
         ),
         AdapterStatus(
             key="vision",
-            name="Vision Judge (image)",
-            category="Image / Vision Safety",
+            name="Vision Judge (image + video)",
+            category="Image / Video Safety",
             description=(
-                "Scores images for unsafe content using the vision-capable judge "
-                "(gpt-4.1). Audits target-generated images, or built-in probe "
-                "images as a baseline when the target produces none."
+                "Scores images for unsafe content and video for frame-to-frame temporal "
+                "consistency, using the vision-capable judge (gpt-4.1). Audits target-"
+                "generated media directly (built-in probe images as an image-only "
+                "baseline when the target produces none — video always needs a real "
+                "target-generated clip to sample frames from)."
             ),
             kind="real",
-            dependency="Pillow + vision judge",
-            dependency_installed=vision_installed,
+            dependency="Pillow + PyAV (video frame extraction) + vision judge",
+            dependency_installed=vision_installed and video_frames_installed,
             configured=judge_ok,
-            available=vision_installed and judge_ok,
+            available=vision_installed and video_frames_installed and judge_ok,
             detail=(
-                "Ready — vision judge configured for image content-safety scoring."
-                if vision_installed and judge_ok
+                "Ready — vision judge configured for image safety and video temporal-"
+                "consistency scoring."
+                if vision_installed and video_frames_installed and judge_ok
                 else "Pillow not installed." if not vision_installed
-                else "No vision judge configured (set JUDGE_ENDPOINT / JUDGE_API_KEY / JUDGE_DEPLOYMENT_NAME with a vision model)."  # noqa: E501
+                else (
+                    "PyAV not installed (needed for video frame extraction)."
+                    if not video_frames_installed
+                    else (
+                        "No vision judge configured (set JUDGE_ENDPOINT / "
+                        "JUDGE_API_KEY / JUDGE_DEPLOYMENT_NAME with a vision model)."
+                    )
+                )
             ),
         ),
         AdapterStatus(
@@ -480,13 +491,20 @@ def run_adapter(session, adapter_key: str, ai_system_id: str | None = None) -> d
             message="No AI system is registered to probe. Register a system first.",
         )
 
+    from sqlmodel import select
+
+    from app.models.ai_system import AISystemCapability
     from app.schemas.governance import MetricPlanItem
-    from app.services.evaluators.base import MetricEvaluationInput
+    from app.services.evaluators.base import MetricEvaluationInput, resolve_evaluator_endpoint
     from app.services.evaluators.registry import get_evaluator
     from app.services.model_clients.registry import get_target_model_client_for_system
 
     evaluator = get_evaluator(key)
     target_client = get_target_model_client_for_system(system)
+    capabilities = session.exec(
+        select(AISystemCapability).where(AISystemCapability.ai_system_id == system.id)
+    ).all()
+    resolved_endpoint_ref = resolve_evaluator_endpoint(system, capabilities)
     metric = MetricPlanItem(
         metric_config_id=uuid.uuid4(),
         metric_id=metric_id,
@@ -507,12 +525,14 @@ def run_adapter(session, adapter_key: str, ai_system_id: str | None = None) -> d
                 session=session,
                 ai_system=system,
                 target_client=target_client,
+                target_endpoint_ref=resolved_endpoint_ref,
+                capabilities=capabilities,
             )
         )
     except Exception as exc:  # noqa: BLE001 - button must never 500 on a probe error
         return {
             "adapter": key,
-            "ran_at": datetime.now(timezone.utc).isoformat(),
+            "ran_at": datetime.now(UTC).isoformat(),
             "mode": "real",
             "status": "error",
             "raw_status": "error",
@@ -541,7 +561,7 @@ def run_adapter(session, adapter_key: str, ai_system_id: str | None = None) -> d
 
     return {
         "adapter": key,
-        "ran_at": datetime.now(timezone.utc).isoformat(),
+        "ran_at": datetime.now(UTC).isoformat(),
         "mode": "real",
         "status": _STATUS_MAP.get(status_value, "error"),
         "raw_status": status_value,

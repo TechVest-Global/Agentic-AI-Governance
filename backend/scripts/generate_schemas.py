@@ -19,8 +19,6 @@ import json
 import sys
 from pathlib import Path
 
-
-
 # Ensure the backend package is importable when the script is run from the repo root.
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_SRC = REPO_ROOT / "backend"

@@ -1,4 +1,31 @@
+from app.services.capability_import import _capability_fields_from_entry
 from fastapi.testclient import TestClient
+
+
+def test_capability_fields_capture_request_body_as_input_schema():
+    # A catalog entry with a requestBody must populate input_schema, so probe
+    # selection can later synthesize a structured body for this endpoint
+    # instead of only ever sending plain text.
+    entry = {
+        "function": "rankCandidatesForJob",
+        "path": "/api/v1/ai/rank-candidates",
+        "method": "POST",
+        "feature": "ranking",
+        "requestBody": {
+            "type": "object",
+            "properties": {"job": {"type": "object"}},
+            "required": ["job"],
+        },
+    }
+    fields = _capability_fields_from_entry(entry, base_origin="http://gw")
+    assert fields["endpoint_ref"] == "rank-candidates"
+    assert fields["input_schema"] == entry["requestBody"]
+
+
+def test_capability_fields_default_to_empty_schema_without_request_body():
+    entry = {"function": "chat", "path": "/api/chat", "method": "POST"}
+    fields = _capability_fields_from_entry(entry, base_origin="http://gw")
+    assert fields["input_schema"] == {}
 
 
 def create_system(client: TestClient, target_endpoint_ref: str) -> dict[str, object]:

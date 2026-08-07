@@ -106,7 +106,12 @@ export function NotificationsMenu() {
                     <Icon className={clsx("mt-0.5 h-4 w-4 shrink-0", ICON_COLOR[n.kind])} />
                     <div className="min-w-0 flex-1">
                       <p className="text-[12px] font-medium text-slate-800 dark:text-slate-200">{n.title}</p>
-                      <p className="mt-0.5 truncate text-[11.5px] text-slate-500 dark:text-slate-400">{n.detail}</p>
+                      <p
+                        title={n.detail}
+                        className="mt-0.5 line-clamp-2 text-[11.5px] text-slate-500 dark:text-slate-400"
+                      >
+                        {n.detail}
+                      </p>
                       <p className="mt-1 text-[10.5px] text-slate-400 dark:text-slate-500">{timeAgo(n.createdAt)}</p>
                     </div>
                     {unread && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" />}

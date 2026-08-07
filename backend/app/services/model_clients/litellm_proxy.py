@@ -54,11 +54,19 @@ class LiteLLMGovernanceModelClient:
         trace_id = f"litellm-gov-{uuid4()}"
         start = time.monotonic()
 
+        # See AzureOpenAIGovernanceModelClient.complete — a caller that supplied a
+        # response_schema needs machine-readable output, so ask the provider to
+        # guarantee well-formed JSON instead of relying on prompt wording alone.
+        extra: dict = {}
+        if request.response_schema and "json" in request.prompt.lower():
+            extra["response_format"] = {"type": "json_object"}
+
         try:
             response = self._client.chat.completions.create(
                 model=self._model,
                 messages=[{"role": "user", "content": request.prompt}],
                 temperature=0.2,
+                **extra,
             )
             content = response.choices[0].message.content or ""
         except Exception as exc:

@@ -18,21 +18,27 @@ Key invariants preserved:
     Synthesis → DA → Verdict chain.
   - No new DB schema: artifacts are stored in the GovernanceState payload and the
     Verdict record (existing schema), keeping the backend unchanged.
-  - re_plan is registered but inert for the MVP (no dormant specialists yet).
+  - re_plan activates a dormant specialist for a dimension an upheld
+    objection names but nothing has probed yet this run (see
+    _resolve_re_plan_target) — a no-op only when no upheld objection names
+    a real, not-yet-covered dimension.
 """
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from uuid import UUID
 
 from sqlmodel import Session, select
 
 from app.configs.prompt_registry import PromptRegistry
 from app.core.exceptions import ResourceConflictError
+from app.models.agent import AgentExecution
 from app.models.base import utc_now
 from app.models.enums import (
     ActionTier,
+    AgentExecutionStatus,
     FindingStatus,
     LedgerActorType,
     RunPhase,
@@ -49,25 +55,33 @@ from app.schemas.governance import (
     GovernanceStateEntryCreate,
 )
 from app.services import audit_ledger, governance_state
+from app.services.agents.registry import DIMENSION_TO_AGENT_NAME
 from app.services.deliberation_council.devils_advocate_agent import (
     DevilsAdvocateAgent,
     Objection,
 )
 from app.services.deliberation_council.remediation_router import (
     MAX_ITERATIONS,
+    RouterDecision,
     RouterExit,
     build_exhaustion_memo,
     route,
 )
 from app.services.deliberation_council.synthesis_agent import SynthesisAgent, SynthesisMemo
 from app.services.deliberation_council.verdict_agent import VerdictAgent, VerdictOutput
+from app.services.graphs.council_graph import build_council_graph
+from app.services.graphs.runtime import RuntimeContext, build_checkpointer, invoke_config
+from app.services.graphs.streaming import run_graph
 from app.services.model_clients.gateway import (
     bind_log_capture,
     drain_log_capture,
     get_log_buffer,
     start_log_capture,
 )
-from app.services.model_clients.mock import MockGovernanceModelClient
+from app.services.model_clients.mock import (
+    MockGovernanceModelClient,
+    is_mock_governance_client,
+)
 from app.services.model_clients.registry import get_governance_model_client
 from app.services.run_validation import get_run_or_raise
 
@@ -78,6 +92,32 @@ logger = logging.getLogger(__name__)
 # probes/agent) — that would turn one remediation loop into another full
 # audit pass. This cap keeps mid-council remediation fast.
 RE_PROBE_BUDGET_CAP = 8
+
+
+@dataclass
+class _CouncilLoopState:
+    """What the remediation cycle carries between nodes but must NOT checkpoint.
+
+    ``Finding`` and ``MetricResult`` are SQLModel rows bound to the live
+    session, and ``SynthesisMemo`` / ``Objection`` / ``VerdictOutput`` are the
+    agents' rich outputs. Putting any of them in LangGraph state would hand them
+    to the checkpoint serializer — persisting, at best, objects that are
+    meaningless after the session closes. The graph state keeps serializable
+    summaries of these; this object keeps the real things, and reaches the nodes
+    through the RuntimeContext closures instead.
+
+    Mutable by design: these are precisely the variables the previous
+    ``while True`` reassigned each pass.
+    """
+
+    findings: list[Finding]
+    metric_results: list[MetricResult]
+    current_findings: list[Finding] = field(default_factory=list)
+    all_objections: list[Objection] = field(default_factory=list)
+    objections: list[Objection] = field(default_factory=list)
+    memo: SynthesisMemo | None = None
+    verdict: VerdictOutput | None = None
+    decision: RouterDecision | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -106,10 +146,14 @@ def deliberate(
     if existing_verdict is not None:
         raise ResourceConflictError("Verdict", "run_id", str(run_id))
 
-    start_log_capture()
+    start_log_capture(run_id, RunPhase.deliberation_council.value)
 
     # Build council agents — share one registry load across all three agents
     governance_client = _get_governance_client()
+    # Captured once, here, so the verdict and the run both carry it: a mock
+    # fallback is otherwise invisible downstream and the resulting verdict is
+    # indistinguishable from one a real model deliberated.
+    governance_is_mock = _is_mock_governance_client(governance_client)
     registry = PromptRegistry.from_directory()
     synthesis_agent = SynthesisAgent(governance_client, registry)
     da_agent = DevilsAdvocateAgent(governance_client, registry)
@@ -122,100 +166,178 @@ def deliberate(
     metric_results = _list_metric_results(session, run_id)
 
     # -----------------------------------------------------------------------
-    # Remediation loop
+    # Remediation loop — a LangGraph cycle. See graphs/council_graph.py for the
+    # topology; the node bodies are the closures below, which are the same three
+    # agent passes and the same deterministic router the `while True` ran.
     # -----------------------------------------------------------------------
-    iteration = starting_iteration
-    last_verdict: VerdictOutput | None = None
-    last_memo: SynthesisMemo | None = None
-    all_objections: list[Objection] = []
+    # Mutable across the cycle, exactly as the loop's locals were. These live
+    # here rather than in graph state because Finding/MetricResult are
+    # session-bound ORM rows — checkpointing one would persist a dead
+    # connection. Graph state carries the serializable summaries instead.
+    loop = _CouncilLoopState(
+        findings=findings,
+        metric_results=metric_results,
+    )
 
-    while True:
-        iteration += 1
+    def _synthesize(iteration: int) -> dict:
         logger.info("Council iteration %d/%d for run %s", iteration, MAX_ITERATIONS, run_id)
-
         # Apply "latest iteration per agent" read rule: use all findings but
         # pass them sorted so the synthesis sees the most recent data first.
-        current_findings = _latest_findings_per_agent(findings)
+        loop.current_findings = _latest_findings_per_agent(loop.findings)
+        # Re-read every iteration: a re_probe remediation between iterations
+        # adds more AgentExecution rows, so the real count can grow mid-loop.
+        real_probe_counts = _get_real_probe_counts(session, run_id)
+        loop.memo = synthesis_agent.synthesize(
+            findings=loop.current_findings,
+            metric_results=loop.metric_results,
+            iteration=iteration,
+            real_probe_counts=real_probe_counts,
+        )
+        return {
+            "risk_summary": loop.memo.risk_summary,
+            "dimensions": loop.memo.dimensions,
+            "claim_count": len(loop.memo.claims),
+            "conflict_count": len(loop.memo.conflicts),
+        }
 
-        # Pass 1: Synthesis
-        memo = synthesis_agent.synthesize(
-            findings=current_findings,
-            metric_results=metric_results,
+    def _critique(iteration: int) -> list[dict]:
+        loop.objections = da_agent.object_to(loop.memo, loop.current_findings)
+        loop.all_objections.extend(loop.objections)
+        return [
+            {"objection_id": o.objection_id, "argument": o.argument}
+            for o in loop.objections
+        ]
+
+    def _judge(iteration: int) -> dict:
+        loop.verdict = verdict_agent.adjudicate(
+            memo=loop.memo,
+            objections=loop.objections,
+            findings=loop.current_findings,
+            metric_results=loop.metric_results,
             iteration=iteration,
         )
+        return {
+            "label": loop.verdict.label,
+            "confidence_score": loop.verdict.confidence_score,
+            "sufficient": loop.verdict.sufficient,
+            "remediable": loop.verdict.remediable,
+            "objections_upheld": list(loop.verdict.objections_upheld),
+        }
 
-        # Pass 2: Devil's Advocate (forced dissent on every iteration)
-        objections = da_agent.object_to(memo)
-        all_objections.extend(objections)
-
-        # Pass 3: Verdict
-        verdict_out = verdict_agent.adjudicate(
-            memo=memo,
-            objections=objections,
-            findings=current_findings,
-            metric_results=metric_results,
-            iteration=iteration,
-        )
-
-        last_verdict = verdict_out
-        last_memo = memo
-
+    def _persist_iteration(iteration: int) -> None:
         # Persist iteration counter before routing so a crash here does not
-        # reset the count on resume
+        # reset the count on resume.
         _persist_iteration_counter(session, run, iteration)
-
-        # Write append-only state entry for this iteration's artifacts
+        # Write append-only state entry for this iteration's artifacts.
         _append_council_iteration_state(
             session,
             run_id=run_id,
             iteration=iteration,
-            memo=memo,
-            objections=objections,
-            verdict=verdict_out,
+            memo=loop.memo,
+            objections=loop.objections,
+            verdict=loop.verdict,
         )
-
         # Commit now (not just flush) so a concurrent request polling this run
         # can observe real per-iteration progress instead of the whole 1-3
         # iteration loop being invisible until it fully completes.
         session.commit()
         session.refresh(run)
 
-        # Deterministic routing — three exits, checked in priority order
-        decision = route(verdict_out, iteration)
+    def _route(iteration: int) -> dict:
+        # Deterministic routing — three exits, checked in priority order.
+        decision = route(loop.verdict, iteration)
+        loop.decision = decision
         logger.info(
             "Router exit=%s reason=%s (iteration %d)",
             decision.exit,
             decision.reason,
             iteration,
         )
-
-        if decision.exit == RouterExit.action:
-            # Exit 1: sufficient — proceed to Layer 5
-            break
-
         if decision.exit == RouterExit.exhausted:
-            # Exit 2: cap reached — force verdict at current confidence
             logger.warning(
                 "Council exhausted after %d iterations for run %s", iteration, run_id
             )
-            break
+        return {
+            "iteration": iteration,
+            "exit": str(decision.exit),
+            "remediation_type": (
+                str(decision.remediation_type) if decision.remediation_type else None
+            ),
+            "target_agent": decision.target_agent,
+            "reason": decision.reason,
+        }
 
-        # Exit 3: remediate — re-enter at the right upstream point
-        # For re_probe: in the MVP the specialist re-runs within this process;
-        # findings list is refreshed from the DB after the re-probe.
-        if decision.remediation_type is not None:
-            findings, metric_results = _apply_remediation(
-                session,
-                run_id=run_id,
-                remediation_type=str(decision.remediation_type),
-                target_agent=decision.target_agent,
-            )
+    def _remediate(decision_summary: dict) -> dict | None:
+        # Exit 3: remediate — re-enter at the right upstream point. For
+        # re_probe the specialist re-runs within this process; the findings
+        # list is refreshed from the DB afterwards.
+        remediation_type = decision_summary.get("remediation_type")
+        if remediation_type is None:
+            return None
+        loop.findings, loop.metric_results = _apply_remediation(
+            session,
+            run_id=run_id,
+            remediation_type=str(remediation_type),
+            target_agent=decision_summary.get("target_agent"),
+            objections=loop.objections,
+            objections_upheld=loop.verdict.objections_upheld,
+        )
+        return {
+            "iteration": decision_summary.get("iteration"),
+            "remediation_type": str(remediation_type),
+            "target_agent": decision_summary.get("target_agent"),
+        }
+
+    graph = build_council_graph(checkpointer=build_checkpointer())
+    runtime = RuntimeContext(
+        synthesize=_synthesize,
+        critique=_critique,
+        judge=_judge,
+        persist_iteration=_persist_iteration,
+        route=_route,
+        remediate=_remediate,
+    )
+    final_state = run_graph(
+        graph,
+        {
+            "run_id": str(run_id),
+            # Seeded from the DB-persisted counter, never from zero — this is
+            # what stops a crash-resume getting a fresh set of iterations.
+            "iteration": starting_iteration,
+            "max_iterations": MAX_ITERATIONS,
+            "memo_summary": None,
+            "objections": [],
+            "verdict_summary": None,
+            "decision": None,
+            "exit": None,
+            "remediations": [],
+            "governance_is_mock": governance_is_mock,
+        },
+        invoke_config(
+            run_id=run_id,
+            context=runtime,
+            thread_suffix="council",
+            # Five nodes per pass, capped iterations, plus headroom. Bounded so
+            # a routing bug surfaces as a GraphRecursionError rather than an
+            # unbounded loop against a live target.
+            recursion_limit=MAX_ITERATIONS * 6 + 10,
+        ),
+        label="deliberation_council",
+    )
 
     # -----------------------------------------------------------------------
     # Persist verdict
     # -----------------------------------------------------------------------
+    iteration = int(final_state["iteration"])
+    last_verdict: VerdictOutput | None = loop.verdict
+    last_memo: SynthesisMemo | None = loop.memo
+    all_objections: list[Objection] = loop.all_objections
+    decision = loop.decision
+    findings = loop.findings
+    metric_results = loop.metric_results
     assert last_verdict is not None
     assert last_memo is not None
+    assert decision is not None
 
     exhaustion_memo: dict | None = None
     if decision.exit == RouterExit.exhausted:
@@ -233,6 +355,12 @@ def deliberate(
         open_findings=open_findings,
         exhaustion_memo=exhaustion_memo,
         iteration=iteration,
+        governance_is_mock=governance_is_mock,
+        # Decided below the sufficiency threshold because the shortfall was
+        # conclusive and no further iteration could move it (router Exit 1b).
+        decided_conclusively=(
+            decision.exit == RouterExit.action and not last_verdict.sufficient
+        ),
     )
 
     # Update run phase/status
@@ -245,6 +373,7 @@ def deliberate(
         confidence=confidence,
         iteration=iteration,
         exhausted=(decision.exit == RouterExit.exhausted),
+        governance_is_mock=governance_is_mock,
     )
 
     # Audit ledger entry
@@ -286,9 +415,73 @@ def deliberate(
     )
 
 
+def get_existing_deliberation(session: Session, *, run_id: UUID) -> CouncilDeliberationRead:
+    """Reconstruct a CouncilDeliberationRead for a run that already has a Verdict.
+
+    Used when resuming an interrupted run: ``deliberate()`` raises
+    ResourceConflictError if a Verdict exists (a run can only ever have one),
+    so resume must fetch the existing council outcome instead of treating
+    that as a failure to retry.
+    """
+    get_run_or_raise(session, run_id)
+    verdict = session.exec(select(Verdict).where(Verdict.run_id == run_id)).one()
+    findings = _list_open_findings(session, run_id)
+    all_findings = list(
+        session.exec(select(Finding).where(Finding.run_id == run_id)).all()
+    )
+    metric_results = _list_metric_results(session, run_id)
+    return CouncilDeliberationRead(
+        run_id=run_id,
+        verdict=verdict,
+        finding_count=len(all_findings),
+        open_finding_count=len(findings),
+        metric_result_count=len(metric_results),
+        failed_metric_count=sum(
+            1 for m in metric_results
+            if m.status in {"failed", "error"} or m.passed is False
+        ),
+        pending_metric_count=sum(
+            1 for m in metric_results
+            if m.status in {"pending", "skipped"}
+        ),
+        highest_severity=_highest_severity(findings),
+        created_verdict=False,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Remediation helpers
 # ---------------------------------------------------------------------------
+
+
+def _resolve_re_plan_target(
+    session: Session, *, run_id: UUID, upheld_objections: list[Objection]
+) -> tuple[str | None, str | None]:
+    """Pick a dormant specialist to activate for re_plan.
+
+    Unlike re_probe (re-sample a dimension an agent already covered this
+    run), re_plan is meant for a dimension NO agent has covered yet — so this
+    only returns an agent that hasn't already produced a completed execution
+    this run. Matches an upheld objection's argument/suggested_fix text
+    against the registered probe dimensions (same keyword-matching style each
+    specialist already uses for its own metric_ids). Returns
+    ``(agent_name, matched_dimension)``, or ``(None, None)`` if no upheld
+    objection names a dimension that's both real and not already covered.
+    """
+    already_run = {
+        execution.agent_name
+        for execution in session.exec(
+            select(AgentExecution)
+            .where(AgentExecution.run_id == run_id)
+            .where(AgentExecution.status == AgentExecutionStatus.completed)
+        ).all()
+    }
+    for objection in upheld_objections:
+        haystack = f"{objection.argument} {objection.suggested_fix}".lower()
+        for dimension, agent_name in DIMENSION_TO_AGENT_NAME.items():
+            if dimension in haystack and agent_name not in already_run:
+                return agent_name, dimension
+    return None, None
 
 
 def _apply_remediation(
@@ -297,16 +490,35 @@ def _apply_remediation(
     run_id: UUID,
     remediation_type: str,
     target_agent: str | None,
+    objections: list[Objection],
+    objections_upheld: list[str],
 ) -> tuple[list[Finding], list[MetricResult]]:
     """Apply the remediation action and return refreshed evidence.
 
     re_deliberate: no new evidence needed — same findings, new synthesis next iteration.
-    re_probe:      re-run the named specialist so it appends a new finding.
-    re_plan:       inert for MVP — treated as re_deliberate.
+    re_probe:      re-run the named specialist (more samples on a dimension
+                   already covered) so it appends a new finding.
+    re_plan:       activate a DIFFERENT, previously-dormant specialist for a
+                   dimension an upheld objection names but nothing has probed
+                   yet this run — see _resolve_re_plan_target.
     """
-    if remediation_type == "re_probe" and target_agent:
+    matched_dimension: str | None = None
+    if remediation_type == "re_plan":
+        upheld = [o for o in objections if o.objection_id in objections_upheld]
+        target_agent, matched_dimension = _resolve_re_plan_target(
+            session, run_id=run_id, upheld_objections=upheld
+        )
+        if target_agent is None:
+            logger.info(
+                "re_plan: no upheld objection named an uncovered dimension "
+                "for run %s; no-op this iteration",
+                run_id,
+            )
+
+    if remediation_type in ("re_probe", "re_plan") and target_agent:
         logger.info(
-            "re_probe: re-running specialist agent '%s' with a capped probe budget (%d)",
+            "%s: re-running specialist agent '%s' with a capped probe budget (%d)",
+            remediation_type,
             target_agent,
             RE_PROBE_BUDGET_CAP,
         )
@@ -333,12 +545,54 @@ def _apply_remediation(
                 probe_budget_override=RE_PROBE_BUDGET_CAP,
                 is_remediation_call=True,
             )
+            if remediation_type == "re_plan":
+                # Record which dimension triggered activating this previously
+                # -dormant specialist — without this, "why did this run
+                # suddenly activate compliance_mapper mid-council" is only
+                # reconstructable from the state entry's raw objection text.
+                audit_ledger.append_ledger_entry(
+                    session,
+                    run_id=run_id,
+                    payload=AuditLedgerEntryCreate(
+                        event_type="remediation.re_plan_activated",
+                        actor_type=LedgerActorType.system,
+                        actor_id="deliberation_council",
+                        payload={
+                            "target_agent": target_agent,
+                            "matched_dimension": matched_dimension,
+                        },
+                    ),
+                )
         except Exception as exc:
             logger.error(
-                "re_probe of '%s' failed: %s — continuing with existing evidence",
+                "%s of '%s' failed: %s — continuing with existing evidence",
+                remediation_type,
                 target_agent,
                 exc,
             )
+            # A silently-wasted remediation iteration (e.g. a hallucinated
+            # target_agent that select_agents rejects) previously left only
+            # a log line — nothing in the audit trail explained why a
+            # council iteration burned its budget with no new evidence.
+            try:
+                audit_ledger.append_ledger_entry(
+                    session,
+                    run_id=run_id,
+                    payload=AuditLedgerEntryCreate(
+                        event_type=f"remediation.{remediation_type}_failed",
+                        actor_type=LedgerActorType.system,
+                        actor_id="deliberation_council",
+                        payload={
+                            "target_agent": target_agent,
+                            "error_type": exc.__class__.__name__,
+                            "message": str(exc),
+                        },
+                    ),
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "Could not ledger-record %s failure for run %s", remediation_type, run_id
+                )
         finally:
             bind_log_capture(parent_log_buffer)
 
@@ -404,6 +658,39 @@ def _append_council_iteration_state(
                     "dimensions": memo.dimensions,
                     "sample_sizes": memo.sample_sizes,
                     "conflicts": memo.conflicts,
+                    # Provenance edges back to the findings this synthesis rests
+                    # on, and what it did with each. Recorded here rather than
+                    # only on the Verdict because this is the append-only chain:
+                    # the edges are part of the tamper-evident record of how the
+                    # Council reasoned, not a derived view of its conclusion.
+                    "claims": [
+                        {
+                            "claim_id": c.claim_id,
+                            "statement": c.statement,
+                            "citations": [
+                                {"finding_id": cite.finding_id, "role": cite.role}
+                                for cite in c.citations
+                            ],
+                        }
+                        for c in memo.claims
+                    ],
+                    "unused_findings": [
+                        {"finding_id": u.finding_id, "reason": u.reason}
+                        for u in memo.unused_findings
+                    ],
+                    # Stored even when incomplete — see ProvenanceCoverage.
+                    "coverage": (
+                        {
+                            "total_findings": memo.coverage.total_findings,
+                            "cited": memo.coverage.cited,
+                            "declared_unused": memo.coverage.declared_unused,
+                            "unaccounted": memo.coverage.unaccounted,
+                            "invalid_citations": memo.coverage.invalid_citations,
+                            "is_complete": memo.coverage.is_complete,
+                        }
+                        if memo.coverage is not None
+                        else None
+                    ),
                 },
                 "objections": [
                     {
@@ -413,6 +700,13 @@ def _append_council_iteration_state(
                         "argument": o.argument,
                         "suggested_fix": o.suggested_fix,
                         "remediation_hint": o.remediation_hint,
+                        # Whether this disputes the findings or what was
+                        # concluded from them, and which claim/findings it
+                        # names. See devils_advocate_agent for why the
+                        # evidence/inference split is load-bearing.
+                        "attacks": o.attacks,
+                        "target_claim_id": o.target_claim_id,
+                        "target_finding_ids": o.target_finding_ids,
                     }
                     for o in objections
                 ],
@@ -427,6 +721,30 @@ def _append_council_iteration_state(
                     "objections_addressed": verdict.objections_addressed,
                     "objections_upheld": verdict.objections_upheld,
                     "iteration_penalty": verdict.iteration_penalty,
+                    # Where the confidence number came from, step by step. Every
+                    # value was already computed to produce the score; recording
+                    # it is what makes the number checkable rather than asserted.
+                    "derivation": (
+                        {
+                            "source": verdict.derivation.source,
+                            "raw_score": verdict.derivation.raw_score,
+                            "final_score": verdict.derivation.final_score,
+                            "threshold": verdict.derivation.threshold,
+                            "policy_floor_applied": verdict.derivation.policy_floor_applied,
+                            "sufficiency_reason": verdict.derivation.sufficiency_reason,
+                            "steps": [
+                                {
+                                    "step": st.step,
+                                    "detail": st.detail,
+                                    "score_before": st.score_before,
+                                    "score_after": st.score_after,
+                                }
+                                for st in verdict.derivation.steps
+                            ],
+                        }
+                        if verdict.derivation is not None
+                        else None
+                    ),
                 },
             },
         ),
@@ -448,6 +766,8 @@ def _persist_verdict(
     open_findings: list[Finding],
     exhaustion_memo: dict | None,
     iteration: int,
+    governance_is_mock: bool = False,
+    decided_conclusively: bool = False,
 ) -> Verdict:
     objections_payload = [
         {
@@ -457,6 +777,9 @@ def _persist_verdict(
             "argument": o.argument,
             "suggested_fix": o.suggested_fix,
             "remediation_hint": o.remediation_hint,
+            "attacks": o.attacks,
+            "target_claim_id": o.target_claim_id,
+            "target_finding_ids": o.target_finding_ids,
         }
         for o in all_objections
     ]
@@ -494,11 +817,22 @@ def _persist_verdict(
             if finding.recommended_action
         ]
 
+    # A conclusive exit is forced to `blocked` / human_review exactly as loop
+    # exhaustion is. The deterministic sufficiency rule already refuses to
+    # approve while a metric has failed, but the LLM path's contract is only
+    # "confidence >= threshold AND objections resolved" — it carries no
+    # failed-metric rule, so it could in principle return label="approved" with
+    # sufficient=false. Deciding early must never be a route to a softer tier
+    # than looping would have produced.
+    forced_block = exhaustion_memo is not None or decided_conclusively
+    if decided_conclusively:
+        action_tier = ActionTier.human_review
+
     verdict = Verdict(
         run_id=run_id,
         confidence_score=verdict_out.confidence_score,
         action_tier=action_tier,
-        label=verdict_out.label if exhaustion_memo is None else "blocked",
+        label=verdict_out.label if not forced_block else "blocked",
         synthesis=memo.narrative,
         objections=objections_payload,
         reasoning=verdict_out.reasoning,
@@ -513,6 +847,27 @@ def _persist_verdict(
     if exhaustion_memo:
         extra_context += (
             f" | LOOP EXHAUSTION: {exhaustion_memo['distinction']}"
+        )
+    if decided_conclusively:
+        # Stated positively, and deliberately NOT as an uncertainty memo: the
+        # confidence is below the sufficiency threshold, but the shortfall is a
+        # settled failure rather than missing evidence. Without this a reader
+        # would see a sub-threshold score and assume the Council ran out of
+        # evidence, which is the misreading the exhaustion memo used to create.
+        extra_context += (
+            " | DECIDED ON CONCLUSIVE EVIDENCE: confidence is below the sufficiency "
+            "threshold because a metric failed, not because evidence was missing. No "
+            "remediation path can clear a failed metric, so further iterations were "
+            "skipped. This is a settled verdict, not unresolved uncertainty"
+        )
+    if governance_is_mock:
+        # Stated on the verdict itself, not only in result_summary: the verdict
+        # text is what gets read, quoted, and exported into reports, so a
+        # non-evidential verdict has to say so wherever it is read.
+        extra_context += (
+            " | NOT EVIDENTIAL: no live governance model was available, so this verdict was "
+            "deliberated by the MOCK council client and must not be relied on as an "
+            "assessment of the audited system"
         )
     extra_context += "]"
     verdict.reasoning = (verdict.reasoning or "") + extra_context
@@ -535,6 +890,7 @@ def _update_run(
     confidence: float,
     iteration: int,
     exhausted: bool,
+    governance_is_mock: bool = False,
 ) -> None:
     run.status = RunStatus.council_running
     run.current_phase = RunPhase.deliberation_council
@@ -545,6 +901,10 @@ def _update_run(
         "council_deliberated_at": utc_now().isoformat(),
         "council_iterations": iteration,
         "council_exhausted": exhausted,
+        # True when the council fell back to the mock model, so a report or
+        # reviewer can tell an evidential verdict from a non-evidential one
+        # instead of having to infer it from an absence of council LLM calls.
+        "council_governance_is_mock": governance_is_mock,
     }
     run.updated_at = utc_now()
     session.add(run)
@@ -577,6 +937,11 @@ def _append_council_ledger(
             actor_type=LedgerActorType.system,
             actor_id="deliberation_council",
             payload={
+                # The Live Run view's Runtime Event Stream filters ledger events
+                # by payload.phase. Without it this event belongs to no layer, so
+                # the Council step showed "no ledger events recorded" even after
+                # a full three-iteration deliberation.
+                "phase": RunPhase.deliberation_council.value,
                 "requested_by": requested_by,
                 "label": label if not exhausted else "blocked",
                 "action_tier": str(action_tier),
@@ -615,6 +980,27 @@ def _list_metric_results(session: Session, run_id: UUID) -> list[MetricResult]:
     return list(session.exec(select(MetricResult).where(MetricResult.run_id == run_id)).all())
 
 
+def _get_real_probe_counts(session: Session, run_id: UUID) -> dict[str, int]:
+    """Sum each agent's real probe_count across every execution recorded for it.
+
+    Grounds the Synthesis Agent's sample_sizes in actual telemetry
+    (AgentExecution.metadata_json['probe_count'], set by agent_execution.py)
+    instead of leaving the LLM to infer sample size from finding text alone —
+    which it cannot do reliably, since an agent typically writes one finding
+    regardless of how many probes it actually sent. Summed across executions
+    so a mid-council re_probe remediation's extra probes count toward the
+    total evidence gathered, not just the original pass.
+    """
+    executions = session.exec(
+        select(AgentExecution).where(AgentExecution.run_id == run_id)
+    ).all()
+    counts: dict[str, int] = {}
+    for execution in executions:
+        probe_count = (execution.metadata_json or {}).get("probe_count", 0)
+        counts[execution.agent_name] = counts.get(execution.agent_name, 0) + int(probe_count or 0)
+    return counts
+
+
 def _latest_findings_per_agent(findings: list[Finding]) -> list[Finding]:
     """Latest-iteration read rule: for synthesis, the most recently created
     finding per agent is authoritative; all are retained in the DB for audit."""
@@ -649,14 +1035,31 @@ def _get_governance_client():
 
     Falls back to the mock client when the registry is unavailable
     (e.g. no API key configured) so the pipeline always produces a verdict.
+
+    Logged at ERROR, not WARNING: a verdict deliberated by a mock model carries
+    no evidential weight, and callers MUST record the fallback (see
+    _is_mock_governance_client) so the audit record cannot present a
+    mock-derived verdict as a real one.
     """
     try:
         return get_governance_model_client()
     except Exception as exc:
-        logger.warning(
-            "Could not obtain live governance client (%s); falling back to mock", exc
+        logger.error(
+            "Could not obtain live governance client (%s); falling back to MOCK — "
+            "this run's verdict is not evidential",
+            exc,
         )
         return MockGovernanceModelClient(
             provider="mock",
             deployment_name="mock-governance",
         )
+
+
+def _is_mock_governance_client(client) -> bool:
+    """Whether the council is deliberating with a mock model rather than a real one.
+
+    Thin alias: the predicate moved next to the mock client itself so the
+    council agents can consult it without importing this module (which imports
+    them). Kept as a name here because callers and tests already use it.
+    """
+    return is_mock_governance_client(client)

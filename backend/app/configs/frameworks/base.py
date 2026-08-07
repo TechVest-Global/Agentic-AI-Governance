@@ -51,6 +51,14 @@ class CoverageRequirement:
     - ``pii_handling``: requires at least one PII-bearing sample to assess.
     - ``adversarial_coverage``: requires at least one flagged/adversarial sample.
     - ``log_evidence``: requires a minimum number of log records overall.
+
+    ``aliases`` maps a synonym a client might use in its own logs onto the
+    canonical value in ``expected_values`` (``{"European Union": "EU"}``), so a
+    client whose vocabulary differs from ours is not reported as a false gap.
+    Matching is already case- and whitespace-insensitive, so aliases are only
+    needed for genuinely different wording. Keys and values are matched under
+    the same folding, and the mapping stays config so the check remains
+    deterministic and reproducible from the framework version alone.
     """
 
     requirement_id: str
@@ -63,6 +71,7 @@ class CoverageRequirement:
     minimum_distinct: int = 0
     control_refs: tuple[str, ...] = ()
     recommended_probe_id: str | None = None
+    aliases: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

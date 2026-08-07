@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { listFrameworkMappings, type FrameworkMapping as FrameworkMappingType } from "@/api/governanceApi";
+import { metricBlurb, metricName } from "@/data/metricCatalog";
 
 function labelize(value: string): string {
   return value.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -182,8 +183,16 @@ export function FrameworkMapping() {
                                   <div className="mt-3">
                                     <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">Mapped Metrics</p>
                                     <div className="flex flex-wrap gap-1">
+                                      {/* A control's mapped metrics read as names;
+                                          the id stays as a tooltip for traceability. */}
                                       {c.metric_ids.map((id) => (
-                                        <span key={id} className="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 font-mono text-[10px] text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300">{id}</span>
+                                        <span
+                                          key={id}
+                                          title={`${id} — ${metricBlurb(id, metricName(id))}`}
+                                          className="cursor-help rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300"
+                                        >
+                                          {metricName(id)}
+                                        </span>
                                       ))}
                                     </div>
                                   </div>
