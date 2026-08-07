@@ -8,6 +8,11 @@ expiring, presented in the report as though the tools had failed. A 7-metric
 smoke run, meanwhile, had 600s for ~45s of work.
 
 The configured value is now a FLOOR, with a per-metric allowance on top.
+
+The per-metric rate is 120s rather than the ~25s the measurements above imply,
+leaving headroom for metrics that make more calls than the measured average and
+for targets slower than the one measured. These tests pin the resulting curve so
+a later change to either knob is a visible decision rather than a silent drift.
 """
 
 import pytest
@@ -23,14 +28,14 @@ def _clear_settings_cache():
 
 
 def test_a_small_run_keeps_the_configured_floor() -> None:
-    # 7 metrics x 25s = 175s, well under the 600s floor.
-    assert metric_execution_budget_for(7) == 600.0
+    # 5 metrics x 120s = 600s, exactly the floor; anything smaller stays on it.
+    assert metric_execution_budget_for(4) == 600.0
 
 
 def test_a_full_catalog_run_gets_room_proportional_to_the_work() -> None:
     budget = metric_execution_budget_for(42)
 
-    assert budget == pytest.approx(1050.0)
+    assert budget == pytest.approx(5040.0)
     # The number that matters: it must clear the ~880s a live 42-metric run cost.
     assert budget > 880, f"42 metrics still cannot finish inside {budget}s"
 

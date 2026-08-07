@@ -42,6 +42,7 @@ from app.services.context_assembly.coverage_gap_detector import (
     highest_gap_severity,
 )
 from app.services.context_assembly.log_analyzer import analyze_logs
+from app.services.context_assembly.registry_facts import load_registry_facts
 from app.services.context_assembly.regulatory_ingester import ingest_regulations
 from app.services.run_validation import get_run_or_raise
 
@@ -66,9 +67,14 @@ def assemble_context(
         session,
         selected_frameworks=run.selected_frameworks,
     )
+    # The declared half of the audit. Registry facts let a requirement be
+    # assessed from the registration itself — a write-capability with no human
+    # review is a Risk Controls gap whether or not any log was submitted.
+    registry_facts = load_registry_facts(session, ai_system_id=run.ai_system_id)
     coverage_gaps = detect_coverage_gaps(
         log_analysis=log_analysis,
         regulatory_context=regulatory_context,
+        registry_facts=registry_facts,
     )
     highest = highest_gap_severity(coverage_gaps)
     generated_at = utc_now()

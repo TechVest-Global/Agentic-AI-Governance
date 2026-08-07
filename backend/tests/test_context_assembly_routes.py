@@ -20,7 +20,28 @@ def create_system(client: TestClient) -> dict[str, object]:
         },
     )
     assert response.status_code == 201
-    return response.json()
+    system = response.json()
+    # Coverage requirements are now evaluated against the AI Registry as well as
+    # against logs, and FR-005 makes a context profile a precondition for a run.
+    # A system registered without one is a legitimate gap (covered in
+    # test_registry_coverage_gaps.py); these tests are about LOG coverage, so the
+    # system under test is registered complete.
+    complete_context_profile(client, system["id"])
+    return system
+
+
+def complete_context_profile(client: TestClient, system_id: str) -> None:
+    response = client.put(
+        f"/api/v1/ai-systems/{system_id}/context-profile",
+        json={
+            "identity_purpose": {"purpose": "Loan eligibility decision support"},
+            "pre_model_controls": {"input_validation": "schema + PII redaction"},
+            "model_configuration": {"temperature": 0.2},
+            "post_model_controls": {"output_review": "threshold-based escalation"},
+            "integration_context": {"consumers": ["underwriting console"]},
+        },
+    )
+    assert response.status_code in (200, 201)
 
 
 def create_run(client: TestClient, system_id: str) -> dict[str, object]:

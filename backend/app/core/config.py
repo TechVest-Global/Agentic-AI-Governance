@@ -157,11 +157,16 @@ class Settings(BaseSettings):
     # tail was recorded as "evaluation exceeded the metric-execution time budget"
     # — a clock expiring, presented as if the tools had failed.
     metric_execution_budget_seconds: float = Field(default=600.0, gt=0)
-    # Per-metric allowance added on top of the floor. 25s covers a metric's usual
-    # 2-4 calls at the ~6s/call measured against a live target with
-    # AGENT_TARGET_MAX_INFLIGHT=1 (the setting that keeps a rate-limited target
-    # from refusing everything). Set to 0 to restore a purely flat budget.
-    metric_execution_seconds_per_metric: float = Field(default=25.0, ge=0)
+    # Per-metric allowance, applied as `max(floor, per_metric * metric_count)` —
+    # so it only raises the budget above the floor once a run plans more than
+    # (floor / this) metrics. The measured baseline is ~6s per model call and
+    # 2-4 calls per metric against a live target with AGENT_TARGET_MAX_INFLIGHT=1
+    # (the setting that keeps a rate-limited target from refusing everything),
+    # i.e. ~25s for a typical metric. 120s leaves headroom for metrics that make
+    # more calls than that, or targets slower than the measured one, at the cost
+    # of a much longer worst-case phase: a 42-metric catalog audit now allows
+    # 5040s (~84 min) rather than 1050s. Set to 0 to restore a purely flat budget.
+    metric_execution_seconds_per_metric: float = Field(default=120.0, ge=0)
 
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore"

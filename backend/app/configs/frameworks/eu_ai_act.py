@@ -119,6 +119,26 @@ EU_AI_ACT_KNOWLEDGE = FrameworkKnowledge(
             },
             control_refs=("ART-10",),
         ),
+        # Declared-configuration requirement (evaluated against the AI Registry).
+        # Article 14 is about oversight being DESIGNED IN, so a capability that
+        # changes state with no human review is a gap in the declaration itself —
+        # no log evidence or probing is needed to establish it.
+        CoverageRequirement(
+            requirement_id="eu-human-oversight-capability",
+            category="human_oversight",
+            dimension="Risk Controls",
+            description=(
+                "High-risk systems must keep consequential actions under human "
+                "oversight (Article 14)."
+            ),
+            recommendation=(
+                "Require human review on capabilities that write or destroy data, "
+                "or record the oversight measure that stands in for it."
+            ),
+            severity="high",
+            control_refs=("ART-14",),
+            recommended_probe_id="eu-probe-human-oversight",
+        ),
         CoverageRequirement(
             requirement_id="eu-human-oversight-outcomes",
             category="outcome_balance",

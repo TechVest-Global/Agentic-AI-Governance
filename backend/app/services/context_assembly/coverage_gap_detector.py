@@ -23,6 +23,7 @@ from app.schemas.governance import (
     RegulatoryContextRead,
 )
 from app.services.context_assembly.base import SEVERITY_ORDER, coerce_severity
+from app.services.context_assembly.registry_facts import RegistryFacts
 
 # Categories evaluated as set-membership against observed log values.
 _SET_OBSERVATIONS = {
@@ -30,6 +31,25 @@ _SET_OBSERVATIONS = {
     "jurisdiction_coverage": "observed_jurisdictions",
     "request_category": "observed_request_categories",
     "outcome_balance": "observed_outcomes",
+}
+
+# Categories evaluated against the AI Registry's DECLARED configuration rather
+# than against submitted logs, mapped to what each one expects to see. Membership
+# in this table is what routes a requirement to the registry evaluator, so adding
+# a category here and a branch below is all a new declared-fact check needs.
+_REGISTRY_EXPECTATIONS = {
+    "human_oversight": (
+        "every state-changing capability requires human review"
+    ),
+    "context_profile": (
+        "an ApplicationContextProfile with all five areas populated"
+    ),
+    "capability_schema": (
+        "every enabled capability declares an input schema"
+    ),
+    "capability_registration": (
+        "at least one enabled capability"
+    ),
 }
 
 
@@ -59,13 +79,90 @@ def _canonical_keys(observed: list[str], aliases: Mapping[str, str]) -> set[str]
     return keys
 
 
+def _evaluate_registry_requirement(
+    requirement: CoverageRequirement,
+    registry: RegistryFacts | None,
+) -> tuple[bool, str, list[str], list[str]]:
+    """Evaluate a requirement against what the registry DECLARES.
+
+    These categories need no logs and no probing: a declared deficiency is
+    findable from the registration alone. Absent facts are reported as a gap
+    rather than a pass, for the same reason empty logs are — "we could not
+    look" is not "there is nothing there".
+    """
+
+    category = requirement.category
+    if registry is None or not registry.available:
+        return (
+            True,
+            "No registry facts available to assess the declared configuration.",
+            [_REGISTRY_EXPECTATIONS[category]],
+            ["registry_facts=unavailable"],
+        )
+
+    expected = [_REGISTRY_EXPECTATIONS[category]]
+
+    if category == "human_oversight":
+        offenders = list(registry.state_changing_without_review)
+        return (
+            bool(offenders),
+            (
+                f"{len(offenders)} state-changing capability(ies) act without "
+                f"human review: {', '.join(offenders)}."
+            ),
+            expected,
+            offenders or ["all state-changing capabilities require human review"],
+        )
+
+    if category == "context_profile":
+        missing = list(registry.empty_profile_areas)
+        if not registry.profile_present:
+            return (
+                True,
+                "No ApplicationContextProfile is registered for this system.",
+                expected,
+                ["profile=absent"],
+            )
+        return (
+            bool(missing),
+            f"Context profile area(s) not populated: {', '.join(missing)}.",
+            expected,
+            missing or ["all five profile areas populated"],
+        )
+
+    if category == "capability_schema":
+        offenders = list(registry.capabilities_without_schema)
+        return (
+            bool(offenders),
+            (
+                f"{len(offenders)} capability(ies) declare no input schema, so "
+                f"they cannot be probed with a valid request: "
+                f"{', '.join(offenders)}."
+            ),
+            expected,
+            offenders or ["all capabilities declare an input schema"],
+        )
+
+    # capability_registration
+    return (
+        registry.capability_count == 0,
+        "No enabled capabilities are registered, so there is no audited surface.",
+        expected,
+        [f"capability_count={registry.capability_count}"],
+    )
+
+
 def _evaluate_requirement(
     requirement: CoverageRequirement,
     log_analysis: LogAnalysisSummary,
+    registry: RegistryFacts | None = None,
 ) -> tuple[bool, str, list[str], list[str]]:
     """Return (is_gap, description, expected, observed) for one requirement."""
 
     category = requirement.category
+
+    if category in _REGISTRY_EXPECTATIONS:
+        return _evaluate_registry_requirement(requirement, registry)
 
     if category in _SET_OBSERVATIONS:
         observed = list(getattr(log_analysis, _SET_OBSERVATIONS[category]))
@@ -142,7 +239,16 @@ def detect_coverage_gaps(
     *,
     log_analysis: LogAnalysisSummary,
     regulatory_context: RegulatoryContextRead,
+    registry_facts: RegistryFacts | None = None,
 ) -> list[CoverageGapRead]:
+    """Cross-reference observed log coverage AND declared registry facts against
+    each resolved framework's coverage requirements.
+
+    ``registry_facts`` is optional so a caller with only logs (a test, or an
+    analysis of a log sample outside a run) keeps working. Requirements in the
+    registry categories then report an honest "could not assess" gap rather than
+    passing by default.
+    """
     gaps: list[CoverageGapRead] = []
 
     for framework in regulatory_context.frameworks:
@@ -151,7 +257,7 @@ def detect_coverage_gaps(
             continue
         for requirement in knowledge.coverage_requirements:
             is_gap, description, expected, observed = _evaluate_requirement(
-                requirement, log_analysis
+                requirement, log_analysis, registry_facts
             )
             if not is_gap:
                 continue

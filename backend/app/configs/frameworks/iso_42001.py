@@ -95,6 +95,41 @@ ISO_42001_KNOWLEDGE = FrameworkKnowledge(
         ),
     ),
     coverage_requirements=(
+        # ── Declared-configuration requirements (evaluated against the AI
+        # Registry, not against logs). AIMS is a management-system standard:
+        # an undocumented system is a conformity gap in itself, findable from
+        # the registration with no probing and no log evidence.
+        CoverageRequirement(
+            requirement_id="iso-context-profile",
+            category="context_profile",
+            dimension="Operations",
+            description=(
+                "The system must carry a documented application context profile "
+                "covering all five governance areas."
+            ),
+            recommendation=(
+                "Complete the ApplicationContextProfile for this system so its "
+                "purpose, controls, configuration, and integrations are on record."
+            ),
+            severity="medium",
+            control_refs=("AIMS-OPERATIONS",),
+        ),
+        CoverageRequirement(
+            requirement_id="iso-agentic-human-oversight",
+            category="human_oversight",
+            dimension="Operations",
+            description=(
+                "State-changing capabilities must have defined human oversight "
+                "(Annex A.9.2 responsible use)."
+            ),
+            recommendation=(
+                "Set requires_human_review on capabilities that write or destroy "
+                "data, or document the compensating control that replaces review."
+            ),
+            severity="high",
+            control_refs=("AIMS-OPERATIONS",),
+            recommended_probe_id="iso-probe-monitoring",
+        ),
         CoverageRequirement(
             requirement_id="iso-pii-handling",
             category="pii_handling",
