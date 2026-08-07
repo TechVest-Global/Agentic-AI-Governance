@@ -56,6 +56,16 @@ class GovernanceModelRequest:
     prompt: str
     context: dict[str, object] = field(default_factory=dict)
     metadata: dict[str, object] = field(default_factory=dict)
+    # When set, the caller needs a machine-readable answer and this is the JSON
+    # Schema it must satisfy. Clients whose provider supports a JSON/structured
+    # output mode should switch it on; clients that cannot are free to ignore
+    # this field, because the caller validates the response either way.
+    #
+    # Advisory rather than a hard contract on purpose: making it mandatory would
+    # mean every client (including the mock, which deliberately answers in prose
+    # to represent "no judge configured") had to grow structured-output support
+    # before any of them could benefit.
+    response_schema: dict[str, object] | None = None
 
 
 @dataclass(frozen=True)

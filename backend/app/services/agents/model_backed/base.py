@@ -3,7 +3,9 @@
 Provides the building blocks every model-backed agent uses:
 - _probe_target(): send a probe to the audited system, sanitize + fence output
 - _ask_governance(): send a reasoning request to the governance model
-- _ask_governance_with_json_retry(): one automatic retry when response is non-JSON
+- _ask_governance_with_json_retry(): ask for a machine-readable answer, validate
+  it, and retry once quoting the actual defect — recording the loss when even
+  that fails, so an unreadable answer never reads as a clean result
 - _call_evidence_tool(): invoke a real evidence tool (garak/presidio/ragas/deepeval)
   for one of this agent's owned metrics, so findings are informed by real tool
   output rather than LLM reasoning alone
@@ -32,6 +34,7 @@ from app.services.agents.probe_library import (
     endpoint_answers_freeform_questions,
     expand_counterfactual_probes,
     has_tailored_probes,
+    merge_curated_and_designed,
     payload_for_probe,
     probes_for,
     probes_for_endpoint,
@@ -50,6 +53,7 @@ from app.services.model_clients.base import (
     TargetModelRequest,
 )
 from app.services.model_clients.gateway import bind_log_capture, get_log_buffer
+from app.services.model_clients.mock import is_mock_governance_client
 from app.services.model_clients.sanitization import (
     SanitizedTargetOutput,
     fence_untrusted_target_output,
@@ -98,11 +102,173 @@ class ToolCallResult:
     passed: bool | None
     payload: dict[str, object]
 
-_JSON_RETRY_SUFFIX = (
-    "\n\nIMPORTANT: Your previous response was not valid JSON. "
-    "Return ONLY a valid JSON array with no markdown, no explanation, no code fences. "
-    "Start your response with [ and end with ]."
-)
+# Every specialist agent reads the same six keys off a governance finding
+# (title, summary, severity, recommended_action, metric_id, confidence), so one
+# schema serves all of them. Sent to the provider as a structured-output request
+# AND used to validate what comes back — a schema that only did the first would
+# still let a client without JSON-mode support return unusable prose unnoticed.
+_FINDINGS_ITEM_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "summary": {"type": "string"},
+        "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low", "info"],
+        },
+        "recommended_action": {"type": "string"},
+        "metric_id": {"type": ["string", "null"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    },
+    # Only these two are required. The rest have sensible defaults at the call
+    # site, and rejecting an otherwise-good finding for a missing confidence
+    # score would throw away real analysis over a formatting detail.
+    "required": ["title", "summary"],
+}
+
+_FINDINGS_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "findings": {"type": "array", "items": _FINDINGS_ITEM_SCHEMA},
+    },
+    "required": ["findings"],
+}
+
+
+# Dynamically-designed probes (see _design_probes_dynamically). Separate from
+# the findings schema because the two answers have nothing in common: a probe
+# carries a name plus either free text or a structured field set for a non-text
+# capability. Only probe_name is required here — probe_library's validators do
+# the real modality and schema checking against the capability's own contract.
+_PROBE_DESIGN_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "probes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "probe_name": {"type": "string"},
+                    "prompt": {"type": "string"},
+                    "fields": {"type": "object"},
+                },
+                "required": ["probe_name"],
+            },
+        }
+    },
+    "required": ["probes"],
+}
+
+
+def _json_retry_suffix(problems: list[str], *, required_keys: Sequence[str]) -> str:
+    """Tell the model what was actually wrong with its answer.
+
+    The previous retry said only "your previous response was not valid JSON",
+    which is useless when the response WAS valid JSON but every item was missing
+    a summary — the model had no way to know what to change and would
+    confidently return the same shape again.
+
+    ``required_keys`` is echoed rather than hardcoded because this helper serves
+    both callers. Telling a probe-design retry to return findings with a title
+    and a summary would guarantee the second attempt failed too.
+    """
+    detail = "\n".join(f"  - {problem}" for problem in problems[:5])
+    keys = ", ".join(f'"{key}"' for key in required_keys)
+    return (
+        "\n\nIMPORTANT: your previous response could not be used. "
+        "Specifically:\n"
+        f"{detail}\n"
+        "Return ONLY a JSON object whose single key holds an array of results, "
+        "with no markdown, no explanation and no code fences. Every item in that "
+        f"array must have {keys}."
+    )
+
+
+_ITEM_ARRAY_KEYS = ("findings", "probes", "results", "items")
+
+
+def parse_json_items(
+    content: str,
+    *,
+    required_keys: Sequence[str] = ("title", "summary"),
+) -> tuple[list[dict[str, object]] | None, list[str]]:
+    """Parse a model response into a list of objects, explaining any failure.
+
+    Returns ``(items, problems)``. ``items`` is None only when nothing usable
+    could be recovered; ``problems`` then describes why, in terms specific
+    enough to hand back to the model on a retry — "item 2 is missing 'summary'"
+    rather than "that wasn't JSON".
+
+    Accepts both shapes deliberately. A bare ``[...]`` array is what the prompts
+    have always asked for, while a provider in JSON-object mode can only return
+    ``{...}`` — so an agent's output must not depend on whether the configured
+    judge happens to support structured output.
+
+    Items failing validation are dropped individually rather than sinking the
+    batch: five good findings and one malformed one is five findings and a
+    recorded problem, not zero findings.
+
+    ``required_keys`` is per-caller because the two users want different things
+    — findings need title/summary, dynamically-designed probes need a
+    probe_name. Validating probe designs against the findings schema would
+    reject every one of them.
+    """
+    problems: list[str] = []
+    raw = _extract_json(content)
+    if raw is None:
+        return None, ["the response contained no JSON object or array"]
+
+    if isinstance(raw, dict):
+        for key in _ITEM_ARRAY_KEYS:
+            if isinstance(raw.get(key), list):
+                items = raw[key]
+                break
+        else:
+            return None, [
+                "the response was a JSON object with no "
+                f"{' / '.join(_ITEM_ARRAY_KEYS)} array in it"
+            ]
+    elif isinstance(raw, list):
+        items = raw
+    else:
+        return None, [f"expected a JSON array or object, got {type(raw).__name__}"]
+
+    valid: list[dict[str, object]] = []
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            problems.append(f"item {index} is a {type(item).__name__}, not an object")
+            continue
+        missing = [key for key in required_keys if not str(item.get(key, "")).strip()]
+        if missing:
+            problems.append(
+                f"item {index} is missing {' and '.join(repr(k) for k in missing)}"
+            )
+            continue
+        valid.append(item)
+
+    if not valid and problems:
+        # Nothing survived — the caller must treat this as unreadable.
+        return None, problems
+    # An empty array with no problems is a real answer: "I found nothing".
+    return valid, problems
+
+
+def _extract_json(content: str) -> object | None:
+    """Pull the first JSON value out of a model response.
+
+    Models wrap JSON in prose and code fences, so this locates the outermost
+    object or array rather than requiring the whole response to parse.
+    """
+    for opener, closer in (("[", "]"), ("{", "}")):
+        start = content.find(opener)
+        end = content.rfind(closer) + 1
+        if start == -1 or end == 0 or end <= start:
+            continue
+        try:
+            return json.loads(content[start:end])
+        except (json.JSONDecodeError, ValueError):
+            continue
+    return None
 
 
 @dataclass(frozen=True)
@@ -379,6 +545,16 @@ class ModelBackedAgent:
                     "dimension": dimension,
                     "endpoint_ref": endpoint_ref,
                 },
+                # Probe designs are not findings — they carry probe_name plus
+                # either a prompt or a structured field set, and the validators
+                # below do the modality/schema checking. Validating them against
+                # the findings schema would reject every one of them.
+                response_schema=_PROBE_DESIGN_SCHEMA,
+                required_keys=("probe_name",),
+                # Deliberately no agent_context: an unusable probe-design answer
+                # is not a lost audit conclusion. The agent falls back to the
+                # static probe catalog and still probes the target, so emitting
+                # a coverage-gap finding here would overstate the loss.
             )
         except Exception as exc:  # noqa: BLE001 - a probe-design failure must never crash the run
             logger.warning(
@@ -418,6 +594,50 @@ class ModelBackedAgent:
             )
         return validate_dynamic_text_probes(parsed, min_count=_MIN_DYNAMIC_PROBE_COUNT)
 
+    def _design_probes_once(
+        self,
+        *,
+        context: AgentContext,
+        capability: AISystemCapability | None,
+        endpoint_ref: str,
+        dimension: str | None,
+        profile: SystemProfile | None,
+    ) -> ProbeSet | list[tuple[str, dict]] | None:
+        """``_design_probes_dynamically`` memoized for the life of the run.
+
+        Design now runs for endpoints that also have curated probes, so the
+        same (agent, endpoint, dimension) can be asked for a design more than
+        once in a run. Each design is an LLM call against the audited system's
+        schema; caching keeps that cost at one per key and makes the run's
+        designed set inspectable via ``context.designed_probes``.
+
+        Returns ``None`` — without calling the model — when there is no signal
+        to design from: no dimension, no profile, or a blank/"unspecified"
+        system_type. Designing from nothing produces a generic prompt, which is
+        what the curated fallback already is.
+        """
+        if not dimension or profile is None:
+            return None
+        if not profile.label or profile.label == "unspecified":
+            return None
+
+        cache_key = f"{self.name}|{endpoint_ref}|{dimension}"
+        if cache_key in context.designed_probes:
+            cached = context.designed_probes[cache_key]
+            return cached or None  # type: ignore[return-value]
+
+        designed = self._design_probes_dynamically(
+            context=context,
+            capability=capability,
+            endpoint_ref=endpoint_ref,
+            dimension=dimension,
+            profile=profile,
+        )
+        # A failed design is cached as [] too, so a second pass over the same
+        # endpoint doesn't re-pay for a call already known to fail.
+        context.designed_probes[cache_key] = list(designed or [])
+        return designed
+
     def _run_probes(
         self,
         fallback: ProbeSet,
@@ -433,16 +653,26 @@ class ModelBackedAgent:
         is sent to EACH selected capability endpoint, so an auditor can target
         just parse-resume, rank-candidates, etc. Records the true probe count.
 
-        Per endpoint: a tailored static probe (endpoint- or category-level) is
-        used when one exists — free, deterministic, human-reviewed. Failing
-        that, and only when something is actually known about the system
-        (a non-blank/non-"unspecified" system_type — a genuinely blank type
-        has no signal to design from), dynamic probe design is attempted
-        instead of accepting the agent's generic fallback verbatim. Failing
-        that too, the agent's own hardcoded fallback is used for text-modality
-        capabilities; a non-text-modality capability with nothing tailored and
-        no successful dynamic design is left to the fail-closed gate in
-        ``_execute_probe_plan``.
+        Per endpoint: tailored static probes (endpoint- or category-level) are
+        kept when they exist — free, deterministic, human-reviewed, and the
+        only ones the structured-payload registry and counterfactual expander
+        are keyed on. Dynamic probe design then runs ALONGSIDE them whenever
+        something is actually known about the system (a non-blank/
+        non-"unspecified" system_type — a genuinely blank type has no signal to
+        design from), and the two sets are merged.
+
+        Design used to be gated behind ``not has_tailored_probes(...)``, which
+        made the catalog a ceiling rather than a floor. Because that check is
+        category-coarse, any system whose category has entries — a medical
+        triage assistant is ``DECISIONING``, so it matches the hiring/lending
+        entries — was answered "tailored probes exist" for every endpoint and
+        never received a single probe designed for what it actually does.
+        Merging keeps the human-reviewed probes AND gives the system its own.
+
+        Failing design, the agent's own hardcoded fallback is used for
+        text-modality capabilities; a non-text-modality capability with nothing
+        tailored and no successful dynamic design is left to the fail-closed
+        gate in ``_execute_probe_plan``.
         """
         endpoints = context.probe_endpoints()
         scoped = bool(context.selected_capabilities)
@@ -521,9 +751,7 @@ class ModelBackedAgent:
             """
             if _is_sendable(plan, endpoint_ref) or not dimension or profile is None:
                 return plan
-            if not profile.label or profile.label == "unspecified":
-                return plan
-            designed = self._design_probes_dynamically(
+            designed = self._design_probes_once(
                 context=context,
                 capability=capability_by_endpoint.get(endpoint_ref),
                 endpoint_ref=endpoint_ref,
@@ -563,21 +791,31 @@ class ModelBackedAgent:
             dimension = self.probe_dimension
             tag_names = len(endpoints) > 1
             for endpoint_ref in endpoints:
-                if dimension and profile is not None and not has_tailored_probes(
-                    dimension, endpoint_ref, profile
-                ):
-                    dynamic = None
-                    if profile.label and profile.label != "unspecified":
-                        dynamic = self._design_probes_dynamically(
-                            context=context,
-                            capability=capability_by_endpoint.get(endpoint_ref),
-                            endpoint_ref=endpoint_ref,
-                            dimension=dimension,
-                            profile=profile,
-                        )
-                    plan = self._scale_to_budget(dynamic, context=context) if dynamic else fallback
+                designed = self._design_probes_once(
+                    context=context,
+                    capability=capability_by_endpoint.get(endpoint_ref),
+                    endpoint_ref=endpoint_ref,
+                    dimension=dimension,
+                    profile=profile,
+                )
+                tailored = bool(
+                    dimension
+                    and profile is not None
+                    and has_tailored_probes(dimension, endpoint_ref, profile)
+                )
+                if tailored:
+                    # Curated probes are kept and the designed ones added to
+                    # them, so this system gets its own probes without losing
+                    # the payload-backed, counterfactual-expandable catalog set.
+                    plan = merge_curated_and_designed(
+                        self._select_probes(fallback, context=context),
+                        designed,
+                        budget=context.probe_budgets.get(self.name),
+                    )
+                elif designed:
+                    plan = self._scale_to_budget(designed, context=context)
                 else:
-                    plan = self._select_probes(fallback, context=context)
+                    plan = fallback
                 # A tailored/static plan is text; if this endpoint consumes
                 # domain content and no curated body backs these probes, they
                 # cannot be delivered — design structured ones instead.
@@ -589,27 +827,29 @@ class ModelBackedAgent:
             for endpoint_ref in endpoints:
                 dimension = self.probe_dimension
                 if dimension and profile is not None:
+                    designed = self._design_probes_once(
+                        context=context,
+                        capability=capability_by_endpoint.get(endpoint_ref),
+                        endpoint_ref=endpoint_ref,
+                        dimension=dimension,
+                        profile=profile,
+                    )
                     if has_tailored_probes(dimension, endpoint_ref, profile):
-                        plan = probes_for_endpoint(dimension, endpoint_ref, profile, fallback)
+                        # Scoped probes are deliberately not budget-scaled (see
+                        # the docstring), so the merge is uncapped here too —
+                        # the cap exists to stop budget-scaled repeats stacking
+                        # on top of designed probes, which cannot happen here.
+                        plan = merge_curated_and_designed(
+                            probes_for_endpoint(dimension, endpoint_ref, profile, fallback),
+                            designed,
+                        )
                         plan = _with_structured_fallback(plan, endpoint_ref, dimension)
                         _extend(endpoint_ref, plan, tag=True)
                         continue
-                    capability = capability_by_endpoint.get(endpoint_ref)
-                    dynamic = (
-                        self._design_probes_dynamically(
-                            context=context,
-                            capability=capability,
-                            endpoint_ref=endpoint_ref,
-                            dimension=dimension,
-                            profile=profile,
-                        )
-                        if profile.label and profile.label != "unspecified"
-                        else None
-                    )
                     _extend(
                         endpoint_ref,
-                        dynamic
-                        if dynamic
+                        designed
+                        if designed
                         else _with_structured_fallback(fallback, endpoint_ref, dimension),
                         tag=True,
                     )
@@ -1082,12 +1322,14 @@ class ModelBackedAgent:
         task: str,
         prompt: str,
         context: dict[str, object] | None = None,
+        response_schema: dict[str, object] | None = None,
     ) -> GovernanceModelResponse:
         return self._governance.complete(
             GovernanceModelRequest(
                 task=task,
                 prompt=prompt,
                 context=context or {},
+                response_schema=response_schema,
             )
         )
 
@@ -1097,37 +1339,107 @@ class ModelBackedAgent:
         task: str,
         prompt: str,
         context: dict[str, object] | None = None,
+        agent_context: AgentContext | None = None,
+        response_schema: dict[str, object] | None = None,
+        required_keys: Sequence[str] = ("title", "summary"),
     ) -> list[dict[str, object]] | None:
-        """Call governance model and parse JSON array; retry once if response is non-JSON."""
-        response = self._ask_governance(task=task, prompt=prompt, context=context)
-        parsed = self._parse_findings_json(response.content)
+        """Ask the governance model for findings and return them parsed.
+
+        Returns None when the model's answer could not be read, so callers keep
+        their deterministic fallback. But the *loss* is no longer silent: it is
+        recorded on ``agent_context.governance_parse_failures`` and surfaces as a
+        finding in the evidence package (see
+        ``helpers.governance_unreadable_finding``).
+
+        That distinction is the point. The model reasoning over the evidence and
+        the report saying nothing about it is not the same outcome as the model
+        finding nothing — but before this, the two were indistinguishable
+        downstream: the agent quietly fell back to deterministic metric checks,
+        the run completed, and the only trace was a WARNING in the process log.
+
+        Three changes make the failure rare as well as visible:
+
+        * the request now carries a ``response_schema``, so a provider that
+          supports a JSON mode is asked to guarantee well-formed output rather
+          than being asked nicely in the prompt;
+        * a retry quotes the ACTUAL defect ("item 2 is missing 'summary'")
+          instead of a generic "that wasn't JSON", which is the difference
+          between a model that can fix its answer and one that repeats it;
+        * against a mock client the retry is skipped entirely — a mock returns
+          the same canned prose every time, so re-asking only burns a call, and
+          its prose is expected rather than a failure worth recording.
+        """
+        schema = _FINDINGS_SCHEMA if response_schema is None else response_schema
+        response = self._ask_governance(
+            task=task, prompt=prompt, context=context, response_schema=schema
+        )
+        parsed, problems = parse_json_items(response.content, required_keys=required_keys)
         if parsed is not None:
             return parsed
 
+        # A mock judge answers in prose by design; that is "no judge configured",
+        # not an unreadable answer from a real one.
+        if is_mock_governance_client(self._governance):
+            logger.debug(
+                "%s: mock governance client returned prose for task=%s; "
+                "using deterministic findings",
+                self.__class__.__name__,
+                task,
+            )
+            return None
+
         logger.warning(
-            "%s: governance response was not JSON on first attempt (task=%s), retrying",
+            "%s: governance response was unusable on first attempt (task=%s): %s — retrying",
             self.__class__.__name__,
             task,
+            "; ".join(problems),
         )
         retry_response = self._ask_governance(
             task=task,
-            prompt=prompt + _JSON_RETRY_SUFFIX,
+            prompt=prompt + _json_retry_suffix(problems, required_keys=required_keys),
             context=context,
+            response_schema=schema,
         )
-        return self._parse_findings_json(retry_response.content)
+        retried, retry_problems = parse_json_items(
+            retry_response.content, required_keys=required_keys
+        )
+        if retried is not None:
+            return retried
 
-    @staticmethod
-    def _parse_findings_json(content: str) -> list[dict[str, object]] | None:
-        """Extract a JSON array of findings from governance model response.
+        logger.error(
+            "%s: governance response still unusable after retry (task=%s): %s",
+            self.__class__.__name__,
+            task,
+            "; ".join(retry_problems),
+        )
+        self._record_governance_parse_failure(
+            agent_context,
+            task=task,
+            problems=retry_problems,
+            trace_id=retry_response.trace_id,
+        )
+        return None
 
-        Returns None when the response is not valid JSON, so callers can
-        fall back to deterministic logic.
+    def _record_governance_parse_failure(
+        self,
+        agent_context: AgentContext | None,
+        *,
+        task: str,
+        problems: list[str],
+        trace_id: str,
+    ) -> None:
+        """Record that this agent's governance reasoning was lost.
+
+        Deliberately mirrors how ``probe_failures`` is recorded: keyed by agent
+        name on the context, so ``agent_execution`` can put it on the execution
+        row and in the evidence package rather than it living only in a log.
         """
-        try:
-            start = content.find("[")
-            end = content.rfind("]") + 1
-            if start == -1 or end == 0:
-                return None
-            return json.loads(content[start:end])
-        except (json.JSONDecodeError, ValueError):
-            return None
+        if agent_context is None:
+            return
+        agent_context.governance_parse_failures.setdefault(self.name, []).append(
+            {
+                "task": task,
+                "problems": problems,
+                "trace_id": trace_id,
+            }
+        )

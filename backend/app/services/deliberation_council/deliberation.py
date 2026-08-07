@@ -27,6 +27,7 @@ Key invariants preserved:
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from uuid import UUID
 
 from sqlmodel import Session, select
@@ -61,12 +62,16 @@ from app.services.deliberation_council.devils_advocate_agent import (
 )
 from app.services.deliberation_council.remediation_router import (
     MAX_ITERATIONS,
+    RouterDecision,
     RouterExit,
     build_exhaustion_memo,
     route,
 )
 from app.services.deliberation_council.synthesis_agent import SynthesisAgent, SynthesisMemo
 from app.services.deliberation_council.verdict_agent import VerdictAgent, VerdictOutput
+from app.services.graphs.council_graph import build_council_graph
+from app.services.graphs.runtime import RuntimeContext, build_checkpointer, invoke_config
+from app.services.graphs.streaming import run_graph
 from app.services.model_clients.gateway import (
     bind_log_capture,
     drain_log_capture,
@@ -87,6 +92,32 @@ logger = logging.getLogger(__name__)
 # probes/agent) — that would turn one remediation loop into another full
 # audit pass. This cap keeps mid-council remediation fast.
 RE_PROBE_BUDGET_CAP = 8
+
+
+@dataclass
+class _CouncilLoopState:
+    """What the remediation cycle carries between nodes but must NOT checkpoint.
+
+    ``Finding`` and ``MetricResult`` are SQLModel rows bound to the live
+    session, and ``SynthesisMemo`` / ``Objection`` / ``VerdictOutput`` are the
+    agents' rich outputs. Putting any of them in LangGraph state would hand them
+    to the checkpoint serializer — persisting, at best, objects that are
+    meaningless after the session closes. The graph state keeps serializable
+    summaries of these; this object keeps the real things, and reaches the nodes
+    through the RuntimeContext closures instead.
+
+    Mutable by design: these are precisely the variables the previous
+    ``while True`` reassigned each pass.
+    """
+
+    findings: list[Finding]
+    metric_results: list[MetricResult]
+    current_findings: list[Finding] = field(default_factory=list)
+    all_objections: list[Objection] = field(default_factory=list)
+    objections: list[Objection] = field(default_factory=list)
+    memo: SynthesisMemo | None = None
+    verdict: VerdictOutput | None = None
+    decision: RouterDecision | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -135,108 +166,178 @@ def deliberate(
     metric_results = _list_metric_results(session, run_id)
 
     # -----------------------------------------------------------------------
-    # Remediation loop
+    # Remediation loop — a LangGraph cycle. See graphs/council_graph.py for the
+    # topology; the node bodies are the closures below, which are the same three
+    # agent passes and the same deterministic router the `while True` ran.
     # -----------------------------------------------------------------------
-    iteration = starting_iteration
-    last_verdict: VerdictOutput | None = None
-    last_memo: SynthesisMemo | None = None
-    all_objections: list[Objection] = []
+    # Mutable across the cycle, exactly as the loop's locals were. These live
+    # here rather than in graph state because Finding/MetricResult are
+    # session-bound ORM rows — checkpointing one would persist a dead
+    # connection. Graph state carries the serializable summaries instead.
+    loop = _CouncilLoopState(
+        findings=findings,
+        metric_results=metric_results,
+    )
 
-    while True:
-        iteration += 1
+    def _synthesize(iteration: int) -> dict:
         logger.info("Council iteration %d/%d for run %s", iteration, MAX_ITERATIONS, run_id)
-
         # Apply "latest iteration per agent" read rule: use all findings but
         # pass them sorted so the synthesis sees the most recent data first.
-        current_findings = _latest_findings_per_agent(findings)
+        loop.current_findings = _latest_findings_per_agent(loop.findings)
         # Re-read every iteration: a re_probe remediation between iterations
         # adds more AgentExecution rows, so the real count can grow mid-loop.
         real_probe_counts = _get_real_probe_counts(session, run_id)
-
-        # Pass 1: Synthesis
-        memo = synthesis_agent.synthesize(
-            findings=current_findings,
-            metric_results=metric_results,
+        loop.memo = synthesis_agent.synthesize(
+            findings=loop.current_findings,
+            metric_results=loop.metric_results,
             iteration=iteration,
             real_probe_counts=real_probe_counts,
         )
+        return {
+            "risk_summary": loop.memo.risk_summary,
+            "dimensions": loop.memo.dimensions,
+            "claim_count": len(loop.memo.claims),
+            "conflict_count": len(loop.memo.conflicts),
+        }
 
-        # Pass 2: Devil's Advocate (forced dissent on every iteration) — sees
-        # the same raw findings Synthesis was built from, not just the memo,
-        # so it can catch an omission rather than only critiquing prose.
-        objections = da_agent.object_to(memo, current_findings)
-        all_objections.extend(objections)
+    def _critique(iteration: int) -> list[dict]:
+        loop.objections = da_agent.object_to(loop.memo, loop.current_findings)
+        loop.all_objections.extend(loop.objections)
+        return [
+            {"objection_id": o.objection_id, "argument": o.argument}
+            for o in loop.objections
+        ]
 
-        # Pass 3: Verdict
-        verdict_out = verdict_agent.adjudicate(
-            memo=memo,
-            objections=objections,
-            findings=current_findings,
-            metric_results=metric_results,
+    def _judge(iteration: int) -> dict:
+        loop.verdict = verdict_agent.adjudicate(
+            memo=loop.memo,
+            objections=loop.objections,
+            findings=loop.current_findings,
+            metric_results=loop.metric_results,
             iteration=iteration,
         )
+        return {
+            "label": loop.verdict.label,
+            "confidence_score": loop.verdict.confidence_score,
+            "sufficient": loop.verdict.sufficient,
+            "remediable": loop.verdict.remediable,
+            "objections_upheld": list(loop.verdict.objections_upheld),
+        }
 
-        last_verdict = verdict_out
-        last_memo = memo
-
+    def _persist_iteration(iteration: int) -> None:
         # Persist iteration counter before routing so a crash here does not
-        # reset the count on resume
+        # reset the count on resume.
         _persist_iteration_counter(session, run, iteration)
-
-        # Write append-only state entry for this iteration's artifacts
+        # Write append-only state entry for this iteration's artifacts.
         _append_council_iteration_state(
             session,
             run_id=run_id,
             iteration=iteration,
-            memo=memo,
-            objections=objections,
-            verdict=verdict_out,
+            memo=loop.memo,
+            objections=loop.objections,
+            verdict=loop.verdict,
         )
-
         # Commit now (not just flush) so a concurrent request polling this run
         # can observe real per-iteration progress instead of the whole 1-3
         # iteration loop being invisible until it fully completes.
         session.commit()
         session.refresh(run)
 
-        # Deterministic routing — three exits, checked in priority order
-        decision = route(verdict_out, iteration)
+    def _route(iteration: int) -> dict:
+        # Deterministic routing — three exits, checked in priority order.
+        decision = route(loop.verdict, iteration)
+        loop.decision = decision
         logger.info(
             "Router exit=%s reason=%s (iteration %d)",
             decision.exit,
             decision.reason,
             iteration,
         )
-
-        if decision.exit == RouterExit.action:
-            # Exit 1: sufficient — proceed to Layer 5
-            break
-
         if decision.exit == RouterExit.exhausted:
-            # Exit 2: cap reached — force verdict at current confidence
             logger.warning(
                 "Council exhausted after %d iterations for run %s", iteration, run_id
             )
-            break
+        return {
+            "iteration": iteration,
+            "exit": str(decision.exit),
+            "remediation_type": (
+                str(decision.remediation_type) if decision.remediation_type else None
+            ),
+            "target_agent": decision.target_agent,
+            "reason": decision.reason,
+        }
 
-        # Exit 3: remediate — re-enter at the right upstream point
-        # For re_probe: in the MVP the specialist re-runs within this process;
-        # findings list is refreshed from the DB after the re-probe.
-        if decision.remediation_type is not None:
-            findings, metric_results = _apply_remediation(
-                session,
-                run_id=run_id,
-                remediation_type=str(decision.remediation_type),
-                target_agent=decision.target_agent,
-                objections=objections,
-                objections_upheld=verdict_out.objections_upheld,
-            )
+    def _remediate(decision_summary: dict) -> dict | None:
+        # Exit 3: remediate — re-enter at the right upstream point. For
+        # re_probe the specialist re-runs within this process; the findings
+        # list is refreshed from the DB afterwards.
+        remediation_type = decision_summary.get("remediation_type")
+        if remediation_type is None:
+            return None
+        loop.findings, loop.metric_results = _apply_remediation(
+            session,
+            run_id=run_id,
+            remediation_type=str(remediation_type),
+            target_agent=decision_summary.get("target_agent"),
+            objections=loop.objections,
+            objections_upheld=loop.verdict.objections_upheld,
+        )
+        return {
+            "iteration": decision_summary.get("iteration"),
+            "remediation_type": str(remediation_type),
+            "target_agent": decision_summary.get("target_agent"),
+        }
+
+    graph = build_council_graph(checkpointer=build_checkpointer())
+    runtime = RuntimeContext(
+        synthesize=_synthesize,
+        critique=_critique,
+        judge=_judge,
+        persist_iteration=_persist_iteration,
+        route=_route,
+        remediate=_remediate,
+    )
+    final_state = run_graph(
+        graph,
+        {
+            "run_id": str(run_id),
+            # Seeded from the DB-persisted counter, never from zero — this is
+            # what stops a crash-resume getting a fresh set of iterations.
+            "iteration": starting_iteration,
+            "max_iterations": MAX_ITERATIONS,
+            "memo_summary": None,
+            "objections": [],
+            "verdict_summary": None,
+            "decision": None,
+            "exit": None,
+            "remediations": [],
+            "governance_is_mock": governance_is_mock,
+        },
+        invoke_config(
+            run_id=run_id,
+            context=runtime,
+            thread_suffix="council",
+            # Five nodes per pass, capped iterations, plus headroom. Bounded so
+            # a routing bug surfaces as a GraphRecursionError rather than an
+            # unbounded loop against a live target.
+            recursion_limit=MAX_ITERATIONS * 6 + 10,
+        ),
+        label="deliberation_council",
+    )
 
     # -----------------------------------------------------------------------
     # Persist verdict
     # -----------------------------------------------------------------------
+    iteration = int(final_state["iteration"])
+    last_verdict: VerdictOutput | None = loop.verdict
+    last_memo: SynthesisMemo | None = loop.memo
+    all_objections: list[Objection] = loop.all_objections
+    decision = loop.decision
+    findings = loop.findings
+    metric_results = loop.metric_results
     assert last_verdict is not None
     assert last_memo is not None
+    assert decision is not None
 
     exhaustion_memo: dict | None = None
     if decision.exit == RouterExit.exhausted:

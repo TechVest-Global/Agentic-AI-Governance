@@ -150,7 +150,7 @@ def test_full_pipeline_stays_degraded_when_an_agent_fails(
     the standalone /agents/run endpoint already does (see
     test_agent_routes.py::test_agent_failure_is_stored_as_degraded_execution).
 
-    Previously, _execute_and_report's final step unconditionally overwrote
+    Previously, the pipeline's final step unconditionally overwrote
     run.status to 'completed' after the council/report steps ran, silently
     discarding the degraded signal that agent_execution.run_agents() had set.
     """

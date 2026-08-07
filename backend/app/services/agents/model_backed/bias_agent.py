@@ -121,6 +121,11 @@ class BiasAuditorAgent(ModelBackedAgent):
             else []
         )
 
+        # Sequential, and deliberately so: _call_evidence_tool derives its probe
+        # count from a before/after delta over the shared capture buffer
+        # (_count_target_calls), which assumes this agent has only one thing in
+        # flight. Overlapping it with _run_probes makes that delta absorb the
+        # agent's own probe-plan calls and report them as tool probes.
         tool_calls = self._call_evidence_tool(
             tool_name="deepeval",
             metric_ids={m.metric_id for m in bias_metrics},
@@ -153,6 +158,7 @@ class BiasAuditorAgent(ModelBackedAgent):
                     w for p in probes for w in p.sanitized.warnings
                 ],
             },
+            agent_context=context,
         )
 
         tool_calls_payload = [

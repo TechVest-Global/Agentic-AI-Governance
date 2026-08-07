@@ -166,6 +166,7 @@ class ComplianceMapperAgent(ModelBackedAgent):
                 "probe_count": len(probes),
                 "redaction_warnings": [w for p in probes for w in p.sanitized.warnings],
             },
+            agent_context=context,
         )
 
         if parsed is not None:

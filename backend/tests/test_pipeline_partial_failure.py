@@ -2,7 +2,7 @@
 
 The pipeline tolerates partial failure everywhere except at the end: a failed
 metric degrades the run, a failed specialist agent degrades the run and says so
-explicitly — but a council exception propagated out of _execute_and_report, the
+explicitly — but a council exception propagated out of the pipeline, the
 background job marked the run `failed`, and NO report was produced, even though
 every metric result and agent finding had already been committed.
 

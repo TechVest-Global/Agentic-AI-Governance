@@ -54,11 +54,23 @@ class AzureOpenAIGovernanceModelClient:
         trace_id = f"judge-{uuid4()}"
         start = time.monotonic()
 
+        # A caller that supplied a response_schema needs machine-readable output,
+        # so ask the provider to guarantee well-formed JSON rather than hoping
+        # the prompt is persuasive. This is what turns "the model answered in
+        # prose and we lost its findings" from a recurring outcome into an edge
+        # case. json_object mode requires the word "json" to appear in the
+        # prompt; every caller's template already instructs a JSON response, and
+        # the guard below keeps a future one from silently failing the API call.
+        extra: dict = {}
+        if request.response_schema and "json" in request.prompt.lower():
+            extra["response_format"] = {"type": "json_object"}
+
         try:
             response = self._client.chat.completions.create(
                 model=self.deployment_name,
                 messages=[{"role": "user", "content": request.prompt}],
                 temperature=0.2,
+                **extra,
             )
             content = response.choices[0].message.content or ""
         except Exception as exc:

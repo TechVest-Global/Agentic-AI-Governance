@@ -4,7 +4,15 @@ Cross-references the deterministic log analysis against each resolved framework'
 coverage requirements (from ``app.configs.frameworks``) and emits prioritized,
 deterministic gap records that the orchestrator and specialist agents consume for
 probe planning.
+
+Set-membership checks compare *canonical* values: observed log values are folded
+for case and whitespace and mapped through the requirement's configured aliases
+before matching, so a client whose vocabulary differs from ours is not reported
+as a false gap. The folding is config-driven and value-stable, which keeps the
+assembled context reproducible for the hash-chained state entry.
 """
+
+from collections.abc import Mapping
 
 from app.configs.frameworks.base import CoverageRequirement
 from app.configs.frameworks.registry import get_framework_knowledge
@@ -25,6 +33,32 @@ _SET_OBSERVATIONS = {
 }
 
 
+def _fold(value: str) -> str:
+    """Case- and whitespace-insensitive key for comparing vocabulary values.
+
+    ``" European  Union "`` and ``"european union"`` fold to the same key, so a
+    client is not reported as missing coverage over pure formatting.
+    """
+
+    return " ".join(value.casefold().split())
+
+
+def _canonical_keys(observed: list[str], aliases: Mapping[str, str]) -> set[str]:
+    """Fold observed values onto the canonical vocabulary a requirement expects.
+
+    An observed value with no alias keeps its own folded key, so unrecognized
+    values still count toward ``minimum_distinct`` rather than disappearing.
+    """
+
+    alias_lookup = {_fold(synonym): canonical for synonym, canonical in aliases.items()}
+    keys: set[str] = set()
+    for value in observed:
+        key = _fold(value)
+        canonical = alias_lookup.get(key)
+        keys.add(_fold(canonical) if canonical is not None else key)
+    return keys
+
+
 def _evaluate_requirement(
     requirement: CoverageRequirement,
     log_analysis: LogAnalysisSummary,
@@ -38,17 +72,20 @@ def _evaluate_requirement(
         expected = list(requirement.expected_values)
         if log_analysis.empty:
             return True, "No log evidence available to assess coverage.", expected, observed
-        missing = [value for value in expected if value not in observed]
+        # Compare on canonical keys so a client's own wording ("European Union"
+        # for "EU") satisfies the requirement instead of reading as a gap.
+        observed_keys = _canonical_keys(observed, requirement.aliases)
+        missing = [value for value in expected if _fold(value) not in observed_keys]
         below_minimum = (
             requirement.minimum_distinct > 0
-            and len(observed) < requirement.minimum_distinct
+            and len(observed_keys) < requirement.minimum_distinct
         )
         if missing:
             return True, f"Missing coverage for: {', '.join(missing)}.", expected, observed
         if below_minimum:
             return (
                 True,
-                f"Only {len(observed)} distinct value(s) observed; "
+                f"Only {len(observed_keys)} distinct value(s) observed; "
                 f"at least {requirement.minimum_distinct} required.",
                 expected,
                 observed,

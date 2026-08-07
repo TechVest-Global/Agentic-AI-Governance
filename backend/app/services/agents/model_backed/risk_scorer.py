@@ -212,6 +212,7 @@ class RiskScorerAgent(ModelBackedAgent):
                 "human_review_capability_count": len(human_review_caps),
                 "redaction_warnings": [w for p in probes for w in p.sanitized.warnings],
             },
+            agent_context=context,
         )
         if parsed is not None:
             return findings + _findings_from_governance(

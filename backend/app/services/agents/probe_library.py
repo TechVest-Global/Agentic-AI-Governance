@@ -1456,14 +1456,69 @@ def has_tailored_probes(dimension: str, endpoint_ref: str, profile: SystemProfil
 
     Mirrors ``probes_for_endpoint``'s own resolution order exactly (endpoint
     key first, then category), without changing that function's behavior or
-    signature. Lets a caller decide whether to attempt dynamic probe design
-    instead of accepting a possibly domain-mismatched generic fallback.
+    signature.
+
+    Note what this can and cannot tell a caller. It answers "does the catalog
+    hold something for this category+dimension", NOT "is that something
+    applicable to THIS system". Category granularity is coarse: a medical
+    triage assistant classifies as ``DECISIONING`` (``"triage"`` is a
+    DECISIONING keyword) and so reports tailored probes — the hiring/lending
+    ones. Treating this as a veto on dynamic design is therefore wrong, and was
+    the reason a system could have curated-looking probes for all of its
+    endpoints and never once receive a probe designed for what it actually
+    does. Callers should use it to decide whether curated probes are worth
+    KEEPING, and design system-specific probes alongside them regardless.
     """
     key = _endpoint_key(endpoint_ref)
     if key is not None and dimension in _ENDPOINT_PROBES[key]:
         return True
     by_category = _PROBE_CATALOG.get(dimension)
     return bool(by_category and profile.category in by_category)
+
+
+# The catalog is a floor, not a ceiling: a system whose category has curated
+# probes still gets at least this many probes designed for it specifically.
+_MIN_DESIGNED_KEPT = 1
+
+
+def merge_curated_and_designed(
+    curated: ProbeSet | list[tuple[str, dict[str, Any]]],
+    designed: ProbeSet | list[tuple[str, dict[str, Any]]] | None,
+    *,
+    budget: int | None = None,
+) -> list[tuple[str, Any]]:
+    """Combine human-reviewed catalog probes with system-specific designed ones.
+
+    Curated probes are kept whole. They are human-reviewed, and — crucially —
+    they are what the structured-payload registry (``_PROBE_PAYLOADS``) and the
+    counterfactual expander (``_COUNTERFACTUAL_PROBES``) are keyed on. A
+    designed probe carries neither, so *replacing* curated probes with designed
+    ones would trade a matched-pair experiment against the real ranking
+    endpoint for a single unpaired prompt. Designed probes are additive.
+
+    ``budget`` caps the combined set. Curated probes are never dropped to make
+    room — the same invariant ``_scale_to_budget`` holds ("never sends fewer
+    than the curated set") — so a budget smaller than the curated set is
+    honored as ``len(curated) + _MIN_DESIGNED_KEPT``. Whatever the budget, at
+    least one designed probe survives; otherwise a tight budget would silently
+    restore exactly the catalog-only behavior this exists to end.
+
+    Designed probes whose name collides with a curated one are dropped: the
+    curated probe owns that name in the payload registry, and a duplicate would
+    resolve to the curated body and read as a second copy of the same probe.
+    """
+    merged: list[tuple[str, Any]] = list(curated)
+    if not designed:
+        return merged
+
+    taken = {name for name, _ in merged}
+    fresh = [(name, value) for name, value in designed if name not in taken]
+    if not fresh:
+        return merged
+
+    room = len(fresh) if budget is None else max(budget - len(merged), _MIN_DESIGNED_KEPT)
+    merged.extend(fresh[:room])
+    return merged
 
 
 # ---------------------------------------------------------------------------

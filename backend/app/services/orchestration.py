@@ -14,10 +14,8 @@ from app.schemas.governance import (
     AgentRunCreate,
     AuditLedgerEntryCreate,
     ContextAssemblyCreate,
-    ContextAssemblyRead,
     CouncilDeliberationCreate,
     EvaluationPlanCreate,
-    EvaluationPlanRead,
     GovernancePipelineRunCreate,
     GovernancePipelineRunRead,
     GovernanceStateEntryCreate,
@@ -35,6 +33,9 @@ from app.services import verdicts as verdict_service
 from app.services.action_reporting import reports
 from app.services.context_assembly.log_synthesizer import synthesize_logs_for_system
 from app.services.deliberation_council import deliberation as council
+from app.services.graphs.pipeline_graph import build_pipeline_graph
+from app.services.graphs.runtime import RuntimeContext, build_checkpointer, invoke_config
+from app.services.graphs.streaming import run_graph
 from app.services.run_validation import get_run_or_raise
 from app.services.specialist_agents import agent_execution, metric_execution
 
@@ -209,57 +210,7 @@ def run_governance_pipeline(
     session.add(run)
     session.commit()
 
-    # Layer 1 always runs so the state chain captures context assembly and the run
-    # progresses through phases in the spec-mandated order. Prefer explicit logs
-    # (real logs or a user upload); when none are supplied, synthesize a
-    # deterministic, system-specific sample so the analyzer and the downstream
-    # orchestrator have real, per-system evidence to work with instead of an empty
-    # "everything missing" result. The assembler records its own GovernanceState
-    # and audit-ledger entries.
-    logs = payload.logs
-    logs_source = "payload"
-    if not logs:
-        ai_system = session.get(AISystem, run.ai_system_id)
-        if ai_system is not None:
-            logs = synthesize_logs_for_system(ai_system)
-            logs_source = "synthesized"
-    context_result: ContextAssemblyRead | None = context_assembly.assemble_context(
-        session,
-        run_id=run_id,
-        payload=ContextAssemblyCreate(
-            logs=logs,
-            requested_by=payload.requested_by,
-            notes=_context_notes(payload.notes, logs_source, len(logs)),
-        ),
-    )
-
-    # Layer 2: build and persist the evaluation plan before any execution so the
-    # state chain records the plan and the run passes through the 'planned' phase.
-    evaluation_plan = adaptive_orchestrator.prepare_evaluation_plan(
-        session,
-        run_id=run_id,
-        payload=EvaluationPlanCreate(
-            requested_by=payload.requested_by,
-            notes=payload.notes,
-        ),
-    )
-
-    # Human-in-the-loop gate: when approval is required and not yet granted, pause
-    # here. prepare_evaluation_plan already parked the run at RunStatus.planned;
-    # we capture the pipeline options and log an awaiting-approval ledger event,
-    # then return None so the caller leaves the run parked for the reviewer.
-    run = get_run_or_raise(session, run_id)
-    if payload.require_plan_approval and run.plan_approved_at is None:
-        _pause_for_approval(session, run_id=run_id, payload=payload)
-        return None
-
-    return _execute_and_report(
-        session,
-        run_id=run_id,
-        payload=payload,
-        context_result=context_result,
-        evaluation_plan=evaluation_plan,
-    )
+    return _drive_pipeline(session, run_id=run_id, payload=payload, resume=False)
 
 
 def _pause_for_approval(
@@ -306,94 +257,270 @@ def resume_governance_pipeline(
         if run.pipeline_payload
         else GovernancePipelineRunCreate()
     )
-    evaluation_plan = adaptive_orchestrator.get_latest_plan(session, run_id=run_id)
-    return _execute_and_report(
-        session,
-        run_id=run_id,
-        payload=payload,
-        context_result=None,
-        evaluation_plan=evaluation_plan,
-    )
+    return _drive_pipeline(session, run_id=run_id, payload=payload, resume=True)
 
 
-def _execute_and_report(
+def _drive_pipeline(
     session: Session,
     *,
     run_id: UUID,
     payload: GovernancePipelineRunCreate,
-    context_result: ContextAssemblyRead | None,
-    evaluation_plan: EvaluationPlanRead,
-) -> GovernancePipelineRunRead:
-    """Pipeline tail: metric execution -> agents -> council -> report -> finalize."""
-    metric_result = metric_execution.run_metrics(
-        session,
-        run_id=run_id,
-        payload=MetricExecutionCreate(
-            mock_score=payload.mock_score,
-            force_status=payload.force_metric_status,
-            source_name=payload.source_name,
-            evaluator_name=payload.evaluator_name,
-        ),
+    resume: bool,
+) -> GovernancePipelineRunRead | None:
+    """Run the pipeline as a LangGraph StateGraph.
+
+    See graphs/pipeline_graph.py for the topology. The closures below are the
+    node bodies and are the same code the straight-line version ran; what moved
+    is which construct decides the order, the resume entry point, and the
+    approval gate.
+
+    Returns None when the run pauses for plan approval — the graph ends after
+    planning with the run parked at RunStatus.planned for a reviewer.
+    """
+    # Phase results, accumulated across nodes. Off the graph state deliberately:
+    # AgentRunRead.executions and MetricExecutionRead.metric_results are
+    # session-bound SQLModel rows, so checkpointing them would persist objects
+    # that mean nothing once the session closes.
+    results = RuntimeContext(
+        context_result=None,
+        evaluation_plan=None,
+        metric_result=None,
+        agent_result=None,
+        council_result=None,
+        report=None,
     )
-    _record_pipeline_step(
-        session,
-        run_id=run_id,
-        phase=RunPhase.metric_execution,
-        entry_type="metric_execution_completed",
-        event_type="metric_execution.completed",
-        actor_type=LedgerActorType.tool,
-        actor_id=payload.evaluator_name,
-        payload={
-            "evaluator_name": payload.evaluator_name,
-            "evidence_created": metric_result.evidence_created,
-            "metric_results_created": metric_result.metric_results_created,
-            # Content-integrity checkpoint: lets a later verify pass detect if
-            # these specific MetricResult rows were altered/deleted after the
-            # fact, which the ledger's own hash chain alone cannot catch.
-            "metric_result_ids": sorted(str(m.id) for m in metric_result.metric_results),
-            "content_digest": content_integrity.metric_result_content_digest(
-                metric_result.metric_results
+    if resume:
+        # Layers 1-2 already ran and committed on the original attempt; re-load
+        # the persisted plan rather than building a second one for a run that
+        # only ever had one.
+        results.evaluation_plan = adaptive_orchestrator.get_latest_plan(
+            session, run_id=run_id
+        )
+
+    def _assemble_context() -> None:
+        """Layer 1 always runs so the state chain captures context assembly and
+        the run progresses through phases in the spec-mandated order.
+
+        Prefer explicit logs (real logs or a user upload); when none are
+        supplied, synthesize a deterministic, system-specific sample so the
+        analyzer and the downstream orchestrator have real, per-system evidence
+        to work with instead of an empty "everything missing" result. The
+        assembler records its own GovernanceState and audit-ledger entries.
+        """
+        run = get_run_or_raise(session, run_id)
+        logs = payload.logs
+        logs_source = "payload"
+        if not logs:
+            ai_system = session.get(AISystem, run.ai_system_id)
+            if ai_system is not None:
+                logs = synthesize_logs_for_system(ai_system)
+                logs_source = "synthesized"
+        results.context_result = context_assembly.assemble_context(
+            session,
+            run_id=run_id,
+            payload=ContextAssemblyCreate(
+                logs=logs,
+                requested_by=payload.requested_by,
+                notes=_context_notes(payload.notes, logs_source, len(logs)),
             ),
+        )
+
+    def _prepare_plan() -> bool:
+        """Layer 2: build and persist the plan before any execution, so the
+        state chain records it and the run passes through the 'planned' phase.
+
+        Returns whether the run must pause for approval.
+        """
+        results.evaluation_plan = adaptive_orchestrator.prepare_evaluation_plan(
+            session,
+            run_id=run_id,
+            payload=EvaluationPlanCreate(
+                requested_by=payload.requested_by,
+                notes=payload.notes,
+            ),
+        )
+        # Human-in-the-loop gate. prepare_evaluation_plan already parked the run
+        # at RunStatus.planned; log an awaiting-approval ledger event and let the
+        # graph end, leaving the run parked for the reviewer.
+        run = get_run_or_raise(session, run_id)
+        if payload.require_plan_approval and run.plan_approved_at is None:
+            _pause_for_approval(session, run_id=run_id, payload=payload)
+            return True
+        return False
+
+    def _run_metrics() -> None:
+        results.metric_result = metric_execution.run_metrics(
+            session,
+            run_id=run_id,
+            payload=MetricExecutionCreate(
+                mock_score=payload.mock_score,
+                force_status=payload.force_metric_status,
+                source_name=payload.source_name,
+                evaluator_name=payload.evaluator_name,
+            ),
+        )
+        _record_pipeline_step(
+            session,
+            run_id=run_id,
+            phase=RunPhase.metric_execution,
+            entry_type="metric_execution_completed",
+            event_type="metric_execution.completed",
+            actor_type=LedgerActorType.tool,
+            actor_id=payload.evaluator_name,
+            payload={
+                "evaluator_name": payload.evaluator_name,
+                "evidence_created": results.metric_result.evidence_created,
+                "metric_results_created": results.metric_result.metric_results_created,
+                # Content-integrity checkpoint: lets a later verify pass detect if
+                # these specific MetricResult rows were altered/deleted after the
+                # fact, which the ledger's own hash chain alone cannot catch.
+                "metric_result_ids": sorted(
+                    str(m.id) for m in results.metric_result.metric_results
+                ),
+                "content_digest": content_integrity.metric_result_content_digest(
+                    results.metric_result.metric_results
+                ),
+            },
+        )
+
+    def _run_agents() -> None:
+        evaluation_plan = results.evaluation_plan
+        # Honor an explicit agent selection; otherwise run exactly the agents the
+        # plan activated (falling back to all agents if the plan is empty).
+        if payload.agent_names is not None:
+            agent_names = payload.agent_names
+        else:
+            agent_names = [
+                agent.agent_name for agent in evaluation_plan.activated_agents
+            ] or None
+
+        results.agent_result = agent_execution.run_agents(
+            session,
+            run_id=run_id,
+            payload=AgentRunCreate(agent_names=agent_names),
+            evaluation_plan=evaluation_plan,
+        )
+        _record_pipeline_step(
+            session,
+            run_id=run_id,
+            phase=RunPhase.specialist_agents,
+            entry_type="agent_execution_completed",
+            event_type="agent_execution.completed",
+            actor_type=LedgerActorType.agent,
+            actor_id="agent_orchestrator",
+            payload={
+                "agents_requested": agent_names,
+                "agents_run": [
+                    agent.agent_name for agent in results.agent_result.agents_run
+                ],
+                "findings_created": results.agent_result.findings_created,
+                # Content-integrity checkpoint (see metric_execution.completed).
+                "finding_ids": sorted(str(f.id) for f in results.agent_result.findings),
+                "content_digest": content_integrity.finding_content_digest(
+                    results.agent_result.findings
+                ),
+            },
+        )
+
+    def _deliberate() -> dict:
+        council_result, council_error = _run_council(
+            session, run_id=run_id, payload=payload
+        )
+        results.council_result = council_result
+        if council_error is None:
+            return {}
+        return {
+            "council_failure": {
+                "message": (
+                    "The Deliberation Council could not produce a verdict, so this run "
+                    "carries NO governance decision. The metric results and specialist "
+                    "findings it did collect are preserved and reported; re-run the "
+                    "council on this run to obtain a verdict."
+                ),
+                "error": council_error,
+            }
+        }
+
+    def _build_report() -> dict:
+        report, report_error = _generate_report(session, run_id=run_id)
+        results.report = report
+        if report_error is None:
+            return {}
+        return {
+            "report_failure": {
+                "message": (
+                    "Report generation failed; the underlying evidence is still stored "
+                    "and the report can be regenerated from it."
+                ),
+                "error": report_error,
+            }
+        }
+
+    def _finalize(degraded: dict) -> str:
+        return _finalize_run_status(
+            session,
+            run_id=run_id,
+            agent_result=results.agent_result,
+            degraded=degraded,
+        )
+
+    runtime = RuntimeContext(
+        assemble_context=_assemble_context,
+        prepare_plan=_prepare_plan,
+        run_metrics=_run_metrics,
+        run_agents=_run_agents,
+        deliberate=_deliberate,
+        build_report=_build_report,
+        finalize=_finalize,
+    )
+    final_state = run_graph(
+        build_pipeline_graph(checkpointer=build_checkpointer()),
+        {
+            "run_id": str(run_id),
+            "resume": resume,
+            "awaiting_approval": False,
+            "phases_completed": [],
+            "degraded": {},
+            "status": None,
         },
+        invoke_config(
+            run_id=run_id,
+            context=runtime,
+            thread_suffix="pipeline",
+            recursion_limit=20,
+        ),
+        label="pipeline",
     )
 
-    # Honor an explicit agent selection; otherwise run exactly the agents the
-    # evaluation plan activated (falling back to all agents if the plan is empty).
-    if payload.agent_names is not None:
-        agent_names = payload.agent_names
-    else:
-        agent_names = [agent.agent_name for agent in evaluation_plan.activated_agents] or None
+    if final_state.get("awaiting_approval"):
+        return None
 
-    agent_result = agent_execution.run_agents(
-        session,
+    return GovernancePipelineRunRead(
         run_id=run_id,
-        payload=AgentRunCreate(agent_names=agent_names),
-        evaluation_plan=evaluation_plan,
-    )
-    _record_pipeline_step(
-        session,
-        run_id=run_id,
-        phase=RunPhase.specialist_agents,
-        entry_type="agent_execution_completed",
-        event_type="agent_execution.completed",
-        actor_type=LedgerActorType.agent,
-        actor_id="agent_orchestrator",
-        payload={
-            "agents_requested": agent_names,
-            "agents_run": [agent.agent_name for agent in agent_result.agents_run],
-            "findings_created": agent_result.findings_created,
-            # Content-integrity checkpoint (see metric_execution.completed above).
-            "finding_ids": sorted(str(f.id) for f in agent_result.findings),
-            "content_digest": content_integrity.finding_content_digest(agent_result.findings),
-        },
+        context_assembly=results.context_result,
+        evaluation_plan=results.evaluation_plan,
+        metric_execution=results.metric_result,
+        agent_run=results.agent_result,
+        council=results.council_result,
+        report=results.report,
     )
 
-    # The council is the pipeline's most failure-prone step: it is the only phase
-    # that depends on a live judge model for every pass, and a judge outage, rate
-    # limit, or cold start therefore used to fail the WHOLE run — discarding the
-    # report even though every metric result and agent finding was already
-    # committed. Metric and agent failures both degrade gracefully; this now
-    # matches them.
+
+def _run_council(
+    session: Session,
+    *,
+    run_id: UUID,
+    payload: GovernancePipelineRunCreate,
+) -> tuple[object | None, dict[str, str] | None]:
+    """Layer 4, with its own failure containment.
+
+    The council is the pipeline's most failure-prone step: it is the only phase
+    that depends on a live judge model for every pass, and a judge outage, rate
+    limit, or cold start therefore used to fail the WHOLE run — discarding the
+    report even though every metric result and agent finding was already
+    committed. Metric and agent failures both degrade gracefully; this matches
+    them.
+    """
     council_result = None
     council_error: dict[str, str] | None = None
     try:
@@ -478,6 +605,15 @@ def _execute_and_report(
             },
         )
 
+    return council_result, council_error
+
+
+def _generate_report(
+    session: Session,
+    *,
+    run_id: UUID,
+) -> tuple[object | None, dict[str, str] | None]:
+    """Layer 5, with its own failure containment."""
     # Make the Action & Reporting stage observable: without this transition the
     # run jumps deliberation_council -> completed and the frontend's Action &
     # Reporting stage never activates during a live run. Only the phase moves;
@@ -517,26 +653,41 @@ def _execute_and_report(
             },
         )
 
-    # Finalize: report building is read-only, so without this the run would be
-    # left parked at council_running / deliberation_council — never a terminal
-    # status. That made the SSE progress stream never close and the frontend
-    # completion poll hang forever. Mark the run completed at action_reporting —
-    # UNLESS some part of the evaluation failed: a specialist agent, the council,
-    # or report generation. Later steps still run on whatever evidence WAS
-    # produced, but the failure is real and must be surfaced, not silently
-    # overwritten to "completed". The standalone /agents/run endpoint already
-    # preserves 'degraded' in this situation; the full pipeline must match it.
+    return report, report_error
+
+
+def _finalize_run_status(
+    session: Session,
+    *,
+    run_id: UUID,
+    agent_result,
+    degraded: dict[str, dict],
+) -> str:
+    """Drive the run to a terminal status, degrading if anything was lost.
+
+    Report building is read-only, so without this the run would be left parked
+    at council_running / deliberation_council — never a terminal status. That
+    made the SSE progress stream never close and the frontend completion poll
+    hang forever. Mark the run completed at action_reporting — UNLESS some part
+    of the evaluation failed: a specialist agent, the council, or report
+    generation. Later steps still run on whatever evidence WAS produced, but the
+    failure is real and must be surfaced, not silently overwritten to
+    "completed". The standalone /agents/run endpoint already preserves
+    'degraded' in this situation; the full pipeline must match it.
+
+    ``degraded`` arrives carrying whatever the council and report nodes recorded;
+    the specialist-agent failure is added here because it is derived from the
+    agent result rather than raised. Collected together so a run that lost, say,
+    an agent AND the verdict reports both instead of only whichever is checked
+    first — silently dropping one would understate how incomplete the audit is.
+    """
     run = get_run_or_raise(session, run_id)
+    degraded = dict(degraded)
     failed_executions = [
         execution
-        for execution in agent_result.executions
+        for execution in (agent_result.executions if agent_result else [])
         if execution.status == AgentExecutionStatus.failed
     ]
-    # Every partial failure degrades the run rather than failing it, and each
-    # records its own reason. Collected together so a run that lost, say, an
-    # agent AND the verdict reports both instead of only whichever is checked
-    # first — silently dropping one would understate how incomplete the audit is.
-    degraded: dict[str, dict] = {}
     if failed_executions:
         degraded["specialist_agent_failure"] = {
             "message": (
@@ -551,24 +702,6 @@ def _execute_and_report(
                 }
                 for execution in failed_executions
             ],
-        }
-    if council_error is not None:
-        degraded["council_failure"] = {
-            "message": (
-                "The Deliberation Council could not produce a verdict, so this run "
-                "carries NO governance decision. The metric results and specialist "
-                "findings it did collect are preserved and reported; re-run the "
-                "council on this run to obtain a verdict."
-            ),
-            "error": council_error,
-        }
-    if report_error is not None:
-        degraded["report_failure"] = {
-            "message": (
-                "Report generation failed; the underlying evidence is still stored "
-                "and the report can be regenerated from it."
-            ),
-            "error": report_error,
         }
 
     if degraded:
@@ -589,16 +722,7 @@ def _execute_and_report(
     run.updated_at = utc_now()
     session.add(run)
     session.commit()
-
-    return GovernancePipelineRunRead(
-        run_id=run_id,
-        context_assembly=context_result,
-        evaluation_plan=evaluation_plan,
-        metric_execution=metric_result,
-        agent_run=agent_result,
-        council=council_result,
-        report=report,
-    )
+    return str(run.status.value)
 
 
 # Non-terminal statuses a run can be parked at mid-pipeline. Each phase commits
@@ -619,8 +743,9 @@ def _is_interrupted_degraded(run: EvaluationRun) -> bool:
 
     ``degraded`` is set in two very different places. ``run_metrics`` and
     ``run_agents`` set it the moment something fails, while the run still has
-    the council and report phases ahead of it; ``_execute_and_report`` sets it
-    at the very end, together with ``current_phase = completed``. Only the first
+    the council and report phases ahead of it; ``_finalize_run_status`` (the
+    pipeline graph's terminal node) sets it at the very end, together with
+    ``current_phase = completed``. Only the first
     kind is interrupted work, so the phase is what distinguishes them — without
     this, a worker restart during the council left a degraded run permanently
     unreconciled, because ``degraded`` is absent from _INTERRUPTED_STATUSES.

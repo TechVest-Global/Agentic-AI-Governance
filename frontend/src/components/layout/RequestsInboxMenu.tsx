@@ -94,9 +94,12 @@ export function RequestsInboxMenu() {
                       <p className="text-[12px] font-medium text-slate-800 dark:text-slate-200">
                         {item.status === "pending" ? "Re-assessment requested" : "Re-assessment in progress"} — {item.systemName}
                       </p>
-                      <p className="mt-0.5 truncate text-[11.5px] text-slate-500 dark:text-slate-400">
+                      <p
+                        title={`${item.requested_by_name} · ${item.requested_by_role}${item.note ? ` — "${item.note}"` : ""}`}
+                        className="mt-0.5 line-clamp-2 text-[11.5px] text-slate-500 dark:text-slate-400"
+                      >
                         {item.requested_by_name} · {item.requested_by_role}
-                        {item.note ? ` — “${item.note}”` : ""}
+                        {item.note ? ` — "${item.note}"` : ""}
                       </p>
                       <p className="mt-1 text-[10.5px] text-slate-400 dark:text-slate-500">{timeAgo(item.created_at)}</p>
                     </div>

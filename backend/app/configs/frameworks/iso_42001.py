@@ -122,6 +122,18 @@ ISO_42001_KNOWLEDGE = FrameworkKnowledge(
             severity="medium",
             expected_values=("US", "EU"),
             minimum_distinct=1,
+            # Deliberately excludes "Europe"/"EEA" for EU and "North America" for
+            # US: those are wider than the jurisdiction and would assert coverage
+            # the logs do not evidence.
+            aliases={
+                "usa": "US",
+                "u.s.": "US",
+                "u.s.a.": "US",
+                "united states": "US",
+                "united states of america": "US",
+                "european union": "EU",
+                "e.u.": "EU",
+            },
             control_refs=("AIMS-OPERATIONS",),
             recommended_probe_id="iso-probe-monitoring",
         ),

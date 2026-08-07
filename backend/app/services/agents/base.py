@@ -65,9 +65,24 @@ class AgentContext:
     # count, so folding tool probes into the same key would be silently erased by
     # whichever ran last. The two are summed when the execution row is written.
     tool_probe_counts: dict[str, int] = None  # type: ignore[assignment]
+    # agent_name -> governance-model answers that could not be read, each a dict
+    # with task/problems/trace_id. Kept alongside probe_failures because it is
+    # the same class of loss one layer up: the model DID reason over the
+    # evidence, and the report carries none of it. Without this the agent
+    # silently fell back to deterministic metric checks and the run looked
+    # identical to one where the model had found nothing.
+    governance_parse_failures: dict[str, list[dict]] = None  # type: ignore[assignment]
     # Audit scope: capability endpoint_refs to probe (e.g. ["parse-resume"]).
     # Empty = whole application (probe the system's base endpoint).
     selected_capabilities: list[str] = None  # type: ignore[assignment]
+    # "agent|endpoint_ref|dimension" -> probes the governance model designed for
+    # THIS system, memoized for the life of the run. Two jobs: it stops an agent
+    # paying for the same design twice when a dimension is planned more than
+    # once, and it makes the designed set inspectable rather than a side effect
+    # buried in an LLM call. Designed probes that are actually sent are already
+    # recorded with their full prompt text by the probe records, so this is the
+    # planning-time view, not the evidence trail.
+    designed_probes: dict[str, list[tuple[str, object]]] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         # default to empty dict so agents can always do .get() safely
@@ -87,8 +102,12 @@ class AgentContext:
             object.__setattr__(self, "probe_failures", {})
         if self.tool_probe_counts is None:
             object.__setattr__(self, "tool_probe_counts", {})
+        if self.governance_parse_failures is None:
+            object.__setattr__(self, "governance_parse_failures", {})
         if self.selected_capabilities is None:
             object.__setattr__(self, "selected_capabilities", [])
+        if self.designed_probes is None:
+            object.__setattr__(self, "designed_probes", {})
 
     def probe_endpoints(self) -> list[str]:
         """Endpoint refs a model-backed agent should probe.

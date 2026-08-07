@@ -38,6 +38,18 @@ dependencies = [
     "langchain-openai==0.3.27",
     "langchain-core==0.3.86",
     "openai<2.0.0",
+    # Layer 3 (specialist fan-out) and Layer 4 (council loop) are expressed as
+    # LangGraph StateGraphs — see app/services/graphs/.
+    #
+    # Pinned BELOW 1.0 on purpose, and this is load-bearing: langgraph>=1.0
+    # requires langchain-core>=1.4.7, which is mutually exclusive with the
+    # langchain-core==0.3.86 pin above that ragas/garak/langchain-openai need.
+    # deepeval pulls langgraph in transitively and will happily install 1.x,
+    # which then fails at import with
+    #   ModuleNotFoundError: langchain_core.language_models.chat_model_stream
+    # Raising this ceiling means re-resolving the whole ragas/garak/openai
+    # stack, not just this one line.
+    "langgraph>=0.6,<1.0",
 ]
 
 [project.optional-dependencies]

@@ -242,6 +242,55 @@ def agent_failed_finding(
     )
 
 
+def governance_unreadable_finding(
+    *, agent_name: str, dimension: str, failures: list[dict]
+) -> FindingCreate:
+    """An honest 'the model reasoned but we could not read its answer' record.
+
+    The agent probed the target, called its evidence tools, and put all of it to
+    the governance model — and then could not parse what came back, even after a
+    retry that quoted the specific defect. It therefore fell back to
+    deterministic metric checks, which only ever report metrics that already
+    failed. Any risk the model identified from the probe evidence itself is
+    gone.
+
+    That is not the same as the model finding nothing, and before this the two
+    were indistinguishable in the report: the run completed, the fallback
+    findings looked like ordinary output, and the loss existed only as a WARNING
+    in the process log. The council counts findings, so a quietly-degraded
+    dimension made the evidence look thinner rather than looking broken.
+
+    Severity `medium`, not `high`: unlike an agent that failed outright, this
+    dimension still has real deterministic coverage — the loss is the model's
+    qualitative analysis on top of it.
+    """
+    tasks = sorted({str(f.get("task", "unknown")) for f in failures})
+    return FindingCreate(
+        finding_type="coverage_gap",
+        title=f"{dimension.title()} analysis from the governance model was unreadable",
+        summary=(
+            f"The {agent_name} agent collected its evidence and the governance model "
+            f"answered, but its response could not be parsed into findings after a retry "
+            f"(task(s): {', '.join(tasks)}). This dimension therefore reports only "
+            "deterministic metric checks, which surface already-failing metrics and "
+            "nothing the model may have identified from the probe evidence itself. "
+            "Treat the model's qualitative analysis for this dimension as missing, not "
+            "as clean."
+        ),
+        severity=Severity.medium,
+        confidence=1.0,
+        dimension=dimension,
+        evidence_ids=[],
+        agent_name=agent_name,
+        recommended_action=(
+            "Check the judge model's configuration (a model without a JSON/structured "
+            "output mode is the usual cause) and re-run this agent. The recorded "
+            "trace_id identifies the exact response in llm_call_logs."
+        ),
+        payload={"generated_by": "governance_parse_failure", "failures": failures},
+    )
+
+
 def unprobed_endpoints_finding(
     *, agent_name: str, endpoints: list[tuple[str, str | None]]
 ) -> FindingCreate:

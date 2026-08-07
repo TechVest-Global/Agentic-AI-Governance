@@ -97,7 +97,7 @@ def test_reconciliation_picks_up_a_run_abandoned_while_degraded(client: TestClie
 def test_reconciliation_leaves_a_genuinely_finished_degraded_run_alone(
     client: TestClient,
 ) -> None:
-    """``_execute_and_report`` sets degraded WITH phase=completed. That is done."""
+    """``_finalize_run_status`` sets degraded WITH phase=completed. That is done."""
     system = create_system(client, "Degraded Complete System")
     run = create_run(client, system["id"])
     _set_state(run["id"], status=RunStatus.degraded, phase=RunPhase.completed)

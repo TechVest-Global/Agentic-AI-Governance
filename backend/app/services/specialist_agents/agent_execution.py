@@ -1,7 +1,7 @@
 import functools
 import logging
 import threading
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -29,12 +29,19 @@ from app.schemas.governance import (
 )
 from app.services import audit_ledger
 from app.services.agents.base import AgentContext, GovernanceAgent
-from app.services.agents.helpers import agent_failed_finding, unprobed_endpoints_finding
+from app.services.agents.helpers import (
+    agent_failed_finding,
+    governance_unreadable_finding,
+    unprobed_endpoints_finding,
+)
 from app.services.agents.registry import select_agents
 from app.services.concurrency_settings import (
     agent_execution_budget_seconds,
     agent_execution_max_workers,
 )
+from app.services.graphs.runtime import RuntimeContext, build_checkpointer, invoke_config
+from app.services.graphs.specialist_graph import build_specialist_graph
+from app.services.graphs.streaming import run_graph
 from app.services.model_clients.gateway import (
     bind_log_capture,
     drain_log_capture,
@@ -218,6 +225,10 @@ class _AgentOutcome:
     # than only in the logs — a reviewer must be able to tell that this agent
     # reasoned over fewer probes than the plan allocated.
     probes_failed: list[dict] = field(default_factory=list)
+    # Governance-model answers this agent could not read. Captured even on
+    # success, because the agent still returns deterministic findings and the
+    # run still completes — the loss is only visible if it is recorded here.
+    governance_parse_failures: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -316,6 +327,7 @@ def _execute_agent(
         probes_planned=context.probe_plan_counts.get(agent.name, 0),
         probes_skipped=context.probe_skips.get(agent.name, []),
         probes_failed=context.probe_failures.get(agent.name, []),
+        governance_parse_failures=context.governance_parse_failures.get(agent.name, []),
     )
 
 
@@ -418,6 +430,12 @@ def _agent_outputs(outcome: "_AgentOutcome") -> dict:
         "probes_not_sent": max(0, outcome.probes_planned - outcome.probe_count),
         "probes_skipped": len(outcome.probes_skipped),
         "probes_failed": len(getattr(outcome, "probes_failed", []) or []),
+        # An agent can succeed, return findings, and still have lost the model's
+        # analysis — so this belongs next to the finding count, not buried in an
+        # error column that only a failed agent populates.
+        "governance_parse_failures": len(
+            getattr(outcome, "governance_parse_failures", []) or []
+        ),
         "finding_count": len(outcome.findings),
         "findings_by_severity": by_severity,
         "finding_titles": [f.title for f in outcome.findings],
@@ -528,6 +546,7 @@ def run_agents(
             probe_counts={},
             probe_skips={},
             probe_failures={},
+            governance_parse_failures={},
             tool_probe_counts={},
             selected_capabilities=selected_capabilities,
         )
@@ -631,55 +650,17 @@ def run_agents(
     # this sink; see _LateLogSink and _record_orphaned_agent_completion.
     late_logs = _LateLogSink(capture_buffer)
     # Start of the phase's wall-clock budget, shared by both stages.
-    phase_started_at = utc_now()
+    # Start of the phase's wall-clock budget. Held in a one-slot list because
+    # `_dispatch` resets it to the moment the agents are actually submitted —
+    # see the note there. Both stages read it through _phase_start().
+    phase_clock = [utc_now()]
+
+    def _phase_start() -> datetime:
+        return phase_clock[0]
+
+    phase_started_at = phase_clock[0]
 
     outcomes: dict[str, _AgentOutcome] = {}
-    if len(fanout_agents) == 1:
-        # Single agent (e.g. the council's re_probe remediation): skip the pool
-        # and stay on this thread, as _execute_probe_plan does for one probe.
-        outcomes[fanout_agents[0].name] = _run_in_worker(fanout_agents[0])
-    elif fanout_agents:
-        phase_budget_seconds = agent_execution_budget_seconds()
-        worker_count = max(1, min(agent_execution_max_workers(), len(fanout_agents)))
-        # Collect as agents complete, up to a hard budget; shutdown(wait=False)
-        # is deliberate — stragglers are abandoned, never blocked on.
-        pool = ThreadPoolExecutor(max_workers=worker_count)
-        future_to_agent = {pool.submit(_run_in_worker, a): a for a in fanout_agents}
-        try:
-            for future in as_completed(future_to_agent, timeout=phase_budget_seconds):
-                agent = future_to_agent[future]
-                try:
-                    outcomes[agent.name] = future.result()
-                except Exception as exc:  # noqa: BLE001
-                    logger.exception("Specialist agent %s failed", agent.name)
-                    outcomes[agent.name] = _AgentOutcome(
-                        started_at=utc_now(),
-                        completed_at=utc_now(),
-                        error={"error_type": exc.__class__.__name__, "message": str(exc)},
-                    )
-        except FuturesTimeout:
-            pending = {f: a for f, a in future_to_agent.items() if not f.done()}
-            logger.warning(
-                "Specialist agents hit the %.0fs budget; abandoning %d unfinished agent(s): %s",
-                phase_budget_seconds,
-                len(pending),
-                [a.name for a in pending.values()],
-            )
-            # An abandoned agent keeps running, keeps probing the target and
-            # keeps committing execution artifacts against this run. Attach a
-            # completion callback so what it actually did lands in the ledger
-            # instead of only its timeout stub appearing in the audit record.
-            for pending_future, pending_agent in pending.items():
-                pending_future.add_done_callback(
-                    functools.partial(
-                        _record_orphaned_agent_completion,
-                        run_id,
-                        pending_agent.name,
-                        late_logs,
-                    )
-                )
-        pool.shutdown(wait=False)
-
     created_findings: list[Finding] = []
     failed_execution_count = 0
 
@@ -729,7 +710,20 @@ def run_agents(
                     error=outcome.error,
                 )
             )
-            execution.finding_count = len(emitted)
+        # A SUCCEEDING agent can still have lost the governance model's analysis
+        # — it falls back to deterministic metric checks and returns findings
+        # that look like ordinary output. Emit the loss as a finding so the
+        # evidence package distinguishes "the model found nothing" from "we
+        # could not read what the model found".
+        if outcome.governance_parse_failures:
+            emitted.append(
+                governance_unreadable_finding(
+                    agent_name=agent.name,
+                    dimension=getattr(agent, "probe_dimension", None) or agent.name,
+                    failures=outcome.governance_parse_failures,
+                )
+            )
+        execution.finding_count = len(emitted)
         for finding_payload in emitted:
             finding = Finding(run_id=run_id, **finding_payload.model_dump())
             session.add(finding)
@@ -784,80 +778,172 @@ def run_agents(
         # already finished.
         session.commit()
 
-    # Finalize in registry order regardless of completion order, so findings are
-    # appended and the UI's agent list reads deterministically across runs.
-    for agent in fanout_agents:
-        _finalize(
-            agent,
-            outcomes.get(agent.name)
-            or _AgentOutcome(
-                started_at=utc_now(),
-                completed_at=utc_now(),
-                error={
-                    "error_type": "TimeoutError",
-                    "message": "agent exceeded the specialist-agent phase time budget",
-                },
-            ),
+    # ---- Graph node bodies -------------------------------------------------
+    # Each closure below becomes one LangGraph node in specialist_graph.py. The
+    # bodies are the SAME code the sequential/ThreadPoolExecutor version ran —
+    # only what decides their ordering moved. Everything that touches `session`
+    # stays in a sequential node (_finalize_fanout / _finalize_one /
+    # _record_coverage); the parallel evaluator nodes compute and nothing else.
+    agent_by_name = {agent.name: agent for agent in ordered_agents}
+    pool_holder: dict[str, ThreadPoolExecutor | None] = {"pool": None}
+    futures: dict[str, Future] = {}
+
+    def _remaining_budget(state: dict) -> float:
+        elapsed = (utc_now() - _phase_start()).total_seconds()
+        return float(state.get("phase_budget_seconds") or 0.0) - elapsed
+
+    def _timeout_outcome(message: str) -> _AgentOutcome:
+        return _AgentOutcome(
+            started_at=utc_now(),
+            completed_at=utc_now(),
+            error={"error_type": "TimeoutError", "message": message},
         )
 
-    # ---- Barrier -----------------------------------------------------------
-    # Flush so the fan-out's findings are visible to the aggregate stage's
-    # queries within this transaction (the old sequential loop relied on
-    # autoflush for the same effect). Redundant when the fan-out ran — _finalize
-    # already committed each agent — but kept for the fan-out-empty case, where
-    # an aggregate agent is the only thing in the phase.
-    if aggregate_agents:
-        session.flush()
+    def _dispatch() -> None:
+        """Submit the fan-out onto ONE bounded pool.
 
-    # The phase budget bounded the fan-out only — it is an `as_completed`
-    # timeout on that pool, and the aggregate stage ran straight on this thread
-    # with no bound at all. On a run against a throttled target, risk_scorer
-    # blocked here for 7.8 HOURS against a 900s phase budget, holding the run at
-    # `agents_running` and the request thread with it. Give the aggregate stage
-    # whatever remains of the same budget, on the same abandon-never-block terms
-    # as the fan-out.
-    for agent in aggregate_agents:
+        The evaluator nodes run concurrently, but the agents must not: each
+        agent fans its own probes out over its own pool, so N concurrent agents
+        means N x AGENT_PROBE_MAX_WORKERS concurrent requests into the audited
+        system. Keeping submission here preserves AGENT_EXECUTION_MAX_WORKERS as
+        the real cap on that multiplication rather than letting the graph's
+        width become it.
+        """
+        if len(fanout_agents) <= 1:
+            # Single agent (e.g. the council's re_probe remediation): no pool,
+            # its node runs it inline — as _execute_probe_plan does for one probe.
+            phase_clock[0] = utc_now()
+            return
+        worker_count = max(1, min(agent_execution_max_workers(), len(fanout_agents)))
+        pool = ThreadPoolExecutor(max_workers=worker_count)
+        pool_holder["pool"] = pool
+        for agent in fanout_agents:
+            futures[agent.name] = pool.submit(_run_in_worker, agent)
+        # The budget clock starts HERE, once the work is actually in flight —
+        # not when run_agents was entered. Compiling the graph, building the
+        # checkpointer and opening the stream all happen before the first node
+        # body runs, and charging that setup to the agents' allowance silently
+        # shortens it. Harmless against a 900s production budget; decisive
+        # against a small one, where the setup could consume the whole
+        # allowance and an agent that finished on time was still recorded as
+        # abandoned. The pre-graph code had this property for free: its
+        # as_completed(timeout=...) clock began right after submit.
+        phase_clock[0] = utc_now()
+
+    def _await_agent(agent_name: str, state: dict) -> _AgentOutcome:
+        """One evaluator node's body: collect this agent, bounded by the budget."""
+        agent = agent_by_name[agent_name]
+        future = futures.get(agent_name)
+        if future is None:
+            outcome = _run_in_worker(agent)
+        else:
+            try:
+                outcome = future.result(timeout=max(0.0, _remaining_budget(state)))
+            except FuturesTimeout:
+                logger.warning(
+                    "Specialist agent %s hit the %.0fs phase budget; abandoning it",
+                    agent_name,
+                    float(state.get("phase_budget_seconds") or 0.0),
+                )
+                # An abandoned agent keeps running, keeps probing the target and
+                # keeps committing execution artifacts against this run. Attach a
+                # completion callback so what it actually did lands in the ledger
+                # instead of only its timeout stub appearing in the audit record.
+                future.add_done_callback(
+                    functools.partial(
+                        _record_orphaned_agent_completion, run_id, agent_name, late_logs
+                    )
+                )
+                outcome = _timeout_outcome(
+                    "agent exceeded the specialist-agent phase time budget"
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Specialist agent %s failed", agent_name)
+                outcome = _AgentOutcome(
+                    started_at=utc_now(),
+                    completed_at=utc_now(),
+                    error={"error_type": exc.__class__.__name__, "message": str(exc)},
+                )
+        outcomes[agent_name] = outcome
+        return outcome
+
+    def _shutdown_pool() -> None:
+        pool = pool_holder["pool"]
+        if pool is not None:
+            # Deliberate: stragglers are abandoned, never blocked on.
+            pool.shutdown(wait=False)
+
+    def _progress() -> dict:
+        return {
+            "findings_created": len(created_findings),
+            "failed_agents": failed_execution_count,
+        }
+
+    def _finalize_fanout(agent_names: list[str]) -> dict:
+        """Barrier node: commit the fan-out in REGISTRY order, not completion order.
+
+        Order matters beyond tidiness — findings are appended in this order, so
+        keeping it fixed is what makes a concurrent phase produce a
+        byte-identical audit record ordering across runs.
+        """
+        for agent_name in agent_names:
+            _finalize(
+                agent_by_name[agent_name],
+                outcomes.get(agent_name)
+                or _timeout_outcome("agent exceeded the specialist-agent phase time budget"),
+            )
+        return {"finalized": list(agent_names), **_progress()}
+
+    def _run_aggregate(agent_name: str, state: dict) -> _AgentOutcome:
+        """Aggregate node: run a peer-aggregating agent over the complete set.
+
+        Bounded by whatever remains of the SAME phase budget the fan-out used.
+        Before this was bounded at all, risk_scorer blocked for 7.8 HOURS
+        against a 900s budget on a throttled target, holding the run at
+        `agents_running` and the request thread with it.
+        """
+        agent = agent_by_name[agent_name]
+        # Flush so the fan-out's findings are visible to this stage's queries
+        # within the transaction. Redundant when the fan-out ran (_finalize
+        # already committed each agent) but needed when an aggregate agent is
+        # the only thing in the phase.
+        session.flush()
         remaining = max(
             _AGGREGATE_MIN_BUDGET_SECONDS,
-            agent_execution_budget_seconds() - (utc_now() - phase_started_at).total_seconds(),
+            agent_execution_budget_seconds() - (utc_now() - _phase_start()).total_seconds(),
         )
         aggregate_pool = ThreadPoolExecutor(max_workers=1)
         aggregate_future = aggregate_pool.submit(
             _run_aggregate_in_worker, agent, _list_findings(session, run_id=run_id)
         )
         try:
-            aggregate_outcome = aggregate_future.result(timeout=remaining)
+            outcome = aggregate_future.result(timeout=remaining)
         except FuturesTimeout:
             logger.warning(
                 "Aggregate agent %s exceeded its %.0fs share of the phase budget; abandoning it",
-                agent.name,
+                agent_name,
                 remaining,
             )
-            aggregate_outcome = _AgentOutcome(
-                started_at=utc_now(),
-                completed_at=utc_now(),
-                error={
-                    "error_type": "TimeoutError",
-                    "message": (
-                        "aggregate agent exceeded the specialist-agent phase time budget"
-                    ),
-                },
+            outcome = _timeout_outcome(
+                "aggregate agent exceeded the specialist-agent phase time budget"
             )
         finally:
             aggregate_pool.shutdown(wait=False)
-        _finalize(agent, aggregate_outcome)
+        outcomes[agent_name] = outcome
+        return outcome
 
-    # ---- Endpoint coverage -------------------------------------------------
-    # Every probe this phase sent has now been logged with the endpoint it hit,
-    # so this is the first point where "which registered surfaces did we
-    # actually reach" can be answered. Recorded here, inside the phase, so the
-    # finding is part of `created_findings` and therefore covered by the content
-    # digest the orchestrator checkpoints — a coverage claim added afterwards
-    # would sit outside the integrity record it belongs to.
-    #
-    # Skipped for a remediation call: a council re_probe deliberately targets one
-    # agent, so "endpoints it didn't reach" is not a coverage gap, just its scope.
-    if not is_remediation_call:
+    def _finalize_one(agent_name: str, outcome: _AgentOutcome) -> dict:
+        _finalize(agent_by_name[agent_name], outcome)
+        return _progress()
+
+    def _record_coverage() -> None:
+        """Every probe this phase sent has now been logged with the endpoint it
+        hit, so this is the first point where "which registered surfaces did we
+        actually reach" can be answered. Recorded inside the phase so the
+        finding is part of `created_findings` and therefore covered by the
+        content digest the orchestrator checkpoints — a coverage claim added
+        afterwards would sit outside the integrity record it belongs to.
+        """
         _finalize_endpoint_coverage(
             session,
             run_id=run_id,
@@ -865,6 +951,83 @@ def run_agents(
             capture_buffer=capture_buffer,
             created_findings=created_findings,
         )
+
+    def _status_of(agent_name: str, outcome: _AgentOutcome) -> dict:
+        """Serializable per-agent slot in the graph state.
+
+        Same figures the SSE progress stream reports, so a checkpoint answers
+        "where did this run get to" without a DB round-trip.
+        """
+        return {
+            "agent_name": agent_name,
+            "status": "failed" if outcome.error else "completed",
+            "finding_count": len(outcome.findings),
+            "probes_sent": outcome.probe_count,
+            "probes_planned": outcome.probes_planned,
+            "probes_skipped": len(outcome.probes_skipped),
+            "probes_failed": len(outcome.probes_failed),
+            "started_at": outcome.started_at.isoformat(),
+            "completed_at": outcome.completed_at.isoformat(),
+            "error": outcome.error,
+        }
+
+    # ---- Run the graph -----------------------------------------------------
+    fanout_names = [agent.name for agent in fanout_agents]
+    aggregate_names = [agent.name for agent in aggregate_agents]
+    graph = build_specialist_graph(
+        fanout_agents=fanout_names,
+        aggregate_agents=aggregate_names,
+        checkpointer=build_checkpointer(),
+    )
+    runtime = RuntimeContext(
+        dispatch=_dispatch,
+        await_agent=_await_agent,
+        shutdown_pool=_shutdown_pool,
+        finalize_fanout=_finalize_fanout,
+        run_aggregate=_run_aggregate,
+        finalize_one=_finalize_one,
+        record_coverage=_record_coverage,
+        status_of=_status_of,
+    )
+    def _on_node(node_name: str, update: dict) -> None:
+        for agent_name, status in (update.get("agent_status") or {}).items():
+            logger.info(
+                "Specialist agent %s %s (%d finding(s), %d probe(s) sent)",
+                agent_name,
+                status.get("status"),
+                status.get("finding_count", 0),
+                status.get("probes_sent", 0),
+            )
+
+    run_graph(
+        graph,
+        {
+            "run_id": str(run_id),
+            "phase_started_at": phase_started_at.isoformat(),
+            "phase_budget_seconds": agent_execution_budget_seconds(),
+            "fanout_agents": fanout_names,
+            "aggregate_agents": aggregate_names,
+            "agent_status": {},
+            "finalized": [],
+            "findings_created": 0,
+            "failed_agents": 0,
+            "coverage_recorded": False,
+            "is_remediation_call": is_remediation_call,
+        },
+        invoke_config(
+            run_id=run_id,
+            context=runtime,
+            thread_suffix="specialist",
+            # dispatch + one parallel superstep + finalize + aggregates + coverage.
+            recursion_limit=len(aggregate_names) + 10,
+            # At least as wide as the fan-out: a node LangGraph queued behind
+            # another would burn its share of the phase budget waiting to start
+            # and report a timeout it never actually hit.
+            max_concurrency=max(1, len(fanout_names)),
+        ),
+        on_update=_on_node,
+        label="specialist_agents",
+    )
 
     summaries = [_execution_summary(execution) for execution in executions]
 

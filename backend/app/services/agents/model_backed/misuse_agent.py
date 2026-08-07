@@ -141,6 +141,9 @@ class MisuseDetectorAgent(ModelBackedAgent):
             else []
         )
 
+        # Sequential — see the note in bias_agent: _call_evidence_tool's probe
+        # count is a before/after delta over the shared capture buffer, so two
+        # tool calls and a probe run must not overlap within one agent.
         review_metric_ids = {m.metric_id for m in review_metrics}
         garak_calls = self._call_evidence_tool(
             tool_name="garak",
@@ -186,6 +189,7 @@ class MisuseDetectorAgent(ModelBackedAgent):
                     w for p in probes for w in p.sanitized.warnings
                 ],
             },
+            agent_context=context,
         )
         tool_calls_payload = [
             {

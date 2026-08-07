@@ -141,6 +141,9 @@ class ExplainabilityAgent(ModelBackedAgent):
             else []
         )
 
+        # Sequential — see the note in bias_agent: _call_evidence_tool's probe
+        # count is a before/after delta over the shared capture buffer, so it
+        # must not overlap this agent's own probe run.
         tool_calls = self._call_evidence_tool(
             tool_name="ragas",
             metric_ids={m.metric_id for m in explainability_metrics},
@@ -171,6 +174,7 @@ class ExplainabilityAgent(ModelBackedAgent):
                 "tool_call_count": len(tool_calls),
                 "redaction_warnings": [w for p in probes for w in p.sanitized.warnings],
             },
+            agent_context=context,
         )
 
         tool_calls_payload = [

@@ -117,6 +117,7 @@ class DriftAnalystAgent(ModelBackedAgent):
                 "has_context_profile": context.context_profile is not None,
                 "has_prior_run": bool(prior),
             },
+            agent_context=context,
         )
         if parsed is not None:
             return _findings_from_governance(parsed, context, reviewed_metrics=drift_metrics)
